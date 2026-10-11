@@ -9,6 +9,7 @@
 //! playlist and search modules are added by the stages that require them.
 
 pub mod app;
+pub mod audio;
 pub mod config;
 pub mod error;
 pub mod logging;

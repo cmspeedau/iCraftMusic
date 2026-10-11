@@ -65,6 +65,9 @@ Acceptance criteria
 Stage 2 — Audio Playback Engine
 
 Goal: Implement real music playback independently of the library interface.
+
+Status: Complete. The `audio` module wraps `rodio` behind a small facade (output device, queue, transport, errors) and the UI shell drives it: the playback bar plays, pauses, seeks, changes volume, steps through the queue, shuffles and repeats, and reports the device, decoder and missing-file failures in place of the track detail. Stage 2 deliberately stops at "load a file or folder, play it, keep a queue" — tag reading, folder scanning into a persisted library and playlists are Stage 3.
+
 Deliverables
 
     Rust audio playback module.

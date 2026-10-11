@@ -8,6 +8,7 @@ anyhow = "1"
 directories = "6"
 eframe = "0.36"
 egui = "0.36"
+rodio = "0.23.0"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 toml = "0.9"

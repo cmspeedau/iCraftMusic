@@ -75,7 +75,7 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| match app.section() {
-                NavSection::Library => libraryview::show(ui),
+                NavSection::Library => libraryview::show(app, ui),
                 NavSection::Playlists => playlistview::show(ui),
                 NavSection::Settings => settingsview::show(app, ui),
             });
