@@ -57,6 +57,10 @@ const ALBUM_TILE: Vec2 = Vec2::new(148.0, 190.0);
 /// Height of the cover art inside a tile.
 const ALBUM_ART_HEIGHT: f32 = 132.0;
 
+/// Size of the search field drawn beside the Library heading.
+const SEARCH_WIDTH: f32 = 220.0;
+const SEARCH_HEIGHT: f32 = 22.0;
+
 /// What a click on a row asked for, applied once the frame is drawn.
 enum RowAction {
     Select { index: usize, mode: ClickMode },
@@ -76,8 +80,6 @@ enum GroupAction {
 
 /// Draw the Library.
 pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    toolbar(app, ui);
-    ui.add_space(6.0);
     status(app, ui);
     ui.add_space(6.0);
 
@@ -87,37 +89,21 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// View switch and search field.
-fn toolbar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        let kind = app.browse().kind();
-        for candidate in BrowseKind::ALL {
-            if ui
-                .selectable_label(kind == candidate, candidate.label())
-                .clicked()
-            {
-                app.browse_mut().set_kind(candidate);
-            }
-        }
+/// The search field drawn beside the Library heading.
+///
+/// The caller lays it out right-to-left, so the Clear button is added first to
+/// land on the right of the field. The field is kept narrow on purpose; the
+/// hint lists what a query actually matches.
+pub fn search_field(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    if app.browse().is_filtered() && ui.small_button("Clear").clicked() {
+        app.browse_mut().set_query_text(String::new());
+    }
 
-        ui.separator();
-
-        let clear_width = if app.browse().is_filtered() {
-            58.0
-        } else {
-            0.0
-        };
-        let width = (ui.available_width() - clear_width - 8.0).max(140.0);
-        ui.add_sized(
-            [width, 24.0],
-            TextEdit::singleline(app.browse_mut().query_text_mut())
-                .hint_text("Search title, artist, album…"),
-        );
-
-        if clear_width > 0.0 && ui.button("Clear").clicked() {
-            app.browse_mut().set_query_text(String::new());
-        }
-    });
+    ui.add_sized(
+        [SEARCH_WIDTH, SEARCH_HEIGHT],
+        TextEdit::singleline(app.browse_mut().query_text_mut()).hint_text("Search…"),
+    )
+    .on_hover_text("Matches title, artist, album, genre and path");
 }
 
 /// How much is indexed, and what the selection can do.

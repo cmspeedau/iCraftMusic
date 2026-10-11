@@ -3,6 +3,7 @@
 use egui::{Button, Panel, RichText};
 
 use crate::app::MusicCraftApp;
+use crate::library::browse::BrowseKind;
 
 use super::theme;
 
@@ -65,6 +66,12 @@ pub fn sidebar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 if nav_item(ui, section, selected) {
                     app.set_section(section);
                 }
+
+                // The Library's pages hang off its entry, so the sidebar shows
+                // where you are inside it as well as which section is open.
+                if selected && section == NavSection::Library {
+                    browse_items(app, ui);
+                }
             }
 
             // Pin the remaining sections (Settings) to the foot of the sidebar so
@@ -91,9 +98,31 @@ fn nav_item(ui: &mut egui::Ui, section: NavSection, selected: bool) -> bool {
         .clicked()
 }
 
+/// The Library's pages, drawn indented under its sidebar entry.
+///
+/// Clicking one switches the page; the Library section is already open when
+/// these are drawn, so no section change is needed.
+fn browse_items(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    ui.indent("library_browse", |ui| {
+        for kind in BrowseKind::ALL {
+            let selected = app.browse().kind() == kind;
+            let size = [ui.available_width(), theme::NAV_ITEM_HEIGHT];
+            let button = Button::selectable(selected, RichText::new(kind.label()));
+
+            if ui.add_sized(size, button).clicked() {
+                app.browse_mut().set_kind(kind);
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::app::Startup;
+    use crate::audio::{AudioEngine, Playback};
+    use crate::config::AppConfig;
 
     #[test]
     fn library_is_the_default_section() {
@@ -123,5 +152,38 @@ mod tests {
     fn settings_sits_in_the_bottom_group() {
         assert!(NavSection::BOTTOM.contains(&NavSection::Settings));
         assert!(!NavSection::TOP.contains(&NavSection::Settings));
+    }
+
+    #[test]
+    fn drawing_the_sidebar_is_harmless_for_every_section() {
+        let mut app = app();
+
+        for section in NavSection::ALL {
+            app.set_section(section);
+            egui::__run_test_ui(|ui| sidebar(&mut app, ui));
+        }
+    }
+
+    #[test]
+    fn drawing_the_library_pages_is_harmless_for_every_page() {
+        let mut app = app();
+        app.set_section(NavSection::Library);
+
+        for kind in BrowseKind::ALL {
+            app.browse_mut().set_kind(kind);
+            egui::__run_test_ui(|ui| browse_items(&mut app, ui));
+        }
+    }
+
+    /// An application with an in-memory library and no output device.
+    fn app() -> MusicCraftApp {
+        MusicCraftApp::with_playback(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error: None,
+            },
+            Playback::with_engine(AudioEngine::without_device(), 1.0),
+        )
     }
 }

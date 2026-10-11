@@ -28,7 +28,7 @@ impl BrowseKind {
     /// Every page, in the order the view offers them.
     pub const ALL: [BrowseKind; 3] = [Self::Tracks, Self::Albums, Self::Artists];
 
-    /// Label shown on the page's tab.
+    /// Label shown on the page's entry in the sidebar.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {

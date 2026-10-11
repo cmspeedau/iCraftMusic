@@ -69,7 +69,19 @@ fn top_bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     CentralPanel::default().show(ui, |ui| {
         ui.add_space(4.0);
-        ui.label(RichText::new(app.section().label()).heading());
+
+        // The Library is the one section with something to search, so its field
+        // rides on the heading line instead of taking a row of its own.
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(app.section().label()).heading());
+
+            if app.section() == NavSection::Library {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    libraryview::search_field(app, ui);
+                });
+            }
+        });
+
         ui.label(RichText::new(app.section().description()).small().weak());
         ui.add_space(10.0);
 
