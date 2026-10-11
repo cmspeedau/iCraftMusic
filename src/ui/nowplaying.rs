@@ -72,7 +72,7 @@ fn summary(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// `Track 2 of 3 · Playing`, or how to get started when the queue is empty.
 fn subtitle(app: &MusicCraftApp) -> String {
     let Some(track) = app.now_playing() else {
-        return "Load a file or folder from the Library to begin.".to_owned();
+        return "Import a folder under Settings → Library management to begin.".to_owned();
     };
 
     let mut parts = Vec::new();

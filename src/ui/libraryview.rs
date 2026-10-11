@@ -15,9 +15,7 @@
 
 use std::collections::BTreeSet;
 
-use egui::{
-    Align2, Color32, CornerRadius, FontId, Key, Pos2, Rect, RichText, Sense, TextEdit, Vec2,
-};
+use egui::{Align2, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Sense, TextEdit, Vec2};
 
 use crate::app::MusicCraftApp;
 use crate::library::browse::{AlbumCard, BrowseKind, ClickMode};
@@ -87,14 +85,9 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         None => error_state(app, ui),
         Some(_) => content(app, ui),
     }
-
-    ui.add_space(18.0);
-    ui.separator();
-    ui.add_space(6.0);
-    play_field(app, ui);
 }
 
-/// View switch, search field and the import controls.
+/// View switch and search field.
 fn toolbar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         let kind = app.browse().kind();
@@ -125,85 +118,10 @@ fn toolbar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             app.browse_mut().set_query_text(String::new());
         }
     });
-
-    ui.add_space(4.0);
-
-    ui.horizontal(|ui| {
-        let scanning = app.is_scanning();
-        let rescan_width = 68.0;
-        let width = (ui.available_width() - rescan_width - 88.0).max(140.0);
-
-        let field = ui.add_sized(
-            [width, 24.0],
-            TextEdit::singleline(app.folder_input_mut()).hint_text("/home/you/Music"),
-        );
-        let submitted = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
-
-        let import = ui
-            .add_sized([80.0, 24.0], egui::Button::new("Import"))
-            .on_hover_text("Add a folder to the library and scan it");
-
-        if import.clicked() || submitted {
-            app.import_folder_input();
-        }
-
-        let can_scan = !scanning && !app.library_folders().is_empty();
-        if ui
-            .add_enabled(
-                can_scan,
-                egui::Button::new("Rescan").min_size(Vec2::new(rescan_width, 24.0)),
-            )
-            .on_hover_text("Scan the watched folders again")
-            .clicked()
-        {
-            app.start_scan();
-        }
-
-        if scanning
-            && ui
-                .add_sized([54.0, 24.0], egui::Button::new("Stop"))
-                .on_hover_text("Stop the scan after the file it is reading")
-                .clicked()
-        {
-            app.cancel_scan();
-        }
-    });
 }
 
-/// Failures, scan progress, the last import, and what the selection can do.
+/// How much is indexed, and what the selection can do.
 fn status(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    if let Some(message) = app.library_error().map(str::to_owned) {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("!").strong().color(theme::WARNING));
-            ui.label(RichText::new(message).small());
-            if ui.small_button("Dismiss").clicked() {
-                app.dismiss_library_error();
-            }
-        });
-    }
-
-    if app.is_scanning() {
-        let progress = app.scan_progress();
-        ui.horizontal_wrapped(|ui| {
-            ui.label(
-                RichText::new(format!("Scanning… {} files read", progress.processed))
-                    .small()
-                    .color(theme::ACCENT),
-            );
-
-            if let Some(current) = progress.current.as_ref() {
-                ui.label(
-                    RichText::new(current.display().to_string())
-                        .small()
-                        .weak()
-                        .monospace(),
-                );
-            }
-        });
-    } else if let Some(message) = app.last_import().map(str::to_owned) {
-        ui.label(RichText::new(message).small().weak());
-    }
-
     ui.horizontal_wrapped(|ui| {
         let browse = app.browse();
         ui.label(
@@ -228,20 +146,6 @@ fn status(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     });
 
     selection_actions(app, ui);
-
-    if !app.library_folders().is_empty() {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("Watched:").small().weak());
-            for folder in app.library_folders() {
-                ui.label(
-                    RichText::new(folder.display().to_string())
-                        .small()
-                        .weak()
-                        .monospace(),
-                );
-            }
-        });
-    }
 }
 
 /// What the current selection can be played, queued or removed with.
@@ -282,7 +186,7 @@ fn selection_actions(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
 /// The page the view switch selected.
 fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    if app.browse().is_empty() && !app.is_scanning() {
+    if app.browse().is_empty() {
         return empty_library(app, ui);
     }
 
@@ -295,11 +199,18 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
 /// Nothing indexed yet: explain what to do about it.
 fn empty_library(app: &MusicCraftApp, ui: &mut egui::Ui) {
-    if app.library_folders().is_empty() {
+    if app.is_scanning() {
+        empty_state(
+            ui,
+            "Indexing your music…",
+            "Files are being read; tracks appear here as they are added.",
+            &[],
+        );
+    } else if app.library_folders().is_empty() {
         empty_state(
             ui,
             "Your library is empty",
-            "Add a folder above and the tracks inside it are indexed.",
+            "Add a folder under Settings → Library management and the tracks inside it are indexed.",
             &[
                 "Every supported audio file under the folder is imported",
                 "Tags, durations and cover art are read where the file has them",
@@ -312,7 +223,7 @@ fn empty_library(app: &MusicCraftApp, ui: &mut egui::Ui) {
             "Nothing indexed yet",
             "The folders you watch hold no supported audio files.",
             &[
-                "Press Rescan to read them again",
+                "Press Rescan under Settings → Library management to read them again",
                 "Only mp3, flac, wav, ogg, m4a, mp4 and aac files are imported",
                 "Sub-folders are scanned as well",
             ],
@@ -876,39 +787,6 @@ fn apply_group_action(app: &mut MusicCraftApp, action: Option<GroupAction>) {
         }
         None => {}
     }
-}
-
-/// The field that accepts a path, and the button that plays it.
-fn play_field(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    ui.label(RichText::new("Play a file or folder").strong());
-    ui.label(
-        RichText::new("Paste a path and press Enter. Folders are read one level deep.")
-            .small()
-            .weak(),
-    );
-    ui.add_space(8.0);
-
-    ui.horizontal(|ui| {
-        const BUTTON_WIDTH: f32 = 76.0;
-
-        let field_width = (ui.available_width() - BUTTON_WIDTH - 8.0).max(120.0);
-        let field = ui.add_sized(
-            [field_width, 26.0],
-            TextEdit::singleline(app.path_input_mut()).hint_text("/home/you/Music/album"),
-        );
-
-        // A single-line field gives up focus on Enter, which is how a keyboard
-        // user starts playback without reaching for the mouse.
-        let submitted = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
-
-        if ui
-            .add_sized([BUTTON_WIDTH, 26.0], egui::Button::new("Play"))
-            .clicked()
-            || submitted
-        {
-            app.play_path_input();
-        }
-    });
 }
 
 /// The columns of the track table, sized for the width available.
