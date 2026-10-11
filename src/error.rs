@@ -41,6 +41,43 @@ pub enum AppError {
         #[source]
         source: toml::ser::Error,
     },
+
+    /// A file's audio tags could not be read.
+    #[error("failed to read metadata from `{}`: {source}", path.display())]
+    Metadata {
+        /// The file whose tags could not be read.
+        path: PathBuf,
+        /// The underlying `lofty` failure.
+        #[source]
+        source: lofty::error::FileParseError,
+    },
+
+    /// A file's extension is not one of the formats the player understands.
+    #[error("`{}` is not a supported audio format", path.display())]
+    UnsupportedFormat {
+        /// The file that was rejected.
+        path: PathBuf,
+    },
+
+    /// Reading from or writing to the library database failed.
+    #[error("library database error: {source}")]
+    Database {
+        /// The underlying SQLite failure.
+        #[source]
+        source: rusqlite::Error,
+    },
+
+    /// A playlist name was empty or only whitespace.
+    #[error("a playlist needs a name")]
+    InvalidPlaylistName,
+
+    /// A playlist referenced by identifier is not in the database.
+    #[error("playlist {0} does not exist")]
+    PlaylistNotFound(crate::library::PlaylistId),
+
+    /// A track was used before it was stored, so it has no row to reference.
+    #[error("track {0} has not been stored in the library yet")]
+    TrackHasNoRow(crate::library::TrackId),
 }
 
 impl AppError {
@@ -50,6 +87,26 @@ impl AppError {
             path: path.as_ref().to_path_buf(),
             source,
         }
+    }
+
+    /// Build an [`AppError::Metadata`] without repeating the path plumbing.
+    pub fn metadata(path: impl AsRef<Path>, source: lofty::error::FileParseError) -> Self {
+        Self::Metadata {
+            path: path.as_ref().to_path_buf(),
+            source,
+        }
+    }
+
+    /// Build an [`AppError::UnsupportedFormat`] without repeating the plumbing.
+    pub fn unsupported_format(path: impl AsRef<Path>) -> Self {
+        Self::UnsupportedFormat {
+            path: path.as_ref().to_path_buf(),
+        }
+    }
+
+    /// Build an [`AppError::Database`] without repeating the plumbing.
+    pub fn database(source: rusqlite::Error) -> Self {
+        Self::Database { source }
     }
 }
 
