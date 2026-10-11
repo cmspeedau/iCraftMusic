@@ -17,6 +17,8 @@ Core constraints
 Stage 0 — Project Foundation
 
 Goal: Establish a reliable Rust development environment and application skeleton.
+
+Status: Complete. Cargo workspace, module skeleton, typed error handling, tracing-based logging, on-disk settings, and formatting/linting/testing conventions are in place; see README.md for build and run instructions.
 Deliverables
 
     Initialize the Cargo project.
@@ -38,6 +40,8 @@ Acceptance criteria
 Stage 1 — Desktop UI Shell
 
 Goal: Deliver the initial iTunes-inspired visual experience.
+
+Status: Complete. The egui/eframe shell provides a resizable window, navigation sidebar, content panel, persistent playback bar, placeholder library/playlist/settings views, empty states, and light/dark themes. Playback controls render as explicitly disabled states until Stage 2 wires up audio.
 Deliverables
 
     Main application window with resizing support.

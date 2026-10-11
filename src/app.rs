@@ -111,6 +111,15 @@ pub struct MusicCraftApp {
 impl MusicCraftApp {
     /// Build the application from the result of [`Startup::load`].
     pub fn new(_creation_context: &CreationContext<'_>, startup: Startup) -> Self {
+        Self::from_startup(startup)
+    }
+
+    /// Build the application state from a loaded [`Startup`].
+    ///
+    /// Split out from [`MusicCraftApp::new`] so the state transitions that drive
+    /// the shell (section, theme, volume, dirty tracking) can be exercised in
+    /// tests without constructing an `eframe` creation context.
+    fn from_startup(startup: Startup) -> Self {
         let error = startup.error.as_ref().map(ToString::to_string);
 
         Self {
@@ -266,5 +275,67 @@ mod tests {
         assert!(startup.config_path.is_none());
         assert!(startup.error.is_some());
         assert!((startup.config.volume - crate::config::DEFAULT_VOLUME).abs() < f32::EPSILON);
+    }
+
+    fn app() -> MusicCraftApp {
+        MusicCraftApp::from_startup(Startup {
+            config: AppConfig::default(),
+            config_path: None,
+            error: None,
+        })
+    }
+
+    #[test]
+    fn set_section_changes_the_active_section() {
+        let mut app = app();
+        assert_eq!(app.section(), NavSection::Library);
+
+        app.set_section(NavSection::Settings);
+        assert_eq!(app.section(), NavSection::Settings);
+    }
+
+    #[test]
+    fn changing_the_theme_marks_the_config_dirty() {
+        let mut app = app();
+        assert!(!app.config_dirty);
+
+        app.set_theme(ThemeMode::Light);
+        assert_eq!(app.theme(), ThemeMode::Light);
+        assert!(app.config_dirty, "a real change should schedule a save");
+    }
+
+    #[test]
+    fn setting_the_theme_it_already_has_is_a_no_op() {
+        let mut app = app();
+
+        app.set_theme(app.theme());
+        assert!(
+            !app.config_dirty,
+            "an unchanged value should not dirty the config"
+        );
+    }
+
+    #[test]
+    fn set_volume_clamps_and_marks_dirty() {
+        let mut app = app();
+
+        app.set_volume(2.0);
+        assert_eq!(app.volume(), 1.0);
+
+        app.set_volume(-1.0);
+        assert_eq!(app.volume(), 0.0);
+
+        assert!(app.config_dirty);
+    }
+
+    #[test]
+    fn persist_without_a_path_clears_the_dirty_flag() {
+        let mut app = app();
+        app.set_theme(ThemeMode::Light);
+
+        app.persist();
+
+        assert!(!app.config_dirty, "nothing to write to, so stop retrying");
+        assert!(app.config_error().is_none());
     }
 }

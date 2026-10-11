@@ -19,10 +19,11 @@ pub const DEFAULT_VOLUME: f32 = 0.8;
 const CONFIG_FILE_NAME: &str = "config.toml";
 
 /// Visual theme preference.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeMode {
     /// Light text on a dark background.
+    #[default]
     Dark,
     /// Dark text on a light background.
     Light,
@@ -41,12 +42,6 @@ impl ThemeMode {
             Self::Light => "Light",
             Self::System => "System",
         }
-    }
-}
-
-impl Default for ThemeMode {
-    fn default() -> Self {
-        Self::Dark
     }
 }
 
