@@ -6,19 +6,23 @@
 //! to the window — which section is open, the theme, the settings that get
 //! written to disk — and the thin wrappers the views call.
 //!
-//! Reading tags, scanning folders into a library and playlists are Stage 3 work.
-//! Stage 2 stops at "load a file or folder, play it, keep a queue", which is
-//! what the playback bar and the library pane's play field exercise.
+//! The music library is the second half of that job. The database and the
+//! folders the user watches are owned here, a scan runs on a worker thread
+//! while the window keeps drawing, and the views read what they need through
+//! [`MusicCraftApp::browse`] rather than talking to the database themselves.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use eframe::CreationContext;
 
-use crate::audio::{Playback, PlaybackEvent, RepeatMode};
+use crate::audio::{Playback, PlaybackEvent, QueueItem, RepeatMode};
 use crate::config::{AppConfig, ThemeMode};
-use crate::error::AppError;
+use crate::error::{AppError, Result};
+use crate::library::browse::LibraryBrowse;
+use crate::library::{ImportSummary, Library, ScanProgress, ScanSession, Track, TrackId};
 use crate::ui;
+use crate::ui::artwork::ArtworkCache;
 use crate::ui::navigation::NavSection;
 
 /// What was learned about the user's settings before the window opened.
@@ -110,8 +114,26 @@ pub struct MusicCraftApp {
     section: NavSection,
     /// The output device, the queue and the transport, as one object.
     playback: Playback,
+    /// The database and the watched folders, or `None` when the database could
+    /// not be opened — playback still works in that case.
+    library: Option<Library>,
+    /// Why the library is missing or the last refresh failed, ready to show.
+    library_error: Option<String>,
+    /// What the Library view is showing: the rows, the query and the selection.
+    browse: LibraryBrowse,
+    /// The scan running on a worker thread, if one is.
+    scan: Option<ScanSession>,
+    /// How far the running scan has got.
+    scan_progress: ScanProgress,
+    /// What the last finished import did, for the status line.
+    last_import: Option<String>,
+    /// Cover art textures for the Library view, owned here because the views
+    /// are redrawn from scratch every frame and cannot hold them.
+    artwork: ArtworkCache,
     /// Text the user is typing into the library's play field.
     path_input: String,
+    /// Text the user is typing into the library's "import a folder" field.
+    folder_input: String,
     /// The theme currently installed into `egui`, so it is only re-applied when
     /// the preference actually changes.
     applied_theme: Option<ThemeMode>,
@@ -119,28 +141,80 @@ pub struct MusicCraftApp {
 
 impl MusicCraftApp {
     /// Build the application from the result of [`Startup::load`].
+    ///
+    /// The user's library database is opened here, so what the window shows
+    /// first is what was indexed last time rather than an empty list.
     pub fn new(_creation_context: &CreationContext<'_>, startup: Startup) -> Self {
         let volume = startup.config.volume;
-        Self::with_playback(startup, Playback::start(volume))
+        let mut app = Self::with_playback(startup, Playback::start(volume));
+        app.open_library_from_disk();
+
+        app
     }
 
     /// Build the application around an existing [`Playback`].
     ///
     /// Tests pass a player whose device could not be opened, so the transport
-    /// can be exercised on machines without a sound card.
+    /// can be exercised on machines without a sound card, and get a library
+    /// that lives in memory rather than in the user's data directory.
     pub fn with_playback(startup: Startup, playback: Playback) -> Self {
+        let artwork_directory =
+            std::env::temp_dir().join(crate::library::artwork::ARTWORK_DIRECTORY);
+
+        match Library::in_memory(artwork_directory) {
+            Ok(library) => Self::with_library(startup, playback, library),
+            Err(error) => Self::from_parts(startup, playback, None, Some(error.to_string())),
+        }
+    }
+
+    /// Build the application around a library the caller controls.
+    pub fn with_library(startup: Startup, playback: Playback, library: Library) -> Self {
+        Self::from_parts(startup, playback, Some(library), None)
+    }
+
+    /// Assemble the application, with or without a library.
+    ///
+    /// The window opens even when no library could be opened: browsing is then
+    /// replaced by the reason, and playback, settings and queueing still work.
+    /// That failure is reported rather than turned into a panic, because a
+    /// read-only or missing data directory is a normal thing to run into.
+    fn from_parts(
+        startup: Startup,
+        playback: Playback,
+        library: Option<Library>,
+        library_error: Option<String>,
+    ) -> Self {
         let error = startup.error.as_ref().map(ToString::to_string);
 
-        Self {
+        let mut app = Self {
             config: startup.config,
             config_path: startup.config_path,
             config_dirty: false,
             config_error: error,
             section: NavSection::default(),
             playback,
+            library,
+            library_error,
+            browse: LibraryBrowse::new(),
+            scan: None,
+            scan_progress: ScanProgress::default(),
+            last_import: None,
+            artwork: ArtworkCache::new(),
             path_input: String::new(),
+            folder_input: String::new(),
             applied_theme: None,
+        };
+
+        if let Some(library) = app.library.as_ref() {
+            let folders = library.folders().to_vec();
+            app.config.library_folders = folders;
         }
+
+        if let Err(error) = app.refresh() {
+            app.library_error = Some(error.to_string());
+        }
+
+        app
     }
 
     /// The section currently shown in the content area.
@@ -329,6 +403,420 @@ impl MusicCraftApp {
         }
     }
 
+    /// Open the user's library database and remember the folders they watch.
+    ///
+    /// Failures are kept in [`MusicCraftApp::library_error`] and shown by the
+    /// Library view rather than aborting startup.
+    pub fn open_library_from_disk(&mut self) {
+        let data_directory = match AppConfig::data_directory() {
+            Ok(directory) => directory,
+            Err(error) => {
+                self.library_error = Some(error.to_string());
+                return;
+            }
+        };
+
+        let database = data_directory.join(crate::database::DATABASE_FILE);
+        let artwork_directory = crate::library::artwork::cache_directory(&data_directory);
+        let folders = self.config.library_folders.clone();
+
+        self.open_library(&database, artwork_directory, folders);
+    }
+
+    /// Open the library stored at `database_path` and browse `folders`.
+    ///
+    /// Split from [`MusicCraftApp::open_library_from_disk`] so a test can point
+    /// a library at a database of its own instead of the user's.
+    pub fn open_library(
+        &mut self,
+        database_path: &Path,
+        artwork_directory: PathBuf,
+        folders: Vec<PathBuf>,
+    ) {
+        match Library::open(database_path, artwork_directory) {
+            Ok(mut library) => {
+                library.set_folders(folders);
+                self.library = Some(library);
+                self.library_error = None;
+
+                if let Err(error) = self.refresh() {
+                    self.library_error = Some(error.to_string());
+                }
+            }
+            Err(error) => {
+                self.library = None;
+                self.library_error =
+                    Some(format!("the music library could not be opened: {error}"));
+            }
+        }
+    }
+
+    /// The library, when one could be opened.
+    #[must_use]
+    pub fn library(&self) -> Option<&Library> {
+        self.library.as_ref()
+    }
+
+    /// The library, mutably, for storing tracks outside a scan.
+    pub fn library_mut(&mut self) -> Option<&mut Library> {
+        self.library.as_mut()
+    }
+
+    /// Why the library is unavailable, or why the last library action failed.
+    #[must_use]
+    pub fn library_error(&self) -> Option<&str> {
+        self.library_error.as_deref()
+    }
+
+    /// Hide the library failure banner.
+    pub fn dismiss_library_error(&mut self) {
+        self.library_error = None;
+    }
+
+    /// The folders the library is built from.
+    #[must_use]
+    pub fn library_folders(&self) -> &[PathBuf] {
+        &self.config.library_folders
+    }
+
+    /// What the Library view is showing.
+    #[must_use]
+    pub fn browse(&self) -> &LibraryBrowse {
+        &self.browse
+    }
+
+    /// The browsing state, mutably, for the view's click handling.
+    pub fn browse_mut(&mut self) -> &mut LibraryBrowse {
+        &mut self.browse
+    }
+
+    /// The cover-art textures the Library view draws with.
+    pub fn artwork_mut(&mut self) -> &mut ArtworkCache {
+        &mut self.artwork
+    }
+
+    /// The text in the Library's import field.
+    #[must_use]
+    pub fn folder_input(&self) -> &str {
+        &self.folder_input
+    }
+
+    /// The import field's text, for the view to edit.
+    pub fn folder_input_mut(&mut self) -> &mut String {
+        &mut self.folder_input
+    }
+
+    /// Import the folder typed into the import field, returning whether it was
+    /// new to the library.
+    ///
+    /// The field is cleared once the folder was accepted, so the next entry
+    /// starts from an empty line.
+    pub fn import_folder_input(&mut self) -> bool {
+        let text = self.folder_input.trim().to_owned();
+        if text.is_empty() {
+            return false;
+        }
+
+        let added = self.add_library_folder(Path::new(&text));
+        if added {
+            self.folder_input.clear();
+        }
+
+        added
+    }
+
+    /// Start watching `folder` and scan it, returning whether it was new.
+    ///
+    /// The folder is written to the settings file, which is what makes a
+    /// library survive a restart; the scan itself runs on a worker thread, so
+    /// this returns while the import is still going on.
+    pub fn add_library_folder(&mut self, folder: &Path) -> bool {
+        if folder.as_os_str().is_empty() || !folder.is_dir() {
+            self.library_error = Some(format!(
+                "`{}` is not a folder that can be read.",
+                folder.display()
+            ));
+            return false;
+        }
+
+        if self.library.is_none() {
+            self.library_error = Some("there is no library to import into".to_owned());
+            return false;
+        }
+
+        let added = self.config.add_library_folder(folder);
+        if added {
+            self.config_dirty = true;
+            if let Some(library) = self.library.as_mut() {
+                library.set_folders(self.config.library_folders.clone());
+            }
+        }
+
+        // Rescan even when the folder was already watched: a user who asks
+        // again is asking for a refresh, not for nothing to happen.
+        self.start_scan();
+
+        added
+    }
+
+    /// Scan the watched folders, unless a scan is already running.
+    ///
+    /// # Errors
+    ///
+    /// The reason a scan could not start is kept in [`MusicCraftApp::library_error`].
+    pub fn start_scan(&mut self) {
+        if self.scan.is_some() {
+            return;
+        }
+
+        let Some(library) = self.library.as_ref() else {
+            self.library_error = Some("there is no library to scan into".to_owned());
+            return;
+        };
+
+        if library.folders().is_empty() {
+            self.library_error = Some("add a folder before scanning".to_owned());
+            return;
+        }
+
+        let request = library.scan_request();
+        tracing::info!("scanning {} folders", request.folders.len());
+
+        self.library_error = None;
+        self.last_import = None;
+        self.scan_progress = ScanProgress::default();
+        self.scan = Some(ScanSession::spawn(request));
+    }
+
+    /// Whether a scan is running on a worker thread.
+    #[must_use]
+    pub fn is_scanning(&self) -> bool {
+        self.scan.is_some()
+    }
+
+    /// How far the running scan has got.
+    #[must_use]
+    pub fn scan_progress(&self) -> &ScanProgress {
+        &self.scan_progress
+    }
+
+    /// What the last finished import did, ready to show.
+    #[must_use]
+    pub fn last_import(&self) -> Option<&str> {
+        self.last_import.as_deref()
+    }
+
+    /// Ask the running scan to stop after the file it is on.
+    pub fn cancel_scan(&mut self) {
+        if let Some(scan) = self.scan.as_ref() {
+            scan.cancel();
+        }
+    }
+
+    /// Let a running scan make progress, and store what it found when it ends.
+    ///
+    /// This runs once per frame from [`eframe::App::ui`]: the scan itself is on
+    /// a worker thread, and the worker is only joined once it has reported that
+    /// it is finished, so the frame loop never waits on a scan.
+    pub fn poll_library(&mut self) {
+        if self.scan.is_none() {
+            return;
+        }
+
+        if let Some(scan) = self.scan.as_ref() {
+            if let Some(progress) = scan.try_progress() {
+                self.scan_progress = progress;
+            }
+
+            if !scan.is_finished() {
+                return;
+            }
+        }
+
+        let Some(scan) = self.scan.take() else {
+            return;
+        };
+        let report = scan.join();
+        let cancelled = report.cancelled;
+
+        let stored = match self.library.as_mut() {
+            Some(library) => library.store(report).map_err(|error| error.to_string()),
+            None => Err("there is no library to store the scan in".to_owned()),
+        };
+
+        match stored {
+            Ok(summary) => {
+                self.last_import = Some(import_message(&summary, cancelled));
+                if let Err(error) = self.refresh() {
+                    self.library_error = Some(error.to_string());
+                }
+            }
+            Err(error) => {
+                self.library_error = Some(format!("the scan could not be saved: {error}"));
+            }
+        }
+    }
+
+    /// Read the library back out of the database into the browsing state.
+    ///
+    /// # Errors
+    ///
+    /// Returns the database failure, so the caller can decide how to show it.
+    pub fn refresh(&mut self) -> Result<()> {
+        let Some(library) = self.library.as_ref() else {
+            return Ok(());
+        };
+
+        let tracks = library.tracks()?;
+        let albums = library.albums()?;
+        let artists = library.artists()?;
+
+        self.browse.replace(tracks, albums, artists);
+        tracing::debug!("library refreshed: {} tracks", self.browse.track_count());
+
+        Ok(())
+    }
+
+    /// Replace the queue with `tracks` and start playing the one at `start`.
+    ///
+    /// The queue is rebuilt from what the user is looking at, so playing the
+    /// fourth row of a sorted, filtered table plays that row and what follows
+    /// it, in the order shown on screen.
+    pub fn play_tracks(&mut self, tracks: &[Track], start: usize) -> usize {
+        let items: Vec<QueueItem> = tracks.iter().map(queue_item).collect();
+        let count = items.len();
+        self.playback.play_items(items, start);
+
+        count
+    }
+
+    /// Play the selected tracks, starting at the first one.
+    ///
+    /// Returns how many tracks were queued, so the view can tell "nothing was
+    /// selected" from "playing".
+    pub fn play_selection(&mut self) -> usize {
+        let selected: Vec<Track> = self.browse.selected_tracks().into_iter().cloned().collect();
+
+        self.play_tracks(&selected, 0)
+    }
+
+    /// Add the selected tracks to the end of the queue, without playing them.
+    pub fn queue_selection(&mut self) -> usize {
+        let selected: Vec<Track> = self.browse.selected_tracks().into_iter().cloned().collect();
+
+        self.queue_tracks(&selected)
+    }
+
+    /// Add tracks to the end of the queue, without playing them.
+    ///
+    /// Returns how many entries were added, which is zero for an empty slice.
+    pub fn queue_tracks(&mut self, tracks: &[Track]) -> usize {
+        let items: Vec<QueueItem> = tracks.iter().map(queue_item).collect();
+
+        self.playback.queue_items(items)
+    }
+
+    /// Add every track of an album to the end of the queue.
+    pub fn queue_album(&mut self, album: &str) -> usize {
+        let tracks: Vec<Track> = self
+            .browse
+            .tracks_of_album(album)
+            .into_iter()
+            .cloned()
+            .collect();
+
+        self.queue_tracks(&tracks)
+    }
+
+    /// Add every track credited to an artist to the end of the queue.
+    pub fn queue_artist(&mut self, artist: &str) -> usize {
+        let tracks: Vec<Track> = self
+            .browse
+            .tracks_of_artist(artist)
+            .into_iter()
+            .cloned()
+            .collect();
+
+        self.queue_tracks(&tracks)
+    }
+
+    /// Play every track of an album, in album order.
+    pub fn play_album(&mut self, album: &str) -> usize {
+        let tracks: Vec<Track> = self
+            .browse
+            .tracks_of_album(album)
+            .into_iter()
+            .cloned()
+            .collect();
+
+        self.play_tracks(&tracks, 0)
+    }
+
+    /// Play every track credited to an artist.
+    pub fn play_artist(&mut self, artist: &str) -> usize {
+        let tracks: Vec<Track> = self
+            .browse
+            .tracks_of_artist(artist)
+            .into_iter()
+            .cloned()
+            .collect();
+
+        self.play_tracks(&tracks, 0)
+    }
+
+    /// Forget the selected tracks, leaving their files on disk untouched.
+    ///
+    /// Returns how many rows were removed, which is zero when nothing was
+    /// selected. This is the only destructive library action in the interface,
+    /// and it is deliberately the one that cannot lose music: the database is a
+    /// cache of what the files say, so a later scan puts the tracks back.
+    pub fn remove_selection_from_library(&mut self) -> usize {
+        let ids: Vec<TrackId> = self.browse.selection().ids().collect();
+        if ids.is_empty() {
+            return 0;
+        }
+
+        let mut removed = 0;
+        let mut failure = None;
+
+        if let Some(library) = self.library.as_ref() {
+            for id in ids {
+                match library.repository().remove_track(id) {
+                    Ok(true) => removed += 1,
+                    Ok(false) => {}
+                    Err(error) => failure = Some(error.to_string()),
+                }
+            }
+        }
+
+        self.browse.selection_mut().clear();
+
+        if let Some(error) = failure {
+            self.library_error = Some(format!("a track could not be removed: {error}"));
+        }
+
+        // A refresh failure is reported like any other library failure rather
+        // than thrown away: the rows are gone from the database either way, and
+        // the view should say so if it could not be updated.
+        if removed > 0
+            && let Err(error) = self.refresh()
+        {
+            self.library_error = Some(error.to_string());
+        }
+
+        removed
+    }
+
+    /// The tracks of an album, ready to be queued.
+    #[must_use]
+    pub fn album_tracks(&self, album: &str) -> Vec<Track> {
+        self.browse
+            .tracks_of_album(album)
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
     /// The configured theme.
     pub fn theme(&self) -> ThemeMode {
         self.config.theme
@@ -407,6 +895,47 @@ impl MusicCraftApp {
     }
 }
 
+/// A queue entry for a library track, labelled with its tag title.
+fn queue_item(track: &Track) -> QueueItem {
+    QueueItem::new(track.path.clone(), track.title.clone())
+}
+
+/// The one-line report shown after an import finishes.
+///
+/// It names what changed rather than dumping the whole [`ImportSummary`]: the
+/// counts a user cares about are the new tracks, the ones that could not be
+/// read, and the ones that have gone from disk.
+#[must_use]
+pub fn import_message(summary: &ImportSummary, cancelled: bool) -> String {
+    let scan = &summary.scan;
+
+    if cancelled {
+        return format!(
+            "Scan stopped after {} {}",
+            scan.scanned,
+            if scan.scanned == 1 { "track" } else { "tracks" }
+        );
+    }
+
+    let mut message = format!(
+        "Indexed {} {} ({} new, {} updated)",
+        scan.scanned,
+        if scan.scanned == 1 { "track" } else { "tracks" },
+        summary.inserted,
+        summary.updated
+    );
+
+    if scan.failed > 0 {
+        message.push_str(&format!(", {} unreadable", scan.failed));
+    }
+
+    if summary.missing > 0 {
+        message.push_str(&format!(", {} missing from disk", summary.missing));
+    }
+
+    message
+}
+
 /// Format a track length the way a player shows it: `3:45`, or `1:02:03` once
 /// a track runs past an hour.
 #[must_use]
@@ -432,9 +961,15 @@ impl eframe::App for MusicCraftApp {
         // so the frame loop is what advances the queue.
         self.poll_playback();
 
+        // A scan runs on its own thread and reports back through a channel, so
+        // the frame loop is also what collects its progress and stores it.
+        self.poll_library();
+
         // The progress bar and the elapsed time only move while audio plays, so
-        // ask for another frame for exactly as long as that is true.
-        if self.transport() == TransportState::Playing {
+        // ask for another frame for exactly as long as that is true. A running
+        // scan asks for frames for the same reason: without them the progress
+        // count would freeze until the user moved the mouse.
+        if self.transport() == TransportState::Playing || self.is_scanning() {
             ui.ctx().request_repaint();
         }
 

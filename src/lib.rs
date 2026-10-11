@@ -16,6 +16,7 @@ pub mod error;
 pub mod library;
 pub mod logging;
 pub mod playlists;
+pub mod search;
 pub mod ui;
 
 /// Human-readable application name, used for window titles and config paths.

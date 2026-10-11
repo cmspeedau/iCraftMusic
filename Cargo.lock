@@ -1684,6 +1684,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -2018,6 +2020,7 @@ dependencies = [
  "directories",
  "eframe",
  "egui",
+ "image",
  "lofty",
  "rodio",
  "rusqlite",

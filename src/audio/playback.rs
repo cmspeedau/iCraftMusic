@@ -192,6 +192,50 @@ impl Playback {
         }
     }
 
+    /// Replaces the queue with `items` and starts playing the one at `index`.
+    ///
+    /// The library view plays a track the database describes rather than one a
+    /// folder walk turned up, so it hands the queue the entries it already has:
+    /// the title comes from the tags, and the order is the order the user saw
+    /// on screen. An out-of-range `index` plays nothing, which is what a stale
+    /// click after a rescan should do.
+    pub fn play_items(&mut self, items: Vec<QueueItem>, index: usize) {
+        self.queue.set_items(items);
+        if self.queue.items().is_empty() {
+            self.error = Some(AudioError::EmptyQueue);
+            return;
+        }
+
+        self.error = None;
+        self.play_index(index);
+    }
+
+    /// Appends `items` to the end of the queue, returning how many were added.
+    ///
+    /// This is "add to queue" as opposed to "play": nothing is loaded, and the
+    /// track that is already playing is left alone. When the queue was empty,
+    /// the cursor moves to the first entry added so the play button starts on
+    /// the selection the user just made.
+    pub fn queue_items(&mut self, items: impl IntoIterator<Item = QueueItem>) -> usize {
+        let was_idle = self.queue.current_index().is_none();
+        let first_new = self.queue.len();
+        let mut added = 0;
+
+        for item in items {
+            if !is_supported(item.path()) {
+                continue;
+            }
+            self.queue.push(item);
+            added += 1;
+        }
+
+        if was_idle && added > 0 {
+            self.queue.select(first_new);
+        }
+
+        added
+    }
+
     /// Whether a track is loaded into the device.
     #[must_use]
     pub fn has_track(&self) -> bool {

@@ -1,10 +1,11 @@
-//! The Stage 1 user interface shell.
+//! The Stage 1 user interface shell, grown by the stages after it.
 //!
 //! [`render`] is the single entry point: it lays out the header strip, the
 //! sidebar, the content area and the playback bar, in that order, on top of the
 //! root `Ui` that `eframe` hands to [`crate::app::MusicCraftApp::ui`]. Each
 //! sub-module draws one region and holds its own small amount of logic.
 
+pub mod artwork;
 pub mod libraryview;
 pub mod navigation;
 pub mod nowplaying;

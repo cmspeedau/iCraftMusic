@@ -131,6 +131,36 @@ impl AppConfig {
         }
         self.volume = self.volume.clamp(0.0, 1.0);
     }
+
+    /// Location of the per-user data directory.
+    ///
+    /// The library database and the cached cover art live here, apart from the
+    /// settings file, so a user can back up or delete the library without
+    /// losing their preferences.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::NoConfigDir`] on platforms without a usable data
+    /// directory rather than guessing a path.
+    pub fn data_directory() -> Result<PathBuf> {
+        let dirs =
+            directories::ProjectDirs::from("", "", crate::APP_NAME).ok_or(AppError::NoConfigDir)?;
+        Ok(dirs.data_dir().to_path_buf())
+    }
+
+    /// Start watching `folder`, returning whether it was not already there.
+    ///
+    /// Duplicates are refused rather than merged, because scanning the same
+    /// folder twice would index every file under it twice.
+    pub fn add_library_folder(&mut self, folder: impl Into<PathBuf>) -> bool {
+        let folder = folder.into();
+        if folder.as_os_str().is_empty() || self.library_folders.contains(&folder) {
+            return false;
+        }
+
+        self.library_folders.push(folder);
+        true
+    }
 }
 
 #[cfg(test)]
@@ -219,5 +249,43 @@ mod tests {
                 Some(CONFIG_FILE_NAME)
             );
         }
+    }
+
+    #[test]
+    fn the_data_directory_is_separate_from_the_settings_file() {
+        let Ok(data) = AppConfig::data_directory() else {
+            return;
+        };
+
+        // `directories` lower-cases the application name on Linux, so the check
+        // is on the last component rather than on the whole path.
+        let last = data
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("a directory name");
+        assert_eq!(last.to_lowercase(), crate::APP_NAME.to_lowercase());
+
+        if let Ok(settings) = AppConfig::default_path() {
+            assert_ne!(
+                data,
+                settings.parent().expect("a parent directory"),
+                "the database is not kept beside the settings"
+            );
+        }
+    }
+
+    #[test]
+    fn a_folder_is_only_watched_once() {
+        let mut config = AppConfig::default();
+
+        assert!(config.add_library_folder("/music"));
+        assert!(!config.add_library_folder("/music"), "no duplicates");
+        assert!(config.add_library_folder("/other"));
+        assert_eq!(config.library_folders.len(), 2);
+
+        assert!(
+            !config.add_library_folder(""),
+            "an empty path is not a folder"
+        );
     }
 }

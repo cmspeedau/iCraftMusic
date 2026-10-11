@@ -7,13 +7,16 @@
 //! - [`scanner`] walks folders and turns them into tracks, on the calling
 //!   thread or on a worker.
 //! - [`artwork`] caches the cover art it finds.
+//! - [`browse`] holds what the Library view is showing and what is selected.
 //! - [`Library`] ties a scan to the database so a folder can be imported.
 
 pub mod artwork;
+pub mod browse;
 pub mod metadata;
 pub mod scanner;
 pub mod track;
 
+pub use browse::{AlbumCard, BrowseKind, ClickMode, LibraryBrowse, Selection};
 pub use metadata::AudioTags;
 pub use scanner::{
     PROGRESS_INTERVAL, ScanError, ScanProgress, ScanReport, ScanRequest, ScanSession,

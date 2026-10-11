@@ -140,6 +140,8 @@ Acceptance criteria
     Artwork and missing metadata have sensible fallbacks.
     Sorting and selection behave consistently.
 
+Status: Complete. The Library section browses the indexed music as an All Tracks table, an album grid with cover art, and an artist list. The table sorts by any of its columns, filters as the search box is typed, supports click, ctrl-click and shift-click selection, double-click to play, and a context menu for playing, queueing and removing rows; removal only ever forgets the database row, and a later scan puts it back. Cover art is decoded once per album into an egui texture and re-decoded when the cache is full, with the album's initial standing in when a file has no artwork or it cannot be read. Empty, filtered-to-nothing, scanning and library-unavailable states each say what happened and what to do next. Search and sorting run over the in-memory rows the database last returned, so typing never touches the database and cannot block a frame; the metadata editing, playlist and settings work they set up is Stage 5 and Stage 6.
+
 Stage 5 — Playlists and Queue Management
 
 Goal: Support personal music organization and flexible listening.

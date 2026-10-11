@@ -8,6 +8,9 @@ anyhow = "1"
 directories = "6"
 eframe = "0.36"
 egui = "0.36"
+# Decoding the cover art the scanner caches for the album view. `eframe`
+# already pulls the crate in, so the formats are the only real cost.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 lofty = "0.25"
 rodio = "0.23.0"
 rusqlite = { version = "0.40", features = ["bundled"] }
