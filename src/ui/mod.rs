@@ -1,9 +1,9 @@
 //! The Stage 1 user interface shell, grown by the stages after it.
 //!
-//! [`render`] is the single entry point: it lays out the playback bar, the
-//! sidebar and the content area, in that order, on top of the root `Ui` that
-//! `eframe` hands to [`crate::app::MusicCraftApp::ui`]. Each sub-module draws
-//! one region and holds its own small amount of logic.
+//! [`render`] is the single entry point: it lays out the status bar, the
+//! playback bar, the sidebar and the content area, in that order, on top of the
+//! root `Ui` that `eframe` hands to [`crate::app::MusicCraftApp::ui`]. Each
+//! sub-module draws one region and holds its own small amount of logic.
 //!
 //! The window has no header strip: what one showed (the application name and
 //! version, and the failure to load the stored settings) lives in the Settings
@@ -16,6 +16,7 @@ pub mod nowplaying;
 pub mod playlistview;
 pub mod queueview;
 pub mod settingsview;
+pub mod statusbar;
 pub mod theme;
 
 use egui::{CentralPanel, RichText, ScrollArea};
@@ -26,8 +27,10 @@ use navigation::NavSection;
 
 /// Draw the whole window.
 pub fn render(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    // Panels are added in the order they should claim space: the transport strip
-    // first, then the sidebar, then whatever is left over.
+    // Panels are added in the order they should claim space: the two bars that
+    // frame the window first — the status bar below, the transport above — then
+    // the sidebar, then whatever is left over.
+    statusbar::bar(app, ui);
     nowplaying::bar(app, ui);
     navigation::sidebar(app, ui);
     content(app, ui);

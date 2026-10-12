@@ -20,6 +20,12 @@ pub const PLAYBACK_BAR_HEIGHT: f32 = 92.0;
 /// Height of a single sidebar entry, in points.
 pub const NAV_ITEM_HEIGHT: f32 = 28.0;
 
+/// Height of the status bar across the bottom of the window, in points.
+///
+/// One line of text with the room to centre it vertically, which is all the bar
+/// carries: it reports the shape of the library and holds no control.
+pub const STATUS_BAR_HEIGHT: f32 = 30.0;
+
 /// Accent colour used for selections and links in both themes.
 pub const ACCENT: Color32 = Color32::from_rgb(10, 132, 255);
 
@@ -82,6 +88,23 @@ pub const PLAYBACK_BAR_EDGE: Color32 = Color32::from_rgb(176, 178, 184);
 /// Colour used for non-fatal warnings, such as a settings file that failed to
 /// load.
 pub const WARNING: Color32 = Color32::from_rgb(255, 159, 10);
+
+/// Background colour of the status bar across the bottom of the window.
+///
+/// A mid gray, well darker than [`PLAYBACK_BAR_FILL`], so the two bars that
+/// frame the window are never taken for one another. Like the other bars it is
+/// deliberately not taken from the active theme.
+pub const STATUS_BAR_FILL: Color32 = Color32::from_rgb(176, 178, 182);
+
+/// Label colour of the status bar.
+///
+/// The bar is a light surface in both themes, so it carries its own dark ink:
+/// the theme's foreground is near-white in the dark theme and would vanish on
+/// [`STATUS_BAR_FILL`].
+pub const STATUS_BAR_INK: Color32 = Color32::from_rgb(32, 34, 38);
+
+/// Muted [`STATUS_BAR_INK`], for the status bar's single line.
+pub const STATUS_BAR_INK_MUTED: Color32 = Color32::from_rgb(58, 60, 66);
 
 /// Install the MusicCraft style for `mode`.
 ///
@@ -201,6 +224,24 @@ pub fn apply_playback_bar_visuals(visuals: &mut Visuals) {
     ] {
         widget.bg_stroke.color = PLAYBACK_BAR_EDGE;
     }
+}
+
+/// Frame used by the status bar.
+///
+/// It fills with [`STATUS_BAR_FILL`] rather than the theme's panel fill, so it
+/// takes no style. The bar's one line centres itself rather than being inset by
+/// the frame, so the body gets the whole bar and the fill reaches every edge.
+pub fn status_bar_frame() -> Frame {
+    Frame::new().fill(STATUS_BAR_FILL)
+}
+
+/// Point a style at the status bar's own palette.
+///
+/// Call this inside a `Ui::scope` around the bar's body. Like the sidebar and
+/// the playback bar, the status bar paints a fill of its own in every theme, so
+/// its line takes the bar's ink rather than the theme's foreground.
+pub fn apply_status_bar_visuals(visuals: &mut Visuals) {
+    ink_surface(visuals, STATUS_BAR_INK, STATUS_BAR_INK_MUTED);
 }
 
 /// Relative luminance of a colour, as WCAG defines it.
@@ -346,5 +387,58 @@ mod tests {
             contrast(visuals.widgets.inactive.bg_fill, PLAYBACK_BAR_FILL) > 1.2,
             "the rail must be distinguishable from the bar"
         );
+    }
+
+    #[test]
+    fn the_status_bar_is_gray_and_distinct_from_the_playback_bar() {
+        let [r, g, b, a] = STATUS_BAR_FILL.to_array();
+        assert_eq!(a, 255, "the bar surface must be opaque");
+        assert!(
+            r.max(g).max(b) - r.min(g).min(b) <= 8,
+            "the bar must read as a gray: {STATUS_BAR_FILL:?} leans on a channel"
+        );
+        assert!(
+            contrast(STATUS_BAR_FILL, PLAYBACK_BAR_FILL) > 1.2,
+            "the two bars that frame the window must not look like one surface"
+        );
+    }
+
+    #[test]
+    fn the_status_bar_label_stays_readable_on_the_bar() {
+        for ink in [STATUS_BAR_INK, STATUS_BAR_INK_MUTED] {
+            assert!(
+                contrast(ink, STATUS_BAR_FILL) >= 4.5,
+                "bar ink {ink:?} is too faint on {STATUS_BAR_FILL:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_status_bar_frame_paints_the_bar_colour() {
+        let frame = status_bar_frame();
+        assert_eq!(frame.fill, STATUS_BAR_FILL);
+        assert_eq!(
+            frame.inner_margin, Margin::ZERO,
+            "the bar centres its own line, so the frame must leave it the whole height"
+        );
+    }
+
+    #[test]
+    fn applying_the_status_bar_visuals_inks_its_line() {
+        // The dark theme is the interesting case: left alone, its foreground is
+        // near-white and would vanish on the bar's gray.
+        let mut visuals = Visuals::dark();
+        apply_status_bar_visuals(&mut visuals);
+
+        for widget in [
+            &visuals.widgets.noninteractive,
+            &visuals.widgets.inactive,
+            &visuals.widgets.hovered,
+            &visuals.widgets.active,
+        ] {
+            assert_eq!(widget.fg_stroke.color, STATUS_BAR_INK);
+        }
+
+        assert_eq!(visuals.weak_text_color, Some(STATUS_BAR_INK_MUTED));
     }
 }

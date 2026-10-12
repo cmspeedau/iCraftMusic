@@ -106,30 +106,21 @@ pub fn search_field(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     .on_hover_text("Matches title, artist, album, genre and path");
 }
 
-/// How much is indexed, and what the selection can do.
+/// What the selection can do, and whether a filter is hiding anything.
+///
+/// How many songs, albums and artists the library holds is the status bar's
+/// business now — anything that describes the whole collection belongs along the
+/// bottom of the window — so this line reports only what the library view itself
+/// is narrowing.
 fn status(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    ui.horizontal_wrapped(|ui| {
-        let browse = app.browse();
+    if app.browse().is_filtered() {
+        let shown = app.browse().visible_tracks().len();
         ui.label(
-            RichText::new(format!(
-                "{} tracks · {} albums · {} artists",
-                browse.track_count(),
-                browse.album_count(),
-                browse.artist_count()
-            ))
-            .small()
-            .weak(),
+            RichText::new(format!("{shown} shown"))
+                .small()
+                .color(theme::ACCENT),
         );
-
-        if browse.is_filtered() {
-            let shown = browse.visible_tracks().len();
-            ui.label(
-                RichText::new(format!("· {shown} shown"))
-                    .small()
-                    .color(theme::ACCENT),
-            );
-        }
-    });
+    }
 
     selection_actions(app, ui);
 }
