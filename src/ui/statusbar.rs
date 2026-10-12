@@ -61,9 +61,16 @@ fn counts(app: &MusicCraftApp, ui: &mut egui::Ui) {
 /// you are there.
 ///
 /// The gear is drawn at [`theme::STATUS_BAR_GEAR_GLYPH_SIZE`] rather than at
-/// the bar's line size: it is the only thing in the corner to aim at, so it
-/// fills the button it sits in.
+/// the bar's line size: it is the only thing in the corner to aim at, so it is
+/// drawn as tall as the bar has room for.
 fn settings(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    // The bar is only as tall as what it holds, so the button must not pad the
+    // glyph: at the size the gear is drawn, padding alone is enough to push the
+    // button -- and with it the bar's own fill -- past the foot of the window.
+    // The gray the button leaves above and below the gear comes from
+    // [`theme::STATUS_BAR_GEAR_SIZE`], not from its padding.
+    ui.style_mut().spacing.button_padding = egui::Vec2::ZERO;
+
     let rect = gear_rect(ui.max_rect());
     let response: Response = ui.put(
         rect,
@@ -192,6 +199,133 @@ mod tests {
             "the gear ({}) is no bigger than the bar's line ({})",
             theme::STATUS_BAR_GEAR_GLYPH_SIZE,
             line.size
+        );
+    }
+
+    /// The shapes the whole app paints on `screen`, after the frames it takes
+    /// to settle.
+    fn painted(screen: egui::Rect) -> Vec<egui::epaint::ClippedShape> {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        let mut out = None;
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let mut o = ctx.run_ui(input, |ui| crate::ui::render(&mut app, ui));
+            o.textures_delta.clear();
+            out = Some(o);
+        }
+        out.expect("`run_ui` ran at least once").shapes
+    }
+
+    /// The rectangle of the shape that fills itself with `fill`, and the
+    /// bottom-most one wins: the bar sits under everything else.
+    fn filled(shapes: &[egui::epaint::ClippedShape], fill: egui::Color32) -> Option<egui::Rect> {
+        shapes
+            .iter()
+            .filter_map(|cs| match &cs.shape {
+                egui::Shape::Rect(r) if r.fill == fill => Some(r.rect),
+                _ => None,
+            })
+            .max_by(|a, b| a.bottom().total_cmp(&b.bottom()))
+    }
+
+    /// The rectangle a text shape's ink covers.
+    ///
+    /// A galley that is centred on its line is painted *from* its centre, so
+    /// its shape's position is the centre of the line and its top — not its
+    /// top left, which is only true of a left-aligned galley.
+    fn written(shapes: &[egui::epaint::ClippedShape], needle: &str) -> Option<egui::Rect> {
+        shapes.iter().find_map(|cs| match &cs.shape {
+            egui::Shape::Text(t) if t.galley.text().contains(needle) => {
+                let size = t.galley.size();
+                let min = match t.galley.job.halign {
+                    egui::Align::LEFT => t.pos,
+                    egui::Align::Center => egui::pos2(t.pos.x - size.x / 2.0, t.pos.y),
+                    egui::Align::RIGHT => egui::pos2(t.pos.x - size.x, t.pos.y),
+                };
+                Some(egui::Rect::from_min_size(min, size))
+            }
+            _ => None,
+        })
+    }
+
+    /// A window the size of the user's own.
+    fn screen() -> egui::Rect {
+        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0))
+    }
+
+    /// The bar is the foot of the window, as wide as the window, filled with
+    /// the bar's own grey.
+    #[test]
+    fn the_bar_paints_the_foot_of_the_window_in_its_own_grey() {
+        let screen = screen();
+        let bar = filled(&painted(screen), theme::STATUS_BAR_FILL)
+            .expect("the bar never painted its fill");
+
+        assert_eq!(
+            bar.width(),
+            screen.width(),
+            "the bar spans the window: {bar:?}"
+        );
+        assert_eq!(
+            bar.bottom(),
+            screen.bottom(),
+            "the bar is at the foot of the window: {bar:?}"
+        );
+        assert!(
+            bar.height() >= theme::STATUS_BAR_HEIGHT - 1.0,
+            "the bar is {} points tall, not {}: {bar:?}",
+            bar.height(),
+            theme::STATUS_BAR_HEIGHT
+        );
+    }
+
+    /// The counts line is centred on the window, whatever it says.
+    #[test]
+    fn the_counts_are_centred_on_the_window() {
+        let screen = screen();
+        let counts = written(&painted(screen), "songs").expect("the bar says nothing");
+
+        assert!(
+            (counts.center().x - screen.center().x).abs() <= 1.0,
+            "the counts are not centred: {counts:?} on {screen:?}"
+        );
+    }
+
+    /// The gear is drawn inside the bar's right corner and reads bigger than
+    /// the line it sits next to.
+    #[test]
+    fn the_gear_sits_in_the_corner_and_reads_bigger_than_the_counts() {
+        let screen = screen();
+        let shapes = painted(screen);
+        let bar = filled(&shapes, theme::STATUS_BAR_FILL).expect("the bar never painted its fill");
+        let counts = written(&shapes, "songs").expect("the bar says nothing");
+        let gear = written(&shapes, "⚙").expect("the bar has no gear");
+
+        assert!(
+            bar.contains_rect(gear),
+            "the gear is off the bar: {gear:?} inside {bar:?}"
+        );
+        assert!(
+            screen.right() - gear.right() < screen.width() / 4.0,
+            "the gear is not in the right corner: {gear:?} on {screen:?}"
+        );
+        assert!(
+            gear.height() > counts.height(),
+            "the gear ({}) does not read bigger than the counts ({}): {gear:?} vs {counts:?}",
+            gear.height(),
+            counts.height()
+        );
+        // The move out of the sidebar replaced a 19-point glyph, which drew a
+        // 22-point box. The gear drawn here has to stand taller than that, or
+        // having moved it bought nothing.
+        assert!(
+            gear.height() > 22.0,
+            "the gear reads {} points, no bigger than the 22 it replaced: {gear:?}",
+            gear.height()
         );
     }
 

@@ -36,9 +36,13 @@ pub const STATUS_BAR_GEAR_SIZE: f32 = 24.0;
 
 /// Size of the gear drawn in that button, in points.
 ///
-/// Nearly the whole button: at the bar's own line weight the gear was a speck
-/// in the corner, and the gear is the only thing there to aim at.
-pub const STATUS_BAR_GEAR_GLYPH_SIZE: f32 = 19.0;
+/// A glyph draws a box taller than its own size -- some 1.16 times it, so this
+/// stands the gear at 25.5 of the bar's 29 points, most of the bar's height and
+/// as much as it has room for: the bar is only as tall as what it holds, and at
+/// 23 the gear pushes the bar's fill past the foot of the window. At 19 it read
+/// as a speck in the corner rather than as the one control at that end of the
+/// bar.
+pub const STATUS_BAR_GEAR_GLYPH_SIZE: f32 = 22.0;
 
 /// Gap between the status bar's gear and the right end of the bar, in points.
 pub const STATUS_BAR_GEAR_INSET: f32 = 3.0;
