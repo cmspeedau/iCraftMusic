@@ -1,9 +1,13 @@
 //! The Stage 1 user interface shell, grown by the stages after it.
 //!
-//! [`render`] is the single entry point: it lays out the header strip, the
-//! playback bar, the sidebar and the content area, in that order, on top of the
-//! root `Ui` that `eframe` hands to [`crate::app::MusicCraftApp::ui`]. Each
-//! sub-module draws one region and holds its own small amount of logic.
+//! [`render`] is the single entry point: it lays out the playback bar, the
+//! sidebar and the content area, in that order, on top of the root `Ui` that
+//! `eframe` hands to [`crate::app::MusicCraftApp::ui`]. Each sub-module draws
+//! one region and holds its own small amount of logic.
+//!
+//! The window has no header strip: what one showed (the application name and
+//! version, and the failure to load the stored settings) lives in the Settings
+//! section's About pane, so the first row of the window is the transport.
 
 pub mod artwork;
 pub mod libraryview;
@@ -22,48 +26,11 @@ use navigation::NavSection;
 
 /// Draw the whole window.
 pub fn render(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    // Panels are added in the order they should claim space: the two full-width
-    // strips first, then the sidebar, then whatever is left over.
-    top_bar(app, ui);
+    // Panels are added in the order they should claim space: the transport strip
+    // first, then the sidebar, then whatever is left over.
     nowplaying::bar(app, ui);
     navigation::sidebar(app, ui);
     content(app, ui);
-}
-
-/// Header strip: application name, version and any load failure.
-fn top_bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    let frame = theme::top_bar_frame(ui.style().as_ref());
-    let error = app.config_error().map(str::to_owned);
-
-    egui::Panel::top("musiccraft_top_bar")
-        .frame(frame)
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(crate::APP_NAME).heading());
-                ui.label(
-                    RichText::new(format!("v{}", crate::APP_VERSION))
-                        .small()
-                        .weak(),
-                );
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(app.section().description()).small().weak());
-                });
-            });
-
-            if let Some(message) = error {
-                ui.add_space(4.0);
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new("!").strong().color(theme::WARNING));
-                    ui.label(
-                        RichText::new(format!("Settings could not be loaded: {message}")).small(),
-                    );
-                    if ui.small_button("Dismiss").clicked() {
-                        app.dismiss_config_error();
-                    }
-                });
-            }
-        });
 }
 
 /// Content area: heading for the active section plus its view.

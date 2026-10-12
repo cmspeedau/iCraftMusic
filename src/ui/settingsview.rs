@@ -29,6 +29,11 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.separator();
     ui.add_space(12.0);
     storage(app, ui);
+
+    ui.add_space(12.0);
+    ui.separator();
+    ui.add_space(12.0);
+    about(app, ui);
 }
 
 /// Theme choice.
@@ -92,6 +97,36 @@ fn storage(app: &MusicCraftApp, ui: &mut egui::Ui) {
             );
         }
     }
+}
+
+/// What this build is, and whether the settings on disk could be read.
+///
+/// The window has no header strip, so the name, the version and any load
+/// failure live here.
+fn about(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    ui.label(RichText::new("About").strong());
+    ui.add_space(6.0);
+
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(crate::APP_NAME).heading());
+        ui.label(RichText::new(version_line()).small().weak());
+    });
+
+    if let Some(message) = app.config_error().map(str::to_owned) {
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("!").strong().color(theme::WARNING));
+            ui.label(RichText::new(format!("Settings could not be loaded: {message}")).small());
+            if ui.small_button("Dismiss").clicked() {
+                app.dismiss_config_error();
+            }
+        });
+    }
+}
+
+/// The version line the About pane shows.
+fn version_line() -> String {
+    format!("v{}", crate::APP_VERSION)
 }
 
 /// The folders the library watches, and how to add or rescan them.
@@ -192,5 +227,90 @@ fn library_management(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                     .monospace(),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::app::Startup;
+    use crate::audio::{AudioEngine, Playback};
+    use crate::config::AppConfig;
+    use crate::error::AppError;
+
+    #[test]
+    fn the_settings_pane_draws_with_its_about_section() {
+        let mut app = app(None);
+
+        egui::__run_test_ui(|ui| show(&mut app, ui));
+
+        assert!(app.config_error().is_none());
+    }
+
+    #[test]
+    fn the_about_pane_names_the_build() {
+        assert_eq!(version_line(), format!("v{}", crate::APP_VERSION));
+        assert!(!crate::APP_NAME.is_empty());
+    }
+
+    #[test]
+    fn a_settings_load_failure_is_still_reported_from_the_about_pane() {
+        let mut app = app(Some(AppError::NoConfigDir));
+        let expected = AppError::NoConfigDir.to_string();
+
+        egui::__run_test_ui(|ui| show(&mut app, ui));
+
+        // Drawing it does not dismiss it: the message outlives the frame until
+        // the user acts on it.
+        assert_eq!(
+            app.config_error(),
+            Some(expected.as_str()),
+            "the failure the header strip used to show must survive the move"
+        );
+    }
+
+    #[test]
+    fn the_about_pane_paints_the_name_and_version() {
+        let mut app = app(None);
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| show(&mut app, ui));
+        });
+        output.textures_delta.clear();
+
+        let painted: Vec<String> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::epaint::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(
+            painted.iter().any(|text| text == crate::APP_NAME),
+            "the settings pane should name the application"
+        );
+        assert!(
+            painted.iter().any(|text| text == &version_line()),
+            "the settings pane should show the version"
+        );
+        assert!(
+            painted.iter().any(|text| text == "About"),
+            "the pane should be labelled"
+        );
+    }
+
+    /// An application with a player that has no output device.
+    fn app(error: Option<AppError>) -> MusicCraftApp {
+        MusicCraftApp::with_playback(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error,
+            },
+            Playback::with_engine(AudioEngine::without_device(), 1.0),
+        )
     }
 }

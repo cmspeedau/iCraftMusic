@@ -120,13 +120,6 @@ fn customise(style: &mut Style) {
     }
 }
 
-/// Frame used by the header strip across the top of the window.
-pub fn top_bar_frame(style: &Style) -> Frame {
-    Frame::new()
-        .inner_margin(Margin::symmetric(12, 8))
-        .fill(style.visuals.panel_fill)
-}
-
 /// Frame used by the navigation sidebar.
 ///
 /// It fills with [`SIDEBAR_FILL`] rather than the theme's panel fill, so it
