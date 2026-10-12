@@ -91,7 +91,6 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             .show(ui, |ui| match app.section() {
                 NavSection::Library => libraryview::show(app, ui),
                 NavSection::Playlists => playlistview::show(ui),
-                NavSection::Queue => queueview::show(app, ui),
                 NavSection::Settings => settingsview::show(app, ui),
             });
     });

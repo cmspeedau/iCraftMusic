@@ -112,6 +112,8 @@ pub struct MusicCraftApp {
     config_dirty: bool,
     config_error: Option<String>,
     section: NavSection,
+    /// Whether the queue popover, opened from the playback bar, is showing.
+    queue_open: bool,
     /// The output device, the queue and the transport, as one object.
     playback: Playback,
     /// The database and the watched folders, or `None` when the database could
@@ -192,6 +194,7 @@ impl MusicCraftApp {
             config_dirty: false,
             config_error: error,
             section: NavSection::default(),
+            queue_open: false,
             playback,
             library,
             library_error,
@@ -225,6 +228,21 @@ impl MusicCraftApp {
     /// Switch to another section.
     pub fn set_section(&mut self, section: NavSection) {
         self.section = section;
+    }
+
+    /// Whether the queue popover is showing.
+    pub fn queue_open(&self) -> bool {
+        self.queue_open
+    }
+
+    /// Open the queue popover, or close it if it is already up.
+    pub fn toggle_queue(&mut self) {
+        self.queue_open = !self.queue_open;
+    }
+
+    /// Close the queue popover.
+    pub fn close_queue(&mut self) {
+        self.queue_open = false;
     }
 
     /// The state of the transport, as the playback bar should draw it.

@@ -8,7 +8,7 @@
 use egui::{Align, Button, Layout, Panel, RichText, Slider};
 
 use crate::app::{MusicCraftApp, format_duration};
-use crate::ui::theme;
+use crate::ui::{queueview, theme};
 
 /// Draw the playback bar.
 pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
@@ -23,17 +23,21 @@ pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 summary(app, ui);
 
                 // Laid out right to left so the reading order stays
-                // shuffle · previous · play · next · repeat, volume last.
+                // queue · shuffle · previous · play · next · repeat, volume last.
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     volume(app, ui);
                     ui.add_space(18.0);
                     controls(app, ui);
+                    ui.add_space(12.0);
+                    queue_button(app, ui);
                 });
             });
 
             ui.add_space(8.0);
             progress(app, ui);
         });
+
+    queue_popup(app, ui);
 }
 
 /// Track title, and either where it sits in the queue or the last failure.
@@ -144,6 +148,53 @@ fn repeat_label(app: &MusicCraftApp) -> String {
     format!("Repeat: {}", app.playback().repeat().label())
 }
 
+/// The burger button that opens the queue, just left of Shuffle.
+fn queue_button(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    let queued = app.playback().queue().len();
+
+    if ui
+        .add(Button::selectable(
+            app.queue_open(),
+            RichText::new("☰").small(),
+        ))
+        .on_hover_text(format!("Queue ({queued})"))
+        .clicked()
+    {
+        app.toggle_queue();
+    }
+}
+
+/// The queue popover, pinned above the playback bar.
+///
+/// It is a free-floating window rather than a panel child: the bar is already
+/// drawn, so the queue can only be an overlay above it. Its ✕ writes the same
+/// flag the burger button reads, so the button's highlight stays truthful
+/// whichever way the popover was closed.
+fn queue_popup(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    if !app.queue_open() {
+        return;
+    }
+
+    let mut open = true;
+    egui::Window::new("Queue")
+        .anchor(
+            egui::Align2::LEFT_BOTTOM,
+            [16.0, -theme::PLAYBACK_BAR_HEIGHT - 12.0],
+        )
+        .default_size([420.0, 300.0])
+        .resizable(true)
+        .open(&mut open)
+        .show(ui.ctx(), |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(320.0)
+                .show(ui, |ui| queueview::show(app, ui));
+        });
+
+    if !open {
+        app.close_queue();
+    }
+}
+
 /// Speaker icon and volume slider, at the right-hand end of the top row.
 fn volume(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.spacing_mut().slider_width = 90.0;
@@ -235,6 +286,25 @@ mod tests {
         let mut app = app();
 
         egui::__run_test_ui(|ui| super::bar(&mut app, ui));
+    }
+
+    #[test]
+    fn drawing_the_queue_button_does_not_open_the_queue() {
+        let mut app = app();
+
+        egui::__run_test_ui(|ui| super::queue_button(&mut app, ui));
+
+        assert!(!app.queue_open(), "drawing is not clicking");
+    }
+
+    #[test]
+    fn the_queue_popover_draws_over_the_bar_while_it_is_open() {
+        let mut app = app();
+        app.toggle_queue();
+
+        egui::__run_test_ui(|ui| super::bar(&mut app, ui));
+
+        assert!(app.queue_open(), "the popover stays up until it is closed");
     }
 
     fn app() -> MusicCraftApp {
