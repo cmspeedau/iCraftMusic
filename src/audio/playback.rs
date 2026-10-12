@@ -295,6 +295,33 @@ impl Playback {
         self.play_current();
     }
 
+    /// Moves a queued track to another position in the queue.
+    ///
+    /// Reordering is not a transport action: whatever is playing keeps playing
+    /// and the cue follows it to its new place. Returns `false` when either
+    /// index is out of range, in which case nothing moves.
+    pub fn move_in_queue(&mut self, from: usize, to: usize) -> bool {
+        self.queue.move_item(from, to).is_some()
+    }
+
+    /// Takes a track out of the queue, returning it when it came out.
+    ///
+    /// The track being played is not removable: dropping it would leave the
+    /// transport on a track the queue no longer holds. Remove the others, or
+    /// skip past the current one first.
+    pub fn remove_from_queue(&mut self, index: usize) -> Option<QueueItem> {
+        if self.queue.current_index() == Some(index) {
+            return None;
+        }
+        self.queue.remove(index)
+    }
+
+    /// Empties the queue and stops, so the transport never outlives the list.
+    pub fn clear_queue(&mut self) {
+        self.queue.clear();
+        self.stop();
+    }
+
     /// Loads and plays the track the queue currently points at.
     ///
     /// This is also the entry point for a simple "play this file": build a

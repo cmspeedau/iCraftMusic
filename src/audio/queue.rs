@@ -231,6 +231,35 @@ impl PlayQueue {
         Some(removed)
     }
 
+    /// Moves the entry at `from` to position `to`, keeping the cursor on the
+    /// track it was on.
+    ///
+    /// Reordering is a playlist edit, not a transport action: the entry that was
+    /// playing stays the current one (the cursor follows it to its new index),
+    /// and so do the shuffle bookkeeping lists. Returns the entry at its new
+    /// position, or [`None`] when either index is out of range; an out-of-range
+    /// reorder changes nothing at all.
+    pub fn move_item(&mut self, from: usize, to: usize) -> Option<&QueueItem> {
+        if from >= self.items.len() || to >= self.items.len() {
+            return None;
+        }
+        if from == to {
+            return self.items.get(to);
+        }
+        let item = self.items.remove(from);
+        self.items.insert(to, item);
+        self.current = self
+            .current
+            .map(|current| shift_after_move(current, from, to));
+        for index in &mut self.history {
+            *index = shift_after_move(*index, from, to);
+        }
+        for index in &mut self.played {
+            *index = shift_after_move(*index, from, to);
+        }
+        self.items.get(to)
+    }
+
     /// Empties the queue and clears the cursor.
     pub fn clear(&mut self) {
         self.items.clear();
@@ -400,6 +429,23 @@ fn shift_after_removal(indices: &mut Vec<usize>, removed: usize) {
     }
 }
 
+/// Rewrites one queue index after the entry at `from` moved to `to`.
+///
+/// The list is treated as a remove-then-insert: everything between the two
+/// positions slides one step towards where the gap was, and the moved entry
+/// lands on `to`.
+fn shift_after_move(index: usize, from: usize, to: usize) -> usize {
+    if index == from {
+        to
+    } else if from < index && index <= to {
+        index - 1
+    } else if to <= index && index < from {
+        index + 1
+    } else {
+        index
+    }
+}
+
 /// A non-zero seed for the shuffle generator.
 fn seed_from_clock() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -430,6 +476,11 @@ mod tests {
 
     fn current_title(queue: &PlayQueue) -> Option<&str> {
         queue.current().map(QueueItem::title)
+    }
+
+    /// The queue's titles in order, for asserting on a reorder.
+    fn titles(queue: &PlayQueue) -> Vec<&str> {
+        queue.items().iter().map(QueueItem::title).collect()
     }
 
     #[test]
@@ -615,6 +666,66 @@ mod tests {
         queue.remove(0);
         assert_eq!(current_title(&queue), Some("c"));
         assert_eq!(queue.current_index(), Some(1));
+    }
+
+    #[test]
+    fn moving_a_track_reorders_the_queue_and_follows_the_cursor() {
+        let mut queue = queue_of(&["a", "b", "c", "d"]);
+        queue.select(2);
+
+        assert_eq!(queue.move_item(2, 0).map(QueueItem::title), Some("c"));
+        assert_eq!(titles(&queue), ["c", "a", "b", "d"]);
+        assert_eq!(
+            current_title(&queue),
+            Some("c"),
+            "the track being played is still the current one after a reorder"
+        );
+        assert_eq!(queue.current_index(), Some(0));
+
+        // Moving it back where it came from leaves the queue as it started.
+        assert_eq!(queue.move_item(0, 2).map(QueueItem::title), Some("c"));
+        assert_eq!(titles(&queue), ["a", "b", "c", "d"]);
+        assert_eq!(queue.current_index(), Some(2));
+    }
+
+    #[test]
+    fn moving_a_track_past_the_cursor_leaves_the_cursor_behind() {
+        let mut queue = queue_of(&["a", "b", "c", "d"]);
+        queue.select(1);
+
+        queue.move_item(3, 0);
+        assert_eq!(titles(&queue), ["d", "a", "b", "c"]);
+        assert_eq!(current_title(&queue), Some("b"));
+        assert_eq!(queue.current_index(), Some(2));
+    }
+
+    #[test]
+    fn move_item_rejects_bad_indices_and_ignores_a_no_op() {
+        let mut queue = queue_of(&["a", "b"]);
+
+        assert!(queue.move_item(0, 2).is_none());
+        assert!(queue.move_item(7, 0).is_none());
+        assert_eq!(
+            titles(&queue),
+            ["a", "b"],
+            "a rejected move changes nothing"
+        );
+
+        assert_eq!(queue.move_item(1, 1).map(QueueItem::title), Some("b"));
+        assert_eq!(titles(&queue), ["a", "b"]);
+    }
+
+    #[test]
+    fn moving_a_track_rewrites_the_shuffle_history() {
+        let mut queue = queue_of(&["a", "b", "c"]);
+        assert!(queue.toggle_shuffle());
+        queue.select(2);
+        queue.select(1);
+
+        // "c" was left behind at index 2, so it is what Previous comes back to.
+        queue.move_item(2, 0);
+
+        assert_eq!(queue.previous().map(QueueItem::title), Some("c"));
     }
 
     #[test]

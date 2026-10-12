@@ -325,6 +325,32 @@ impl MusicCraftApp {
         self.playback.toggle_shuffle()
     }
 
+    /// Move a queued track to another position, returning whether it moved.
+    ///
+    /// Nothing about the transport changes: this is the Queue page reordering
+    /// the list, not the user skipping.
+    pub fn move_in_queue(&mut self, from: usize, to: usize) -> bool {
+        self.playback.move_in_queue(from, to)
+    }
+
+    /// Take a queued track out, returning whether it came out.
+    ///
+    /// The track being played is not removable; the Queue view greys the button
+    /// out rather than offering an action the player would refuse.
+    pub fn remove_from_queue(&mut self, index: usize) -> bool {
+        self.playback.remove_from_queue(index).is_some()
+    }
+
+    /// Empty the queue, stopping playback so nothing plays from a spent list.
+    pub fn clear_queue(&mut self) {
+        self.playback.clear_queue();
+    }
+
+    /// Jump to a queued track and start it.
+    pub fn play_queue_index(&mut self, index: usize) {
+        self.playback.play_index(index);
+    }
+
     /// Let the player notice that a track ended, and advance if it did.
     ///
     /// The engine cannot call back into the interface, so this runs once per

@@ -15,16 +15,18 @@ pub enum NavSection {
     Library,
     /// User-created playlists.
     Playlists,
+    /// The tracks waiting to play, in order.
+    Queue,
     /// Application preferences.
     Settings,
 }
 
 impl NavSection {
     /// Every section, in the order shown in the sidebar.
-    pub const ALL: [NavSection; 3] = [Self::Library, Self::Playlists, Self::Settings];
+    pub const ALL: [NavSection; 4] = [Self::Library, Self::Playlists, Self::Queue, Self::Settings];
 
     /// Sections pinned to the top of the sidebar, under the "Browse" heading.
-    pub const TOP: [NavSection; 2] = [Self::Library, Self::Playlists];
+    pub const TOP: [NavSection; 3] = [Self::Library, Self::Playlists, Self::Queue];
 
     /// Sections pinned to the bottom of the sidebar by their own heading.
     pub const BOTTOM: [NavSection; 1] = [Self::Settings];
@@ -34,6 +36,7 @@ impl NavSection {
         match self {
             Self::Library => "Library",
             Self::Playlists => "Playlists",
+            Self::Queue => "Queue",
             Self::Settings => "Settings",
         }
     }
@@ -43,6 +46,7 @@ impl NavSection {
         match self {
             Self::Library => "Your music, by artist, album and track",
             Self::Playlists => "Collections you have put together",
+            Self::Queue => "What will play next, in order",
             Self::Settings => "Appearance and playback preferences",
         }
     }
