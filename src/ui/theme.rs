@@ -22,9 +22,33 @@ pub const NAV_ITEM_HEIGHT: f32 = 28.0;
 
 /// Height of the status bar across the bottom of the window, in points.
 ///
-/// One line of text with the room to centre it vertically, which is all the bar
-/// carries: it reports the shape of the library and holds no control.
+/// One line of text with the room to centre it vertically, plus the square that
+/// holds the gear opening Settings at the right end.
 pub const STATUS_BAR_HEIGHT: f32 = 30.0;
+
+/// Side of the square setting button at the right end of the status bar, in
+/// points.
+///
+/// Smaller than [`STATUS_BAR_HEIGHT`] so a hair of the gray shows above and
+/// below it: the button then reads as a control sitting on the bar rather than
+/// as a block filling its corner.
+pub const STATUS_BAR_GEAR_SIZE: f32 = 24.0;
+
+/// Size of the gear drawn in that button, in points.
+///
+/// Nearly the whole button: at the bar's own line weight the gear was a speck
+/// in the corner, and the gear is the only thing there to aim at.
+pub const STATUS_BAR_GEAR_GLYPH_SIZE: f32 = 19.0;
+
+/// Gap between the status bar's gear and the right end of the bar, in points.
+pub const STATUS_BAR_GEAR_INSET: f32 = 3.0;
+
+/// Fill of the status bar's gear while the pointer is over it, or held down.
+///
+/// The bar paints its own gray, so the themes' hover fill — near-black in the
+/// dark theme — would put the bar's dark ink on a dark square. This is the
+/// bar's gray a shade deeper, which the ink still reads on.
+pub const STATUS_BAR_HOVER: Color32 = Color32::from_rgb(158, 160, 166);
 
 /// Accent colour used for selections and links in both themes.
 pub const ACCENT: Color32 = Color32::from_rgb(10, 132, 255);
@@ -242,6 +266,14 @@ pub fn status_bar_frame() -> Frame {
 /// its line takes the bar's ink rather than the theme's foreground.
 pub fn apply_status_bar_visuals(visuals: &mut Visuals) {
     ink_surface(visuals, STATUS_BAR_INK, STATUS_BAR_INK_MUTED);
+
+    // The gear is the bar's only control, so it needs a hover frame of its own:
+    // the themes' hover fill is near-black in the dark theme, which would put
+    // the bar's dark ink on a dark square.
+    for widget in [&mut visuals.widgets.hovered, &mut visuals.widgets.active] {
+        widget.bg_fill = STATUS_BAR_HOVER;
+        widget.weak_bg_fill = STATUS_BAR_HOVER;
+    }
 }
 
 /// Relative luminance of a colour, as WCAG defines it.
@@ -418,7 +450,8 @@ mod tests {
         let frame = status_bar_frame();
         assert_eq!(frame.fill, STATUS_BAR_FILL);
         assert_eq!(
-            frame.inner_margin, Margin::ZERO,
+            frame.inner_margin,
+            Margin::ZERO,
             "the bar centres its own line, so the frame must leave it the whole height"
         );
     }
@@ -440,5 +473,47 @@ mod tests {
         }
 
         assert_eq!(visuals.weak_text_color, Some(STATUS_BAR_INK_MUTED));
+    }
+
+    #[test]
+    fn the_gear_hovers_in_the_bars_own_shade() {
+        let mut visuals = Visuals::dark();
+        apply_status_bar_visuals(&mut visuals);
+
+        for widget in [&visuals.widgets.hovered, &visuals.widgets.active] {
+            assert_eq!(widget.bg_fill, STATUS_BAR_HOVER);
+            assert_eq!(widget.weak_bg_fill, STATUS_BAR_HOVER);
+        }
+
+        // The hover frame has to be a step away from the bar, or the pointer
+        // gives no sign it is over the control.
+        assert!(
+            contrast(STATUS_BAR_HOVER, STATUS_BAR_FILL) > 1.2,
+            "a hovered gear must show: {STATUS_BAR_HOVER:?} on {STATUS_BAR_FILL:?}"
+        );
+        // And the bar's ink must stay readable on it, which is why the hover
+        // fill is a darker gray rather than the themes' own.
+        assert!(
+            contrast(STATUS_BAR_INK, STATUS_BAR_HOVER) >= 4.5,
+            "the gear's ink is too faint on {STATUS_BAR_HOVER:?}"
+        );
+    }
+
+    #[test]
+    fn the_gear_glyph_fills_its_button_within_the_bar() {
+        // Sized here and not at the call site: the button has to leave gray
+        // above and below it on the bar, and the glyph has to fit the button.
+        const {
+            assert!(
+                STATUS_BAR_GEAR_SIZE < STATUS_BAR_HEIGHT,
+                "the gear button must leave gray above and below it on the bar"
+            )
+        };
+        const {
+            assert!(
+                STATUS_BAR_GEAR_GLYPH_SIZE <= STATUS_BAR_GEAR_SIZE,
+                "a glyph wider than its button would be clipped by it"
+            )
+        };
     }
 }

@@ -1,4 +1,8 @@
 //! Left-hand navigation sidebar and the list of top-level sections.
+//!
+//! Settings is deliberately absent: its entry is the gear at the right end of
+//! the status bar, so the sidebar holds only the places you browse, and the
+//! sections the app can be in stay a separate list from the ones shown here.
 
 use egui::{Button, Panel, RichText};
 
@@ -24,10 +28,10 @@ impl NavSection {
     pub const ALL: [NavSection; 3] = [Self::Library, Self::Playlists, Self::Settings];
 
     /// Sections pinned to the top of the sidebar, under the "Browse" heading.
+    ///
+    /// Settings is not among them: it is opened from the gear in the status
+    /// bar, and `ALL` is what the app can be in rather than what is listed.
     pub const TOP: [NavSection; 2] = [Self::Library, Self::Playlists];
-
-    /// Sections pinned to the bottom of the sidebar by their own heading.
-    pub const BOTTOM: [NavSection; 1] = [Self::Settings];
 
     /// Name shown in the sidebar.
     pub fn label(self) -> &'static str {
@@ -82,18 +86,6 @@ fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             browse_items(app, ui);
         }
     }
-
-    // Pin the remaining sections (Settings) to the foot of the sidebar so
-    // navigation options stay at the top and preferences sit out of the way.
-    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-        ui.add_space(2.0);
-        for section in NavSection::BOTTOM {
-            let selected = app.section() == section;
-            if nav_item(ui, section, selected) {
-                app.set_section(section);
-            }
-        }
-    });
 }
 
 /// Draw a single sidebar entry, returning `true` when it was clicked.
@@ -146,20 +138,23 @@ mod tests {
     }
 
     #[test]
-    fn top_and_bottom_partition_every_section() {
-        let mut seen: Vec<NavSection> = NavSection::TOP
-            .into_iter()
-            .chain(NavSection::BOTTOM)
-            .collect();
-        seen.sort_by_key(|s| NavSection::ALL.iter().position(|a| a == s));
-
-        assert_eq!(seen, NavSection::ALL.to_vec());
+    fn the_sidebar_lists_the_places_you_browse() {
+        assert_eq!(
+            NavSection::TOP,
+            [NavSection::Library, NavSection::Playlists]
+        );
     }
 
     #[test]
-    fn settings_sits_in_the_bottom_group() {
-        assert!(NavSection::BOTTOM.contains(&NavSection::Settings));
-        assert!(!NavSection::TOP.contains(&NavSection::Settings));
+    fn settings_has_no_sidebar_entry() {
+        assert!(
+            !NavSection::TOP.contains(&NavSection::Settings),
+            "the status bar's gear opens Settings now, not the sidebar"
+        );
+        assert!(
+            NavSection::ALL.contains(&NavSection::Settings),
+            "…but the app can still be in Settings"
+        );
     }
 
     #[test]
