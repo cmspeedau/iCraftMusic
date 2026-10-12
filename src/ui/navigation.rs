@@ -50,42 +50,50 @@ impl NavSection {
 
 /// Draw the sidebar and switch sections when an entry is clicked.
 pub fn sidebar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    let frame = theme::sidebar_frame(ui.style().as_ref());
-
     Panel::left("musiccraft_sidebar")
         .resizable(false)
         .exact_size(theme::SIDEBAR_WIDTH)
-        .frame(frame)
+        .frame(theme::sidebar_frame())
         .show(ui, |ui| {
-            ui.add_space(2.0);
-            ui.label(RichText::new("Browse").small().weak());
-            ui.add_space(4.0);
-
-            for section in NavSection::TOP {
-                let selected = app.section() == section;
-                if nav_item(ui, section, selected) {
-                    app.set_section(section);
-                }
-
-                // The Library's pages hang off its entry, so the sidebar shows
-                // where you are inside it as well as which section is open.
-                if selected && section == NavSection::Library {
-                    browse_items(app, ui);
-                }
-            }
-
-            // Pin the remaining sections (Settings) to the foot of the sidebar so
-            // navigation options stay at the top and preferences sit out of the way.
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                ui.add_space(2.0);
-                for section in NavSection::BOTTOM {
-                    let selected = app.section() == section;
-                    if nav_item(ui, section, selected) {
-                        app.set_section(section);
-                    }
-                }
+            // The panel paints its own light surface, so the entries drawn on it
+            // take the sidebar's ink instead of the theme's foreground.
+            ui.scope(|ui| {
+                theme::apply_sidebar_visuals(&mut ui.style_mut().visuals);
+                sidebar_items(app, ui);
             });
         });
+}
+
+/// The sidebar's entries: the section list and the Library's pages.
+fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    ui.add_space(2.0);
+    ui.label(RichText::new("Browse").small().weak());
+    ui.add_space(4.0);
+
+    for section in NavSection::TOP {
+        let selected = app.section() == section;
+        if nav_item(ui, section, selected) {
+            app.set_section(section);
+        }
+
+        // The Library's pages hang off its entry, so the sidebar shows
+        // where you are inside it as well as which section is open.
+        if selected && section == NavSection::Library {
+            browse_items(app, ui);
+        }
+    }
+
+    // Pin the remaining sections (Settings) to the foot of the sidebar so
+    // navigation options stay at the top and preferences sit out of the way.
+    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+        ui.add_space(2.0);
+        for section in NavSection::BOTTOM {
+            let selected = app.section() == section;
+            if nav_item(ui, section, selected) {
+                app.set_section(section);
+            }
+        }
+    });
 }
 
 /// Draw a single sidebar entry, returning `true` when it was clicked.
