@@ -12,8 +12,7 @@ engine to the tag writer to the UI. The only non-Rust things in the tree are the
 desktop entry and the icon a Linux package would install. There is no JavaScript
 runtime and no web view anywhere in it.
 
-The crate is named `musiccraft`. The project began in the repository
-`openmusicstreaming` and is mirrored at
+The crate is named `musiccraft`.
 [iCraftMusic](https://github.com/cmspeedau/iCraftMusic) — it is a music player,
 and the name on the tin says so.
 
