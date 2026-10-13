@@ -115,38 +115,42 @@ pub const SIDEBAR_HOVER: Color32 = Color32::from_rgb(170, 203, 234);
 
 /// Background colour of the playback bar.
 ///
-/// A light gray keeps the transport controls legible whatever the active theme
-/// is and gives the bar its own surface, separate from the content area below
-/// it. Like [`SIDEBAR_FILL`] it is deliberately not taken from the theme.
-pub const PLAYBACK_BAR_FILL: Color32 = Color32::from_rgb(229, 229, 232);
+/// The status bar's own gray, so the two bars that frame the window stand as
+/// one surface rather than as two shades of one colour. Like [`SIDEBAR_FILL`]
+/// it is deliberately not taken from the active theme, so the bar's surface
+/// does not shift with the theme while its contents are inked for it.
+pub const PLAYBACK_BAR_FILL: Color32 = Color32::from_rgb(176, 178, 182);
 
 /// Label colour of the playback bar.
 ///
-/// The bar is a light surface in both themes, so it carries its own dark ink;
-/// the theme's foreground is near-white in the dark theme.
+/// The bar is a mid-gray surface in every theme, so it carries its own dark
+/// ink; the theme's foreground is near-white in the dark theme.
 pub const PLAYBACK_BAR_INK: Color32 = Color32::from_rgb(32, 32, 36);
 
 /// Muted [`PLAYBACK_BAR_INK`], for the elapsed and total times.
-pub const PLAYBACK_BAR_INK_MUTED: Color32 = Color32::from_rgb(96, 98, 104);
+pub const PLAYBACK_BAR_INK_MUTED: Color32 = Color32::from_rgb(58, 60, 66);
 
 /// Fill of an idle control on the playback bar.
 ///
-/// The theme's own button fill is dark and would swallow the bar's ink, so the
-/// bar's buttons come in their own grays.
-pub const PLAYBACK_BAR_CONTROL: Color32 = Color32::from_rgb(214, 214, 219);
+/// The theme's own button fill would put a light tile on the bar, so the bar's
+/// controls come in its own grays: the whole ramp is the status bar's gray,
+/// a step darker at each state, so a control still marks itself out on a bar
+/// that is now that same gray, and the outline deeper again.
+pub const PLAYBACK_BAR_CONTROL: Color32 = Color32::from_rgb(156, 158, 163);
 
 /// Fill of a control on the playback bar the pointer is over.
-pub const PLAYBACK_BAR_CONTROL_HOVER: Color32 = Color32::from_rgb(199, 199, 205);
+pub const PLAYBACK_BAR_CONTROL_HOVER: Color32 = Color32::from_rgb(130, 132, 137);
 
 /// Fill of a control on the playback bar that is held or selected.
 ///
 /// Doubles as the seek bar's rail, which is the same shade of gray and reads as
 /// the ungrooved part of the track.
-pub const PLAYBACK_BAR_CONTROL_ACTIVE: Color32 = Color32::from_rgb(185, 185, 192);
+pub const PLAYBACK_BAR_CONTROL_ACTIVE: Color32 = Color32::from_rgb(110, 112, 118);
 
 /// Outline of the playback bar's controls, so they stay distinct from the bar
-/// itself without needing a shadow.
-pub const PLAYBACK_BAR_EDGE: Color32 = Color32::from_rgb(176, 178, 184);
+/// itself without needing a shadow. The same outline the seek bar's rail is
+/// drawn with.
+pub const PLAYBACK_BAR_CONTROL_EDGE: Color32 = Color32::from_rgb(84, 86, 92);
 
 /// Colour used for non-fatal warnings, such as a settings file that failed to
 /// load.
@@ -154,9 +158,10 @@ pub const WARNING: Color32 = Color32::from_rgb(255, 159, 10);
 
 /// Background colour of the status bar across the bottom of the window.
 ///
-/// A mid gray, well darker than [`PLAYBACK_BAR_FILL`], so the two bars that
-/// frame the window are never taken for one another. Like the other bars it is
-/// deliberately not taken from the active theme.
+/// A mid gray, well darker than the content between the bars, so the two that
+/// frame the window read as a frame. It is also what [`PLAYBACK_BAR_FILL`] is
+/// set to: the top bar and the status bar are one colour, and this is the
+/// constant both read.
 pub const STATUS_BAR_FILL: Color32 = Color32::from_rgb(176, 178, 182);
 
 /// Label colour of the status bar.
@@ -276,8 +281,8 @@ pub fn playback_bar_frame() -> Frame {
 /// Point a style at the playback bar's own palette.
 ///
 /// Call this inside a `Ui::scope` around the bar's body. Like the sidebar, the
-/// bar paints a light fill in every theme, so its buttons take the bar's grays
-/// instead of the theme's near-black ones.
+/// bar paints a fill of its own in every theme, so its controls take the bar's
+/// grays instead of the theme's.
 pub fn apply_playback_bar_visuals(visuals: &mut Visuals) {
     ink_surface(visuals, PLAYBACK_BAR_INK, PLAYBACK_BAR_INK_MUTED);
 
@@ -296,7 +301,7 @@ pub fn apply_playback_bar_visuals(visuals: &mut Visuals) {
         &mut visuals.widgets.hovered,
         &mut visuals.widgets.active,
     ] {
-        widget.bg_stroke.color = PLAYBACK_BAR_EDGE;
+        widget.bg_stroke.color = PLAYBACK_BAR_CONTROL_EDGE;
     }
 }
 
@@ -433,17 +438,55 @@ mod tests {
     }
 
     #[test]
-    fn the_playback_bar_is_light_gray() {
-        let [r, g, b, a] = PLAYBACK_BAR_FILL.to_array();
-        assert_eq!(a, 255, "the bar surface must be opaque");
-        assert!(
-            r.max(g).max(b) - r.min(g).min(b) <= 8,
-            "the bar must stay a gray: {PLAYBACK_BAR_FILL:?} leans on a channel"
+    fn the_playback_bar_is_the_status_bars_gray() {
+        assert_eq!(
+            PLAYBACK_BAR_FILL, STATUS_BAR_FILL,
+            "the top bar and the status bar are not the same colour"
         );
+
+        // And it still has to stand out from the content area between the two
+        // bars, or neither would read as part of a frame around the window.
         assert!(
-            luminance(PLAYBACK_BAR_FILL) > 0.6,
-            "the bar must stay light"
+            luminance(PLAYBACK_BAR_FILL) < 0.6,
+            "the bar is still the light gray it no longer is"
         );
+    }
+
+    /// A control on the playback bar has to stay visible where the bar is now
+    /// the status bar's own gray: at rest it is a step from that gray, under
+    /// the pointer a further step, and the outline deeper again. The floors are
+    /// the ratios this palette actually produces, so a later nudge toward the
+    /// bar's own colour fails rather than sliding under the eye.
+    #[test]
+    fn the_playback_bars_controls_still_show_against_its_own_fill() {
+        let ramp = [
+            ("resting", PLAYBACK_BAR_CONTROL, 1.2),
+            ("hovered", PLAYBACK_BAR_CONTROL_HOVER, 1.5),
+            ("active", PLAYBACK_BAR_CONTROL_ACTIVE, 1.8),
+            ("edge", PLAYBACK_BAR_CONTROL_EDGE, 2.5),
+        ];
+        for (state, fill, at_least) in ramp {
+            assert!(
+                contrast(fill, PLAYBACK_BAR_FILL) >= at_least,
+                "the {state} fill {fill:?} does not show on {PLAYBACK_BAR_FILL:?}: \
+                 {:.2} against {at_least}",
+                contrast(fill, PLAYBACK_BAR_FILL)
+            );
+        }
+
+        // And the bar's ink still reads on any of those fills, since the labels
+        // and the seek bar are drawn in it over them.
+        for fill in [
+            PLAYBACK_BAR_CONTROL,
+            PLAYBACK_BAR_CONTROL_HOVER,
+            PLAYBACK_BAR_CONTROL_ACTIVE,
+        ] {
+            assert!(
+                contrast(PLAYBACK_BAR_INK, fill) >= 3.0,
+                "the bar's ink is too faint on the control fill {fill:?}: {:.2}",
+                contrast(PLAYBACK_BAR_INK, fill)
+            );
+        }
     }
 
     #[test]
@@ -463,8 +506,8 @@ mod tests {
 
     #[test]
     fn applying_the_playback_bar_visuals_lights_its_controls() {
-        // The dark theme is the interesting case: left alone, its button fill is
-        // near-black and its foreground near-white, both wrong on a light bar.
+        // The dark theme is the interesting case: left alone, its button fill
+        // and its foreground are both wrong on the bar's own gray.
         let mut visuals = Visuals::dark();
         apply_playback_bar_visuals(&mut visuals);
 
@@ -493,7 +536,7 @@ mod tests {
     }
 
     #[test]
-    fn the_status_bar_is_gray_and_distinct_from_the_playback_bar() {
+    fn the_status_bar_is_a_gray_that_frames_the_window() {
         let [r, g, b, a] = STATUS_BAR_FILL.to_array();
         assert_eq!(a, 255, "the bar surface must be opaque");
         assert!(
@@ -501,8 +544,8 @@ mod tests {
             "the bar must read as a gray: {STATUS_BAR_FILL:?} leans on a channel"
         );
         assert!(
-            contrast(STATUS_BAR_FILL, PLAYBACK_BAR_FILL) > 1.2,
-            "the two bars that frame the window must not look like one surface"
+            luminance(STATUS_BAR_FILL) < 0.6,
+            "the bar must be dark enough to read as a frame around the content"
         );
     }
 

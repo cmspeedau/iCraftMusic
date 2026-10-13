@@ -1179,6 +1179,55 @@ mod tests {
         );
     }
 
+    /// The top bar and the status bar are the same colour on screen.
+    ///
+    /// Both fills are found in one frame of the whole shell, by POSITION rather
+    /// than by colour, so this cannot be satisfied by querying for one palette
+    /// twice: it compares the two bars' own fills, and a bar that changed its
+    /// copy of the palette without the other following fails here where a test
+    /// of either frame alone would pass.
+    #[test]
+    fn the_two_bars_that_frame_the_window_are_one_colour() {
+        let screen = screen();
+        let shapes = painted(screen);
+
+        let mut full_width: Vec<(egui::Rect, egui::Color32)> = shapes
+            .iter()
+            .filter_map(|cs| match &cs.shape {
+                egui::Shape::Rect(r) if (r.rect.width() - screen.width()).abs() < 0.5 => {
+                    Some((r.rect, r.fill))
+                }
+                _ => None,
+            })
+            .collect();
+        full_width.sort_by(|a, b| a.0.top().total_cmp(&b.0.top()));
+
+        let band = |find: &mut dyn FnMut(&(egui::Rect, egui::Color32)) -> bool, of: &str| {
+            full_width
+                .iter()
+                .find(|entry| find(entry))
+                .copied()
+                .unwrap_or_else(|| panic!("nothing spans the {of} of the window"))
+        };
+        let top = band(
+            &mut |(rect, _)| (rect.top() - screen.top()).abs() < 1.0,
+            "top",
+        );
+        let foot = band(
+            &mut |(rect, _)| (rect.bottom() - screen.bottom()).abs() < 1.0,
+            "foot",
+        );
+
+        assert_ne!(
+            top.0, foot.0,
+            "both bands came back as the same rectangle -- one bar is missing"
+        );
+        assert_eq!(
+            top.1, foot.1,
+            "the two bars that frame the window are different colours: {top:?} against {foot:?}"
+        );
+    }
+
     /// Each corner button paints on the bar, at its own end, bigger than the
     /// line between them.
     #[test]

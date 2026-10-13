@@ -11,8 +11,7 @@
 //! say a state that outlives the track.
 
 use egui::{
-    Align, Button, Color32, CornerRadius, Layout, Panel, Pos2, Rect, RichText, Sense, Slider,
-    Stroke, Vec2,
+    Align, Button, Color32, CornerRadius, Layout, Panel, Pos2, Rect, RichText, Sense, Slider, Vec2,
 };
 use std::path::Path;
 
@@ -148,12 +147,6 @@ fn cover(app: &mut MusicCraftApp, ui: &mut egui::Ui, artwork: Option<&Path>) {
             // The bar's own control gray, so the empty slot reads as part of the
             // bar rather than as a hole punched in it.
             painter.rect_filled(rect, CornerRadius::same(4), theme::PLAYBACK_BAR_CONTROL);
-            painter.rect_stroke(
-                rect,
-                CornerRadius::same(4),
-                Stroke::new(1.0, theme::PLAYBACK_BAR_EDGE),
-                egui::StrokeKind::Inside,
-            );
         }
     }
 }
