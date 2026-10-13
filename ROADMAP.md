@@ -170,6 +170,9 @@ Acceptance criteria
 Stage 6 — Metadata Editing and Library Polish
 
 Goal: Improve library maintenance and everyday usability.
+
+Status: Complete. Selecting one track opens a metadata editor over the Library — title, artist, album, album artist, genre, track and disc numbers, and the cover — and nothing in it is written anywhere until one of its two buttons is pressed. **Save** stores the values in the database and marks the row as edited (`✱` in front of the title, with the reason on hover and in the editor); **Write to file** additionally rewrites the tags inside the audio file, and is the only path in the application that changes a user's file. A format whose tags cannot be written is refused with a message rather than written badly, and a row whose file has gone is refused too. A replacement cover is decoded before it is accepted and copied into the artwork cache under the track's own name, so a file that is not an image never becomes a cover. A scan never overwrites an edit while the file itself is unchanged; once the file *has* changed, the file wins again and the edit is dropped. Sorting ignores a leading article (`The Beatles` files under B), the table can be narrowed to the tracks whose files have vanished, and those rows can be forgotten in one step. Playback and navigation answer to the keyboard — space, `Ctrl/⌘ ←/→/↑/↓`, `Ctrl/⌘ L/P/,/1/2/3/E`, `Delete` and `Esc` — listed in Settings, and no shortcut fires while a text field has focus. Removing tracks and forgetting missing ones both ask first. Files in a music format the bundled decoder cannot read are counted and named after a scan instead of vanishing silently.
+
 Deliverables
 
     Edit supported track metadata.

@@ -219,6 +219,51 @@ pub fn matches_artist(artist: &Artist, query: &Query) -> bool {
     contains(&artist.name, query.as_str())
 }
 
+/// Words a name is sorted past rather than under.
+///
+/// A library that files "The Beatles" under T is one nobody can find anything
+/// in, so a leading article is skipped when two names are compared. Only the
+/// English articles are handled, and only at the front of the string, which is
+/// what a desktop player's user expects.
+const LEADING_ARTICLES: [&str; 3] = ["the ", "a ", "an "];
+
+/// The form of a name used for ordering: trimmed, lowercased, and with a
+/// leading article removed.
+///
+/// Ordering only — matching still runs against the name as it is written, so a
+/// search for "the beatles" keeps working.
+#[must_use]
+pub fn sort_name(value: &str) -> String {
+    let lowered = value.trim().to_lowercase();
+
+    for article in LEADING_ARTICLES {
+        if let Some(rest) = lowered.strip_prefix(article) {
+            // "A  Tribe" leaves a second space behind, and "The The" would sort
+            // as nothing at all; keep at least the article when stripping it
+            // would leave the name empty.
+            let rest = rest.trim_start();
+            if !rest.is_empty() {
+                return rest.to_owned();
+            }
+        }
+    }
+
+    lowered
+}
+
+/// Order two optional names, with the missing value last.
+///
+/// This is [`compare_text`] with the library's own idea of how a name should
+/// read in a list: case is ignored, and so is a leading article.
+fn compare_names(left: Option<&str>, right: Option<&str>) -> Ordering {
+    match (left, right) {
+        (Some(left), Some(right)) => sort_name(left).cmp(&sort_name(right)),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
 /// Order two optional strings, with the missing value last.
 fn compare_text(left: Option<&str>, right: Option<&str>) -> Ordering {
     match (left, right) {
@@ -252,10 +297,10 @@ fn compare_duration(left: Option<Duration>, right: Option<Duration>) -> Ordering
 #[must_use]
 pub fn compare_tracks(left: &Track, right: &Track, sort: Sort) -> Ordering {
     let primary = match sort.key {
-        SortKey::Title => compare_text(Some(&left.title), Some(&right.title)),
-        SortKey::Artist => compare_text(left.display_artist(), right.display_artist()),
-        SortKey::Album => compare_text(left.album.as_deref(), right.album.as_deref()),
-        SortKey::Genre => compare_text(left.genre.as_deref(), right.genre.as_deref()),
+        SortKey::Title => compare_names(Some(&left.title), Some(&right.title)),
+        SortKey::Artist => compare_names(left.display_artist(), right.display_artist()),
+        SortKey::Album => compare_names(left.album.as_deref(), right.album.as_deref()),
+        SortKey::Genre => compare_names(left.genre.as_deref(), right.genre.as_deref()),
         SortKey::Duration => compare_duration(left.duration, right.duration),
         SortKey::TrackNumber => compare_number(left.track_number, right.track_number),
         SortKey::Path => compare_text(
@@ -265,7 +310,7 @@ pub fn compare_tracks(left: &Track, right: &Track, sort: Sort) -> Ordering {
     };
 
     let ordered = primary
-        .then_with(|| compare_text(Some(&left.title), Some(&right.title)))
+        .then_with(|| compare_names(Some(&left.title), Some(&right.title)))
         .then_with(|| {
             compare_text(
                 Some(&left.path.to_string_lossy()),
@@ -299,7 +344,7 @@ pub fn filter_albums<'a>(albums: &'a [Album], query: &Query) -> Vec<&'a Album> {
         .filter(|album| matches_album(album, query))
         .collect();
 
-    matched.sort_by(|left, right| compare_text(Some(&left.name), Some(&right.name)));
+    matched.sort_by(|left, right| compare_names(Some(&left.name), Some(&right.name)));
     matched
 }
 
@@ -311,7 +356,7 @@ pub fn filter_artists<'a>(artists: &'a [Artist], query: &Query) -> Vec<&'a Artis
         .filter(|artist| matches_artist(artist, query))
         .collect();
 
-    matched.sort_by(|left, right| compare_text(Some(&left.name), Some(&right.name)));
+    matched.sort_by(|left, right| compare_names(Some(&left.name), Some(&right.name)));
     matched
 }
 
@@ -462,6 +507,47 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(first, vec!["Alpha", "Zed"], "ties break on the title");
+    }
+
+    #[test]
+    fn a_leading_article_is_skipped_when_names_are_compared() {
+        assert_eq!(sort_name("The Beatles"), "beatles");
+        assert_eq!(sort_name("  A  Tribe Called Quest  "), "tribe called quest");
+        assert_eq!(sort_name("An Ending"), "ending");
+        assert_eq!(sort_name("The The"), "the", "something always remains");
+        assert_eq!(sort_name("Aphex Twin"), "aphex twin", "only the first word");
+    }
+
+    #[test]
+    fn the_beatles_file_under_b_rather_than_under_t() {
+        let tracks = vec![
+            track("Rain", Some("The Beatles"), None),
+            track("Song 2", Some("Blur"), None),
+        ];
+        let sort = Sort::new(SortKey::Artist, SortDirection::Ascending);
+
+        let artists: Vec<&str> = filter_tracks(&tracks, &Query::default(), sort)
+            .into_iter()
+            .filter_map(|track| track.display_artist())
+            .collect();
+
+        assert_eq!(artists, vec!["The Beatles", "Blur"]);
+    }
+
+    #[test]
+    fn an_album_is_ordered_by_its_name_without_its_article() {
+        let tracks = vec![
+            track("Xtal", None, Some("The Campfire Headphase")),
+            track("Roygbiv", None, Some("Blue Album")),
+        ];
+        let sort = Sort::new(SortKey::Album, SortDirection::Ascending);
+
+        let albums: Vec<&str> = filter_tracks(&tracks, &Query::default(), sort)
+            .into_iter()
+            .filter_map(|track| track.album.as_deref())
+            .collect();
+
+        assert_eq!(albums, vec!["Blue Album", "The Campfire Headphase"]);
     }
 
     #[test]

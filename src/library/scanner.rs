@@ -60,6 +60,13 @@ pub struct ScanReport {
     pub degraded: usize,
     /// Number of files that could not be read at all (they are not indexed).
     pub failed: usize,
+    /// Files that are music in a format this build cannot decode.
+    ///
+    /// A scan never indexes these — it cannot read them — but it does report
+    /// them, because a user who has just imported a folder deserves to be told
+    /// that part of their collection is in a format the player does not
+    /// understand rather than being left to wonder where it went.
+    pub unreadable: Vec<PathBuf>,
     /// The tracks, in the order they were found.
     pub tracks: Vec<Track>,
     /// One entry per file that could not be read.
@@ -74,6 +81,38 @@ impl ScanReport {
     pub fn is_empty(&self) -> bool {
         self.tracks.is_empty()
     }
+
+    /// How many files were passed over because of their format.
+    #[must_use]
+    pub fn unreadable_count(&self) -> usize {
+        self.unreadable.len()
+    }
+
+    /// The distinct formats that were passed over, e.g. `["ape", "wma"]`.
+    ///
+    /// Names rather than paths: what the user needs to know is *which* of their
+    /// formats is not supported, and the extensions say that in one line where a
+    /// list of file names would not.
+    #[must_use]
+    pub fn unreadable_formats(&self) -> Vec<String> {
+        unreadable_formats(&self.unreadable)
+    }
+}
+
+/// The distinct, sorted file extensions of a list of passed-over files.
+#[must_use]
+pub fn unreadable_formats(paths: &[PathBuf]) -> Vec<String> {
+    let mut formats: Vec<String> = paths
+        .iter()
+        .filter_map(|path| path.extension())
+        .filter_map(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .filter(|extension| !extension.is_empty())
+        .collect();
+
+    formats.sort();
+    formats.dedup();
+    formats
 }
 
 /// How often a long scan reports progress, in files.
@@ -114,7 +153,10 @@ pub fn scan_with_cancel(
     let mut report = ScanReport::default();
     let mut progress = ScanProgress::default();
 
-    for path in collect_audio_files(&request.folders) {
+    let found = find_files(&request.folders);
+    report.unreadable = found.unreadable;
+
+    for path in found.audio {
         if cancel.load(Ordering::Relaxed) {
             report.cancelled = true;
             break;
@@ -153,11 +195,13 @@ pub fn scan_with_cancel(
     observer(&progress);
 
     tracing::info!(
-        "scan finished: {} tracks from {} folders ({} degraded, {} failed, cancelled: {})",
+        "scan finished: {} tracks from {} folders ({} degraded, {} failed, {} in other formats, \
+         cancelled: {})",
         report.scanned,
         request.folders.len(),
         report.degraded,
         report.failed,
+        report.unreadable.len(),
         report.cancelled
     );
 
@@ -209,14 +253,28 @@ fn read_track(path: &Path, request: &ScanRequest) -> Result<(Track, bool)> {
     Ok((track, false))
 }
 
-/// Find every decodable file under `folders`, sorted for a stable order.
+/// What a walk of the user's folders turned up.
+///
+/// The two lists are kept apart because the interface treats them differently:
+/// the first is what the library is built from, and the second is what the user
+/// is told about. Anything else in the folders — playlists, cover images, text —
+/// appears in neither.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FoundFiles {
+    /// Files the engine can decode.
+    pub audio: Vec<PathBuf>,
+    /// Files in a music format this build cannot decode.
+    pub unreadable: Vec<PathBuf>,
+}
+
+/// Classify every file under `folders`, sorted for a stable order.
 ///
 /// Hidden directories and unreadable ones are skipped silently: a music folder
 /// with a broken `.thumbnails` directory is normal, not an error worth
 /// interrupting a scan for.
 #[must_use]
-pub fn collect_audio_files(folders: &[PathBuf]) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
+pub fn find_files(folders: &[PathBuf]) -> FoundFiles {
+    let mut found = FoundFiles::default();
 
     for folder in folders {
         let walker = WalkDir::new(folder)
@@ -226,15 +284,31 @@ pub fn collect_audio_files(folders: &[PathBuf]) -> Vec<PathBuf> {
             .filter_entry(|entry| !is_hidden(entry.path()));
 
         for entry in walker.filter_map(std::result::Result::ok) {
-            if entry.file_type().is_file() && audio::is_supported(entry.path()) {
-                paths.push(entry.into_path());
+            if !entry.file_type().is_file() {
+                continue;
+            }
+
+            let path = entry.into_path();
+            if audio::is_supported(&path) {
+                found.audio.push(path);
+            } else if audio::is_unreadable(&path) {
+                found.unreadable.push(path);
             }
         }
     }
 
-    paths.sort();
-    paths.dedup();
-    paths
+    found.audio.sort();
+    found.audio.dedup();
+    found.unreadable.sort();
+    found.unreadable.dedup();
+
+    found
+}
+
+/// Find every decodable file under `folders`, sorted for a stable order.
+#[must_use]
+pub fn collect_audio_files(folders: &[PathBuf]) -> Vec<PathBuf> {
+    find_files(folders).audio
 }
 
 /// Whether an entry is hidden, judged by its file name.
@@ -406,6 +480,59 @@ mod tests {
 
         let found = collect_audio_files(&[library.clone(), library.join("one")]);
         assert_eq!(found.len(), 2);
+
+        fs::remove_dir_all(&library).ok();
+    }
+
+    #[test]
+    fn music_in_a_format_the_engine_cannot_read_is_reported_by_its_extension() {
+        let library = scratch(
+            "formats-unreadable",
+            &["a.mp3", "b.wma", "c.APE", "notes.txt", "cover.png"],
+        );
+
+        let report = scan(&request(&[&library]), |_| {});
+
+        assert_eq!(report.scanned, 1, "only the mp3 can be read");
+        assert_eq!(report.unreadable_count(), 2);
+        assert_eq!(
+            report.unreadable_formats(),
+            vec!["ape".to_owned(), "wma".to_owned()],
+            "the report names the formats, not the files"
+        );
+        assert!(
+            !report
+                .unreadable
+                .iter()
+                .any(|path| path.extension().is_some_and(|e| e == "txt")),
+            "a text file is not an unsupported music format"
+        );
+
+        fs::remove_dir_all(&library).ok();
+    }
+
+    #[test]
+    fn the_run_before_a_walk_keeps_the_two_lists_apart() {
+        let library = scratch("found", &["one/a.mp3", "two/b.wv", "c.flac"]);
+
+        let found = find_files(std::slice::from_ref(&library));
+
+        assert_eq!(found.audio.len(), 2);
+        assert_eq!(found.unreadable.len(), 1);
+        assert_eq!(collect_audio_files(std::slice::from_ref(&library)).len(), 2);
+
+        fs::remove_dir_all(&library).ok();
+    }
+
+    #[test]
+    fn a_folder_of_unreadable_music_still_reports_nothing_indexed() {
+        let library = scratch("only-unreadable", &["a.wma", "b.ape"]);
+
+        let report = scan(&request(&[&library]), |_| {});
+
+        assert!(report.is_empty());
+        assert_eq!(report.scanned, 0);
+        assert_eq!(report.unreadable_count(), 2);
 
         fs::remove_dir_all(&library).ok();
     }

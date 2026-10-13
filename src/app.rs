@@ -20,9 +20,13 @@ use crate::audio::{Playback, PlaybackEvent, QueueItem, RepeatMode};
 use crate::config::{AppConfig, ThemeMode};
 use crate::error::{AppError, Result};
 use crate::library::browse::LibraryBrowse;
-use crate::library::{ImportSummary, Library, ScanProgress, ScanSession, Track, TrackId};
+use crate::library::edit::{Outcome, field_errors};
+use crate::library::{
+    ImportSummary, Library, ScanProgress, ScanSession, Track, TrackEditor, TrackId,
+};
 use crate::ui;
 use crate::ui::artwork::ArtworkCache;
+use crate::ui::dialog::Confirmation;
 use crate::ui::navigation::NavSection;
 
 /// What was learned about the user's settings before the window opened.
@@ -136,6 +140,10 @@ pub struct MusicCraftApp {
     path_input: String,
     /// Text the user is typing into the library's "import a folder" field.
     folder_input: String,
+    /// The metadata editor, when one is open.
+    editor: Option<TrackEditor>,
+    /// A destructive library action waiting for the user to agree to it.
+    pending: Option<Confirmation>,
     /// The theme currently installed into `egui`, so it is only re-applied when
     /// the preference actually changes.
     applied_theme: Option<ThemeMode>,
@@ -205,6 +213,8 @@ impl MusicCraftApp {
             artwork: ArtworkCache::new(),
             path_input: String::new(),
             folder_input: String::new(),
+            editor: None,
+            pending: None,
             applied_theme: None,
         };
 
@@ -851,6 +861,345 @@ impl MusicCraftApp {
         removed
     }
 
+    /// Open the metadata editor on one track of the library.
+    ///
+    /// Returns whether there was such a track. The editor starts from what the
+    /// row currently says rather than from the file, so a user who edits twice
+    /// keeps editing what they last typed.
+    pub fn open_editor(&mut self, id: TrackId) -> bool {
+        let Some(track) = self.track_of(id) else {
+            return false;
+        };
+
+        self.editor = Some(TrackEditor::new(&track));
+        true
+    }
+
+    /// Open the editor on the selection, when exactly one track is selected.
+    ///
+    /// Returns whether an editor was opened: a multi-track selection has no one
+    /// set of tags to edit, so it opens nothing rather than guessing.
+    pub fn edit_selection(&mut self) -> bool {
+        let ids: Vec<TrackId> = self.browse.selection().ids().collect();
+        match ids.as_slice() {
+            [id] => self.open_editor(*id),
+            _ => false,
+        }
+    }
+
+    /// The open metadata editor, if there is one.
+    #[must_use]
+    pub fn editor(&self) -> Option<&TrackEditor> {
+        self.editor.as_ref()
+    }
+
+    /// The open metadata editor, mutably, for the view's text fields.
+    pub fn editor_mut(&mut self) -> Option<&mut TrackEditor> {
+        self.editor.as_mut()
+    }
+
+    /// Close the metadata editor, discarding whatever was typed into it.
+    pub fn close_editor(&mut self) {
+        self.editor = None;
+    }
+
+    /// Save the editor's fields into the library, leaving the file alone.
+    ///
+    /// The file keeps the tags it had; the row records that the two now differ,
+    /// which is what the marker in the track table is for.
+    pub fn save_editor(&mut self) {
+        let Some(id) = self.editor.as_ref().map(TrackEditor::track_id) else {
+            return;
+        };
+
+        let Some((fields, artwork)) = self.editor_fields() else {
+            return;
+        };
+
+        // Nothing typed and nothing to record: the row already says this, so
+        // there is no edit to store and no reason to mark the file as behind.
+        if self
+            .track_of(id)
+            .is_some_and(|track| fields.matches(&track) && track.artwork_path == artwork)
+        {
+            if let Some(editor) = self.editor.as_mut() {
+                editor.set_outcome(Outcome::Saved);
+            }
+            return;
+        }
+
+        self.apply_edit(id, &fields, artwork.as_deref(), false);
+    }
+
+    /// Save the editor's fields *into the file*, rewriting its tags.
+    ///
+    /// This is the only path in the application that writes to a user's audio
+    /// file, and it runs only when the user presses the button that says so. A
+    /// failure — a read-only file, a format whose tags cannot be written — is
+    /// reported in the editor, and the library is left as it was.
+    pub fn write_editor_tags(&mut self) {
+        let Some(id) = self.editor.as_ref().map(TrackEditor::track_id) else {
+            return;
+        };
+
+        let Some((fields, artwork)) = self.editor_fields() else {
+            return;
+        };
+
+        let Some(track) = self.track_of(id) else {
+            self.report_editor_failure("that track is no longer in the library.");
+            return;
+        };
+
+        if track.missing {
+            self.report_editor_failure(
+                "the file is not on disk, so there are no tags to write into it.",
+            );
+            return;
+        }
+
+        // Only a picture the user chose is embedded; the file's own cover is
+        // left alone by anything the editor does without being asked.
+        let picture = match self.chosen_picture() {
+            Ok(picture) => picture,
+            Err(error) => {
+                self.report_editor_failure(error.to_string());
+                return;
+            }
+        };
+
+        match crate::library::metadata::write(&track.path, &fields, picture.as_deref()) {
+            Ok(()) => self.apply_edit(id, &fields, artwork.as_deref(), true),
+            Err(error) => self.report_editor_failure(error.to_string()),
+        }
+    }
+
+    /// Take the image named in the editor as this track's cover.
+    ///
+    /// The picture is copied into the artwork cache under the track's own name,
+    /// so it survives the original being moved, and the editor shows it at once.
+    /// Nothing is written to the file until the user asks for that.
+    pub fn use_editor_artwork(&mut self) {
+        let Some(editor) = self.editor.as_ref() else {
+            return;
+        };
+
+        let typed = editor.draft().artwork_input().trim().to_owned();
+        if typed.is_empty() {
+            self.report_editor_failure("type the path of an image first.");
+            return;
+        }
+
+        let source = PathBuf::from(&typed);
+        let image = match std::fs::read(&source) {
+            Ok(image) => image,
+            Err(error) => {
+                self.report_editor_failure(AppError::io(&source, error).to_string());
+                return;
+            }
+        };
+
+        // The bytes are the authority on whether this is an image at all: a
+        // file named `.jpg` that holds something else is refused here rather
+        // than being cached and shown as a broken tile.
+        if ui::artwork::decode(&image).is_none() {
+            self.report_editor_failure(AppError::not_an_image(&source).to_string());
+            return;
+        }
+
+        let track_path = editor.draft().path().clone();
+        let directory = self.artwork_directory();
+
+        match crate::library::artwork::store(&directory, &track_path, &image) {
+            Ok(cached) => {
+                // The cache file is named after the track, so a second choice
+                // reuses the same name: the decoded cover has to be dropped or
+                // the album view would keep drawing the previous picture.
+                self.artwork.forget(&cached);
+
+                if let Some(editor) = self.editor.as_mut() {
+                    editor.draft_mut().set_replacement(cached);
+                    editor.draft_mut().artwork_input_mut().clear();
+                    editor.clear_outcome();
+                }
+            }
+            Err(error) => self.report_editor_failure(error.to_string()),
+        }
+    }
+
+    /// Ask the user to confirm removing the selected tracks.
+    pub fn ask_to_remove_selection(&mut self) {
+        let count = self.browse.selection().len();
+        if count > 0 {
+            self.pending = Some(Confirmation::RemoveSelection { count });
+        }
+    }
+
+    /// Ask the user to confirm forgetting every track whose file has vanished.
+    pub fn ask_to_forget_missing(&mut self) {
+        let count = self.browse.missing_count();
+        if count > 0 {
+            self.pending = Some(Confirmation::ForgetMissing { count });
+        }
+    }
+
+    /// The destructive action waiting to be confirmed, if there is one.
+    #[must_use]
+    pub fn pending_confirmation(&self) -> Option<Confirmation> {
+        self.pending
+    }
+
+    /// Drop the pending action without doing it.
+    pub fn cancel_confirmation(&mut self) {
+        self.pending = None;
+    }
+
+    /// Carry out the action the user agreed to.
+    ///
+    /// Both arms remove rows and nothing else: no audio file is deleted by any
+    /// path in this application, and both say so before they run.
+    pub fn confirm_pending(&mut self) {
+        match self.pending.take() {
+            Some(Confirmation::RemoveSelection { .. }) => {
+                self.remove_selection_from_library();
+            }
+            Some(Confirmation::ForgetMissing { .. }) => {
+                self.forget_missing();
+            }
+            None => {}
+        }
+    }
+
+    /// Forget every row whose file has vanished.
+    ///
+    /// Returns how many rows went. A file that comes back is indexed again by
+    /// the next scan, so this is housekeeping rather than a deletion.
+    pub fn forget_missing(&mut self) -> usize {
+        let removed = match self.library.as_ref() {
+            Some(library) => match library.repository().remove_missing() {
+                Ok(removed) => removed,
+                Err(error) => {
+                    self.library_error =
+                        Some(format!("the missing files could not be removed: {error}"));
+                    return 0;
+                }
+            },
+            None => return 0,
+        };
+
+        if removed > 0
+            && let Err(error) = self.refresh()
+        {
+            self.library_error = Some(error.to_string());
+        }
+
+        removed
+    }
+
+    /// One track of the library by its row identifier.
+    #[must_use]
+    pub fn track_of(&self, id: TrackId) -> Option<Track> {
+        self.browse
+            .tracks()
+            .iter()
+            .find(|track| track.id == Some(id))
+            .cloned()
+    }
+
+    /// The validated fields and cover of the open editor.
+    ///
+    /// Returns `None` when no editor is open, or when what was typed does not
+    /// pass validation — in which case the editor is left showing why, and
+    /// nothing has been written anywhere.
+    fn editor_fields(&mut self) -> Option<(crate::library::TrackFields, Option<PathBuf>)> {
+        let editor = self.editor.as_ref()?;
+
+        match editor.fields() {
+            Ok(fields) => Some((fields, editor.draft().artwork().cloned())),
+            Err(errors) => {
+                self.report_editor_failure(field_errors(&errors));
+                None
+            }
+        }
+    }
+
+    /// The picture the user chose in the open editor, read ready to embed.
+    ///
+    /// # Errors
+    ///
+    /// Returns the read failure when the chosen image has gone since it was
+    /// picked, which the editor reports the same way as any other failure.
+    fn chosen_picture(&self) -> Result<Option<Vec<u8>>> {
+        let Some(path) = self
+            .editor
+            .as_ref()
+            .and_then(|editor| editor.draft().replacement())
+        else {
+            return Ok(None);
+        };
+
+        std::fs::read(path)
+            .map(Some)
+            .map_err(|error| AppError::io(path, error))
+    }
+
+    /// Store what the user typed and bring the library view up to date.
+    fn apply_edit(
+        &mut self,
+        id: TrackId,
+        fields: &crate::library::TrackFields,
+        artwork: Option<&Path>,
+        written: bool,
+    ) {
+        let stored = match self.library.as_ref() {
+            Some(library) => library
+                .repository()
+                .apply_edit(id, fields, artwork, written),
+            None => {
+                self.report_editor_failure("there is no library to save into.");
+                return;
+            }
+        };
+
+        match stored {
+            Ok(true) => {
+                self.settle_editor(written);
+                if let Err(error) = self.refresh() {
+                    self.library_error = Some(error.to_string());
+                }
+            }
+            Ok(false) => self.report_editor_failure("that track is no longer in the library."),
+            Err(error) => self.report_editor_failure(error.to_string()),
+        }
+    }
+
+    /// Tell the open editor what just happened to the row it is editing.
+    fn settle_editor(&mut self, written: bool) {
+        if let Some(editor) = self.editor.as_mut() {
+            editor.set_outcome(if written {
+                Outcome::Written
+            } else {
+                Outcome::Saved
+            });
+        }
+    }
+
+    /// Show a failure in the open editor.
+    fn report_editor_failure(&mut self, reason: impl Into<String>) {
+        if let Some(editor) = self.editor.as_mut() {
+            editor.report_failure(reason);
+        }
+    }
+
+    /// Where chosen cover art is cached, following the open library when there
+    /// is one and falling back to the scratch directory when there is not.
+    fn artwork_directory(&self) -> PathBuf {
+        self.library.as_ref().map_or_else(
+            || std::env::temp_dir().join(crate::library::artwork::ARTWORK_DIRECTORY),
+            |library| library.artwork_directory().to_path_buf(),
+        )
+    }
+
     /// The tracks of an album, ready to be queued.
     #[must_use]
     pub fn album_tracks(&self, album: &str) -> Vec<Track> {
@@ -973,6 +1322,17 @@ pub fn import_message(summary: &ImportSummary, cancelled: bool) -> String {
         message.push_str(&format!(", {} unreadable", scan.failed));
     }
 
+    // A file the player cannot decode is not a failure of the scan, but it is
+    // the reason part of the user's music is not in the list, so the formats
+    // are named rather than left as a silent gap.
+    if scan.unreadable_count() > 0 {
+        let formats = scan.unreadable_formats().join(", ");
+        message.push_str(&format!(
+            ", {} in formats this player cannot read ({formats})",
+            scan.unreadable_count()
+        ));
+    }
+
     if summary.missing > 0 {
         message.push_str(&format!(", {} missing from disk", summary.missing));
     }
@@ -1027,6 +1387,7 @@ mod tests {
     use super::*;
 
     use crate::audio::AudioEngine;
+    use crate::library::{ClickMode, ScanReport};
 
     #[test]
     fn transport_starts_unavailable() {
@@ -1239,6 +1600,368 @@ mod tests {
 
         assert!((app.volume() - crate::config::DEFAULT_VOLUME).abs() < f32::EPSILON);
         assert_eq!(app.transport(), TransportState::Unavailable);
+    }
+
+    #[test]
+    fn the_import_line_names_the_formats_that_could_not_be_read() {
+        let report = ScanReport {
+            scanned: 4,
+            unreadable: vec![PathBuf::from("/music/a.ape"), PathBuf::from("/music/b.wma")],
+            ..ScanReport::default()
+        };
+        let summary = ImportSummary {
+            scan: report,
+            inserted: 4,
+            ..ImportSummary::default()
+        };
+
+        let message = import_message(&summary, false);
+
+        assert!(message.contains("Indexed 4 tracks"), "{message}");
+        assert!(
+            message.contains("2 in formats this player cannot read"),
+            "{message}"
+        );
+        assert!(message.contains("ape, wma"), "{message}");
+    }
+
+    #[test]
+    fn an_edit_is_saved_into_the_library_without_touching_the_file() {
+        let mut app = edited();
+        let path = app.editor().expect("an editor").draft().path().clone();
+        let before = std::fs::read(&path).expect("the fixture is readable");
+
+        *app.editor_mut().expect("an editor").draft_mut().title_mut() = "Olson".to_owned();
+        app.save_editor();
+
+        let id = app.editor().expect("an editor").track_id();
+        let stored = app.track_of(id).expect("the track");
+        assert_eq!(stored.title, "Olson");
+        assert!(
+            stored.tags_dirty,
+            "the library says the file has not been told"
+        );
+        assert_eq!(
+            std::fs::read(&path).expect("still readable"),
+            before,
+            "saving to the library must not rewrite the file"
+        );
+        assert_eq!(
+            app.editor().expect("an editor").outcome(),
+            Some(&Outcome::Saved)
+        );
+    }
+
+    #[test]
+    fn writing_to_the_file_puts_the_edit_into_its_tags() {
+        let mut app = edited();
+        let path = app.editor().expect("an editor").draft().path().clone();
+
+        *app.editor_mut().expect("an editor").draft_mut().title_mut() = "Olson".to_owned();
+        app.write_editor_tags();
+
+        let tags = crate::library::metadata::read(&path).expect("the file should still read");
+        assert_eq!(tags.title.as_deref(), Some("Olson"));
+        assert_eq!(
+            app.editor().expect("an editor").outcome(),
+            Some(&Outcome::Written)
+        );
+
+        let id = app.editor().expect("an editor").track_id();
+        assert!(!app.track_of(id).expect("the track").tags_dirty);
+    }
+
+    #[test]
+    fn a_missing_title_stops_the_edit_and_says_which_field_is_wrong() {
+        let mut app = edited();
+        *app.editor_mut().expect("an editor").draft_mut().title_mut() = "   ".to_owned();
+
+        app.save_editor();
+
+        let outcome = app.editor().expect("an editor").outcome().expect("outcome");
+        assert!(outcome.is_failure());
+        assert!(outcome.message().contains("Title"), "{}", outcome.message());
+
+        let id = app.editor().expect("an editor").track_id();
+        assert_eq!(
+            app.track_of(id).expect("the track").title,
+            "Roygbiv",
+            "nothing was written"
+        );
+    }
+
+    #[test]
+    fn saving_without_changing_anything_does_not_mark_the_row_as_edited() {
+        let mut app = edited();
+
+        app.save_editor();
+
+        let id = app.editor().expect("an editor").track_id();
+        assert!(!app.track_of(id).expect("the track").tags_dirty);
+        assert_eq!(
+            app.editor().expect("an editor").outcome(),
+            Some(&Outcome::Saved)
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_not_on_disk_cannot_be_written_into() {
+        let mut app = edited();
+        let id = app.editor().expect("an editor").track_id();
+        let path = app.editor().expect("an editor").draft().path().clone();
+        let before = std::fs::read(&path).expect("the fixture is readable");
+
+        // A row can outlive its file: the scan flags it and keeps it.
+        app.library_mut()
+            .expect("a library")
+            .repository()
+            .mark_missing(&path, true)
+            .expect("the flag");
+        app.refresh().expect("refresh");
+        assert!(app.track_of(id).expect("the track").missing);
+
+        *app.editor_mut().expect("an editor").draft_mut().title_mut() = "Olson".to_owned();
+        app.write_editor_tags();
+
+        let outcome = app.editor().expect("an editor").outcome().expect("outcome");
+        assert!(outcome.is_failure());
+        assert!(
+            outcome.message().contains("not on disk"),
+            "{}",
+            outcome.message()
+        );
+        assert_eq!(
+            std::fs::read(&path).expect("still readable"),
+            before,
+            "nothing was written into the file"
+        );
+    }
+
+    #[test]
+    fn choosing_an_image_caches_it_and_still_writes_nothing_to_the_file() {
+        let mut app = edited();
+        let path = app.editor().expect("an editor").draft().path().clone();
+        let image = crate::fixtures::scratch_file("chosen.png", &crate::fixtures::png());
+        let before = std::fs::read(&path).expect("the fixture is readable");
+
+        *app.editor_mut()
+            .expect("an editor")
+            .draft_mut()
+            .artwork_input_mut() = image.display().to_string();
+        app.use_editor_artwork();
+
+        let cached = app
+            .editor()
+            .expect("an editor")
+            .draft()
+            .artwork()
+            .expect("the cover the editor now shows")
+            .clone();
+        assert!(cached.is_file(), "the picture was cached at {cached:?}");
+        assert_eq!(
+            app.editor().expect("an editor").draft().replacement(),
+            Some(&cached)
+        );
+        assert_eq!(
+            app.editor().expect("an editor").draft().artwork_input(),
+            "",
+            "the field resets after a success"
+        );
+
+        app.save_editor();
+        let id = app.editor().expect("an editor").track_id();
+        assert_eq!(
+            app.track_of(id).expect("the track").artwork_path,
+            Some(cached)
+        );
+        assert_eq!(
+            std::fs::read(&path).expect("still readable"),
+            before,
+            "choosing a cover is not yet writing to the file"
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_not_an_image_is_refused_as_a_cover() {
+        let mut app = edited();
+        let text = crate::fixtures::scratch_file("notes.png", b"this is not an image");
+
+        *app.editor_mut()
+            .expect("an editor")
+            .draft_mut()
+            .artwork_input_mut() = text.display().to_string();
+        app.use_editor_artwork();
+
+        let outcome = app.editor().expect("an editor").outcome().expect("outcome");
+        assert!(outcome.is_failure());
+        assert!(outcome.message().contains("image"), "{}", outcome.message());
+        assert!(app.editor().expect("an editor").draft().artwork().is_none());
+    }
+
+    #[test]
+    fn choosing_a_cover_that_is_not_there_reports_the_failure() {
+        let mut app = edited();
+
+        *app.editor_mut()
+            .expect("an editor")
+            .draft_mut()
+            .artwork_input_mut() = "/music/no-such-cover.png".to_owned();
+        app.use_editor_artwork();
+
+        assert!(
+            app.editor()
+                .expect("an editor")
+                .outcome()
+                .expect("outcome")
+                .is_failure()
+        );
+    }
+
+    #[test]
+    fn an_empty_cover_field_asks_for_one_instead_of_failing_silently() {
+        let mut app = edited();
+
+        app.use_editor_artwork();
+
+        let outcome = app.editor().expect("an editor").outcome().expect("outcome");
+        assert!(outcome.is_failure());
+        assert!(outcome.message().contains("path"), "{}", outcome.message());
+    }
+
+    #[test]
+    fn the_editor_opens_on_a_single_selection_and_not_on_several() {
+        let mut app = imported();
+        let visible = app.browse().visible_track_ids();
+
+        assert!(
+            !app.edit_selection(),
+            "nothing is selected, so there is nothing to edit"
+        );
+
+        select(&mut app, visible[0]);
+        assert!(app.edit_selection());
+        assert_eq!(app.editor().map(TrackEditor::track_id), Some(visible[0]));
+        app.close_editor();
+
+        app.browse_mut()
+            .selection_mut()
+            .apply(&visible, visible[1], ClickMode::Toggle);
+        assert!(!app.edit_selection(), "two tracks have two sets of tags");
+    }
+
+    #[test]
+    fn forgetting_the_missing_rows_leaves_the_rest_of_the_library_alone() {
+        let mut app = imported();
+        let visible = app.browse().visible_track_ids();
+        let gone = visible[0];
+
+        app.library_mut()
+            .expect("a library")
+            .repository()
+            .mark_missing("/music/1.wav", true)
+            .expect("the flag");
+        app.refresh().expect("refresh");
+        assert_eq!(app.browse().missing_count(), 1);
+
+        app.ask_to_forget_missing();
+        assert!(app.pending_confirmation().is_some());
+        app.confirm_pending();
+
+        assert_eq!(app.browse().track_count(), 1);
+        assert!(
+            app.browse()
+                .tracks()
+                .iter()
+                .all(|track| track.id != Some(gone)),
+            "the row that was gone is the one that went"
+        );
+    }
+
+    /// An application with a real audio file indexed and its editor open.
+    ///
+    /// The file is a silent WAV, so the paths that write tags have something
+    /// real to write into; the library row is the one a scan would have stored.
+    fn edited() -> MusicCraftApp {
+        let path = crate::fixtures::scratch_file("edit.wav", &crate::fixtures::silent_wav(64));
+        let library = crate::library::Library::in_memory(path.with_extension("artwork"))
+            .expect("an in-memory library");
+        let mut app = resolve(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error: None,
+            },
+            library,
+        );
+
+        let metadata = std::fs::metadata(&path).expect("the fixture should exist");
+        let mut track = Track::from_path(&path);
+        track.id = Some(TrackId(1));
+        track.title = "Roygbiv".to_owned();
+        track.artist = Some("Boards of Canada".to_owned());
+        track.size_bytes = Some(metadata.len());
+        track.modified_at = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|elapsed| i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX));
+
+        app.library_mut()
+            .expect("a library")
+            .repository_mut()
+            .upsert_track(&track)
+            .expect("the track should be stored");
+        app.refresh().expect("the library should refresh");
+        assert!(app.open_editor(TrackId(1)));
+
+        app
+    }
+
+    /// An application whose library holds two rows keyed by their paths.
+    fn imported() -> MusicCraftApp {
+        let library =
+            crate::library::Library::in_memory(std::env::temp_dir().join("musiccraft-app-artwork"))
+                .expect("an in-memory library");
+        let mut app = resolve(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error: None,
+            },
+            library,
+        );
+
+        for (id, path) in [(1, "/music/1.wav"), (2, "/music/2.wav")] {
+            let mut track = Track::from_path(path);
+            track.id = Some(TrackId(id));
+            track.title = format!("Track {id}");
+            app.library_mut()
+                .expect("a library")
+                .repository_mut()
+                .upsert_track(&track)
+                .expect("the track should be stored");
+        }
+
+        app.refresh().expect("the library should refresh");
+
+        app
+    }
+
+    /// Select one row of the library table, as a click would.
+    fn select(app: &mut MusicCraftApp, id: TrackId) {
+        let visible = app.browse().visible_track_ids();
+        app.browse_mut()
+            .selection_mut()
+            .apply(&visible, id, crate::library::ClickMode::Replace);
+    }
+
+    /// Build an application around a library, with no output device.
+    fn resolve(startup: Startup, library: crate::library::Library) -> MusicCraftApp {
+        MusicCraftApp::with_library(
+            startup,
+            Playback::with_engine(AudioEngine::without_device(), 1.0),
+            library,
+        )
     }
 
     /// An application with a player that has no output device.

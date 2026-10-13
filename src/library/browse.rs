@@ -197,6 +197,8 @@ pub struct LibraryBrowse {
     query_text: String,
     sort: Sort,
     selection: Selection,
+    /// Whether the table is showing only the tracks whose files have vanished.
+    missing_only: bool,
     tracks: Vec<Track>,
     albums: Vec<AlbumCard>,
     artists: Vec<Artist>,
@@ -329,9 +331,19 @@ impl LibraryBrowse {
     }
 
     /// The tracks the table should draw, filtered and ordered.
+    ///
+    /// The query hides rows by their text; the missing-files switch hides them
+    /// by whether their file is still there. Both are applied to the in-memory
+    /// rows, so neither ever reaches the database.
     #[must_use]
     pub fn visible_tracks(&self) -> Vec<&Track> {
-        filter_tracks(&self.tracks, &self.query(), self.sort)
+        let mut matched = filter_tracks(&self.tracks, &self.query(), self.sort);
+
+        if self.missing_only {
+            matched.retain(|track| track.missing);
+        }
+
+        matched
     }
 
     /// The albums the grid should draw, filtered by name.
@@ -384,7 +396,44 @@ impl LibraryBrowse {
     /// Whether a query is hiding some of the library.
     #[must_use]
     pub fn is_filtered(&self) -> bool {
-        !self.query().is_empty()
+        !self.query().is_empty() || self.missing_only
+    }
+
+    /// Whether the table is showing only tracks whose files have vanished.
+    #[must_use]
+    pub fn missing_only(&self) -> bool {
+        self.missing_only
+    }
+
+    /// Show only the tracks whose files have vanished, or show them all again.
+    pub fn set_missing_only(&mut self, missing_only: bool) {
+        self.missing_only = missing_only;
+    }
+
+    /// Turn the missing-files filter on or off, returning the new state.
+    pub fn toggle_missing_only(&mut self) -> bool {
+        self.missing_only = !self.missing_only;
+        self.missing_only
+    }
+
+    /// How many indexed tracks are known to have lost their file.
+    ///
+    /// Counted over the whole library rather than over the visible rows: it is
+    /// what the view offers to filter by and to clean up, so it must not shrink
+    /// once the filter is on.
+    #[must_use]
+    pub fn missing_count(&self) -> usize {
+        self.tracks.iter().filter(|track| track.missing).count()
+    }
+
+    /// The identifiers of the tracks whose files have vanished.
+    #[must_use]
+    pub fn missing_ids(&self) -> Vec<TrackId> {
+        self.tracks
+            .iter()
+            .filter(|track| track.missing)
+            .filter_map(|track| track.id)
+            .collect()
     }
 
     /// The tracks of one album, in album order.
@@ -721,6 +770,77 @@ mod tests {
 
         assert_eq!(browse.tracks_of_artist("Various Artists").len(), 1);
         assert_eq!(browse.tracks_of_artist("Aphex Twin").len(), 1);
+    }
+
+    #[test]
+    fn the_missing_filter_narrows_the_table_to_the_tracks_that_are_gone() {
+        let mut gone = track(1, "Gone", None, None);
+        gone.missing = true;
+        let mut browse = LibraryBrowse::new();
+        browse.replace(vec![track(2, "Here", None, None), gone], vec![], vec![]);
+
+        assert_eq!(browse.visible_tracks().len(), 2);
+        assert_eq!(browse.missing_count(), 1);
+
+        assert!(browse.toggle_missing_only());
+        assert!(
+            browse.is_filtered(),
+            "a filter the user set is a filter: the view must offer a way back"
+        );
+        let titles: Vec<&str> = browse
+            .visible_tracks()
+            .into_iter()
+            .map(|track| track.title.as_str())
+            .collect();
+        assert_eq!(titles, vec!["Gone"]);
+        assert_eq!(browse.missing_ids(), vec![TrackId(1)]);
+
+        assert!(!browse.toggle_missing_only());
+        assert_eq!(browse.visible_tracks().len(), 2);
+        assert!(!browse.is_filtered());
+    }
+
+    #[test]
+    fn the_missing_count_survives_the_filter_being_turned_on() {
+        let mut gone = track(1, "Gone", None, None);
+        gone.missing = true;
+        let mut browse = LibraryBrowse::new();
+        browse.replace(vec![track(2, "Here", None, None), gone], vec![], vec![]);
+
+        browse.set_missing_only(true);
+
+        assert_eq!(
+            browse.missing_count(),
+            1,
+            "the count describes the library, not the visible rows"
+        );
+    }
+
+    #[test]
+    fn a_query_and_the_missing_filter_apply_together() {
+        let mut gone = track(1, "Boards of Canada - Gone", None, None);
+        gone.missing = true;
+        let mut browse = LibraryBrowse::new();
+        browse.replace(
+            vec![
+                track(2, "Gone But Present", None, None),
+                gone,
+                track(3, "Something Else", None, None),
+            ],
+            vec![],
+            vec![],
+        );
+
+        browse.set_missing_only(true);
+        browse.set_query_text("gone");
+
+        let titles: Vec<&str> = browse
+            .visible_tracks()
+            .into_iter()
+            .map(|track| track.title.as_str())
+            .collect();
+
+        assert_eq!(titles, vec!["Boards of Canada - Gone"]);
     }
 
     #[test]

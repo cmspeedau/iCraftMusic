@@ -11,7 +11,7 @@ use rusqlite::Connection;
 use crate::error::{AppError, Result};
 
 /// The schema version this build writes.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// One step of the schema's history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +40,11 @@ pub fn migrations() -> &'static [Migration] {
             version: 2,
             description: "playlist names are unique ignoring case",
             sql: SQL_V2,
+        },
+        Migration {
+            version: 3,
+            description: "a track can be edited without its file being rewritten",
+            sql: SQL_V3,
         },
     ]
 }
@@ -91,6 +96,10 @@ CREATE INDEX IF NOT EXISTS playlist_tracks_track_idx ON playlist_tracks (track_i
 
 const SQL_V2: &str = "
 CREATE UNIQUE INDEX IF NOT EXISTS playlists_name_idx ON playlists (name COLLATE NOCASE);
+";
+
+const SQL_V3: &str = "
+ALTER TABLE tracks ADD COLUMN tags_dirty INTEGER NOT NULL DEFAULT 0;
 ";
 
 /// Bring `connection` up to [`SCHEMA_VERSION`].

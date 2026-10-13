@@ -8,14 +8,24 @@
 //! The window has no header strip: what one showed (the application name and
 //! version, and the failure to load the stored settings) lives in the Settings
 //! section's About pane, so the first row of the window is the transport.
+//!
+//! Two things are drawn over everything rather than inside a section: the
+//! metadata editor ([`editview`]) and the confirmation a destructive library
+//! action asks for ([`dialog`]). Both are floating windows, so they can be
+//! opened from any section and cannot be clipped by one. The keyboard is read
+//! last ([`shortcuts`]), which is what keeps a shortcut from stealing a key
+//! from a widget that has just claimed it.
 
 pub mod artwork;
+pub mod dialog;
+pub mod editview;
 pub mod libraryview;
 pub mod navigation;
 pub mod nowplaying;
 pub mod playlistview;
 pub mod queueview;
 pub mod settingsview;
+pub mod shortcuts;
 pub mod statusbar;
 pub mod theme;
 
@@ -34,6 +44,13 @@ pub fn render(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     nowplaying::bar(app, ui);
     navigation::sidebar(app, ui);
     content(app, ui);
+
+    // The editor and the confirmation are overlays on top of whatever section
+    // is open, and the keyboard is read last so a shortcut cannot fight with a
+    // widget that has just claimed the key for itself.
+    editview::window(app, ui);
+    dialog::confirm(app, ui);
+    shortcuts::handle(app, ui);
 }
 
 /// Content area: heading for the active section plus its view.
@@ -85,4 +102,123 @@ pub fn empty_state(ui: &mut egui::Ui, title: &str, detail: &str, bullets: &[&str
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::app::Startup;
+    use crate::audio::{AudioEngine, Playback};
+    use crate::config::AppConfig;
+    use crate::library::{ClickMode, Library, Track, TrackId};
+
+    #[test]
+    fn the_editor_and_the_question_draw_over_the_section_that_is_open() {
+        let mut app = imported();
+        let visible = app.browse().visible_track_ids();
+        app.browse_mut()
+            .selection_mut()
+            .apply(&visible, visible[0], ClickMode::Replace);
+        assert!(app.edit_selection());
+        app.ask_to_remove_selection();
+
+        let painted = shell(&mut app);
+
+        assert!(
+            painted.iter().any(|text| text == "Edit details"),
+            "the editor is not on screen: {painted:?}"
+        );
+        assert!(
+            painted
+                .iter()
+                .any(|text| text.contains("Remove from the library?")),
+            "the question is not on screen: {painted:?}"
+        );
+    }
+
+    #[test]
+    fn nothing_extra_is_drawn_when_nothing_is_open() {
+        let mut app = imported();
+
+        let painted = shell(&mut app);
+
+        assert!(
+            !painted.iter().any(|text| text == "Edit details"),
+            "no editor is open: {painted:?}"
+        );
+        assert!(painted.iter().any(|text| text == "Library"));
+    }
+
+    /// Every line of text a whole frame of the shell paints.
+    ///
+    /// Drawn more than once because a floating area has to measure itself
+    /// before it paints anything.
+    fn shell(app: &mut MusicCraftApp) -> Vec<String> {
+        let ctx = egui::Context::default();
+        let mut output = None;
+
+        for _ in 0..3 {
+            let mut frame = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1180.0, 808.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| render(app, ui),
+            );
+            frame.textures_delta.clear();
+            output = Some(frame);
+        }
+
+        let output = output.expect("`run_ui` ran at least once");
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            collect(&clipped.shape, &mut texts);
+        }
+
+        texts
+    }
+
+    /// Collect the text of a shape and everything nested inside it.
+    fn collect(shape: &egui::Shape, texts: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => texts.push(text.galley.text().to_owned()),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect(shape, texts);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// An application whose library holds one track.
+    fn imported() -> MusicCraftApp {
+        let library = Library::in_memory(std::env::temp_dir().join("musiccraft-shell-artwork"))
+            .expect("an in-memory library");
+        let mut app = MusicCraftApp::with_library(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error: None,
+            },
+            Playback::with_engine(AudioEngine::without_device(), 1.0),
+            library,
+        );
+
+        let mut track = Track::from_path("/music/Roygbiv.mp3");
+        track.id = Some(TrackId(1));
+        track.title = "Roygbiv".to_owned();
+        app.library_mut()
+            .expect("a library")
+            .repository_mut()
+            .upsert_track(&track)
+            .expect("the track should be stored");
+        app.refresh().expect("the library should refresh");
+
+        app
+    }
 }

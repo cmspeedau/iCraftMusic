@@ -66,6 +66,7 @@ enum RowAction {
     Select { index: usize, mode: ClickMode },
     Play { index: usize },
     Queue { index: usize },
+    Edit { index: usize },
     Remove { index: usize },
 }
 
@@ -113,8 +114,44 @@ pub fn search_field(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// bottom of the window — so this line reports only what the library view itself
 /// is narrowing.
 fn status(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    if app.browse().is_filtered() {
-        let shown = app.browse().visible_tracks().len();
+    let shown = app.browse().visible_tracks().len();
+    let filtered = app.browse().is_filtered();
+    let missing = app.browse().missing_count();
+    let missing_only = app.browse().missing_only();
+
+    // A file that has gone is the one library problem a scan cannot fix by
+    // itself, so the view names it, offers to show just those rows, and offers
+    // to stop indexing them.
+    if missing > 0 {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!(
+                    "{missing} {} missing from disk",
+                    if missing == 1 { "file is" } else { "files are" }
+                ))
+                .small()
+                .color(theme::WARNING),
+            );
+
+            if ui
+                .small_button(if missing_only { "Show all" } else { "Show them" })
+                .on_hover_text("Show only the tracks whose file has vanished")
+                .clicked()
+            {
+                app.browse_mut().toggle_missing_only();
+            }
+
+            if ui
+                .small_button("Forget them")
+                .on_hover_text("Remove those rows; the files are already gone and a scan puts back any that return")
+                .clicked()
+            {
+                app.ask_to_forget_missing();
+            }
+        });
+    }
+
+    if filtered {
         ui.label(
             RichText::new(format!("{shown} shown"))
                 .small()
@@ -149,11 +186,20 @@ fn selection_actions(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             app.queue_selection();
         }
         if ui
+            .add_enabled(selected == 1, egui::Button::new("Edit details").small())
+            .on_hover_text("Change the title, artist, album and cover of the selected track")
+            .clicked()
+        {
+            app.edit_selection();
+        }
+        if ui
             .small_button("Remove")
             .on_hover_text("Remove from the library; the files stay on disk")
             .clicked()
         {
-            app.remove_selection_from_library();
+            // Nothing is forgotten until the user has agreed to it: the
+            // question is asked by the confirmation drawn over this view.
+            app.ask_to_remove_selection();
         }
         if ui.small_button("Clear").clicked() {
             app.browse_mut().selection_mut().clear();
@@ -211,18 +257,31 @@ fn empty_library(app: &MusicCraftApp, ui: &mut egui::Ui) {
 /// A query that hides everything: say so, and offer a way back.
 fn no_matches(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let query = app.browse().query_text().to_owned();
+    let missing_only = app.browse().missing_only();
 
-    empty_state(
-        ui,
-        "Nothing matches",
-        &format!("No track matches “{query}” in its title, artist, album, genre or path."),
-        &[],
-    );
+    if missing_only {
+        empty_state(
+            ui,
+            "No files are missing",
+            "Every indexed track still has its file. This filter only hides rows, so you can              see the whole library again at any time.",
+            &[],
+        );
+    } else {
+        empty_state(
+            ui,
+            "Nothing matches",
+            &format!("No track matches “{query}” in its title, artist, album, genre or path."),
+            &[],
+        );
+    }
 
     ui.add_space(10.0);
+    // One button, because the two filters can be on at once: clearing either
+    // one alone could leave the table just as empty.
     ui.vertical_centered(|ui| {
-        if ui.button("Clear the search").clicked() {
+        if ui.button("Clear the filters").clicked() {
             app.browse_mut().set_query_text(String::new());
+            app.browse_mut().set_missing_only(false);
         }
     });
 }
@@ -296,6 +355,14 @@ fn tracks_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                         action = Some(RowAction::Queue { index });
                         ui.close();
                     }
+                    if ui
+                        .button("Edit details…")
+                        .on_hover_text("Change the tags the library shows for this track")
+                        .clicked()
+                    {
+                        action = Some(RowAction::Edit { index });
+                        ui.close();
+                    }
                     ui.separator();
                     if ui
                         .button("Remove from library")
@@ -331,13 +398,21 @@ fn tracks_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 app.queue_tracks(std::slice::from_ref(track));
             }
         }
+        RowAction::Edit { index } => {
+            if let Some(id) = visible.get(index).copied() {
+                app.browse_mut()
+                    .selection_mut()
+                    .apply(&visible, id, ClickMode::Replace);
+                app.edit_selection();
+            }
+        }
         RowAction::Remove { index } => {
             if let Some(id) = visible.get(index).copied() {
                 app.browse_mut()
                     .selection_mut()
                     .apply(&visible, id, ClickMode::Replace);
             }
-            app.remove_selection_from_library();
+            app.ask_to_remove_selection();
         }
     }
 }
@@ -462,7 +537,7 @@ fn track_row(
         weak,
     );
 
-    let title = truncate(&track.title, columns.width_of(Column::Title));
+    let title = truncate(&title_cell(track), columns.width_of(Column::Title));
     painter.text(
         Pos2::new(
             rect.left() + columns.offset_of(Column::Title) + CELL_PADDING,
@@ -517,12 +592,36 @@ fn track_row(
     response.on_hover_text(hover_text(track))
 }
 
+/// What marks a row whose tags have been edited here.
+///
+/// A prefix rather than a suffix, so it cannot be the part a narrow column
+/// truncates away — the point of the marker is that it is always visible. The
+/// glyph is one the bundled fonts carry (a pencil is not), and the test below
+/// keeps that true.
+const EDITED_MARKER: &str = "✱";
+
+/// The title as a row shows it.
+///
+/// An edited row carries [`EDITED_MARKER`]; the row's colour already means
+/// "missing" or "playing", so the edit is said in a glyph rather than a shade.
+fn title_cell(track: &Track) -> String {
+    if track.tags_dirty {
+        format!("{EDITED_MARKER} {}", track.title)
+    } else {
+        track.title.clone()
+    }
+}
+
 /// The line shown when the pointer rests on a row.
 fn hover_text(track: &Track) -> String {
     let mut text = String::new();
 
     if track.missing {
         text.push_str("This file is missing from disk\n");
+    }
+
+    if track.tags_dirty {
+        text.push_str("Edited in the library; the file's own tags still hold the old values\n");
     }
 
     text.push_str(&track.path.display().to_string());
@@ -973,6 +1072,43 @@ mod tests {
         assert_eq!(ClickMode::from_modifiers(false, false), ClickMode::Replace);
         assert_eq!(ClickMode::from_modifiers(true, false), ClickMode::Toggle);
         assert_eq!(ClickMode::from_modifiers(false, true), ClickMode::Range);
+    }
+
+    #[test]
+    fn an_edited_row_is_marked_in_front_of_its_title() {
+        let clean = Track::from_path("/music/Roygbiv.mp3");
+        assert_eq!(title_cell(&clean), "Roygbiv");
+
+        let mut edited = clean.clone();
+        edited.tags_dirty = true;
+        assert_eq!(title_cell(&edited), "✱ Roygbiv");
+    }
+
+    #[test]
+    fn the_edit_marker_is_a_glyph_the_fonts_can_draw() {
+        // A marker none of egui's fonts carry would be dropped silently, and
+        // the row would look untouched while claiming to be edited.
+        let ctx = egui::Context::default();
+        let mut drawable = false;
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            drawable = ui
+                .ctx()
+                .fonts_mut(|fonts| fonts.has_glyphs(&FontId::proportional(13.0), EDITED_MARKER));
+        });
+        output.drop_without_applying_deltas();
+
+        assert!(drawable, "none of egui's fonts can draw {EDITED_MARKER}");
+    }
+
+    #[test]
+    fn hovering_an_edited_track_says_the_file_does_not_know_yet() {
+        let mut track = Track::from_path("/music/Roygbiv.mp3");
+        track.tags_dirty = true;
+
+        let text = hover_text(&track);
+
+        assert!(text.contains("Edited"), "{text}");
+        assert!(text.contains("tags"), "{text}");
     }
 
     #[test]

@@ -17,11 +17,11 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::database::schema;
 use crate::error::{AppError, Result};
-use crate::library::track::{Album, Artist, PlaylistId, Track, TrackId};
+use crate::library::track::{Album, Artist, PlaylistId, Track, TrackFields, TrackId};
 
 /// The columns of a `tracks` row, in the order [`row_to_track`] expects.
 const TRACK_COLUMNS: &str = "id, path, title, artist, album, album_artist, genre, track_number, \
-     disc_number, duration_ms, artwork_path, size_bytes, modified_at, missing";
+     disc_number, duration_ms, artwork_path, size_bytes, modified_at, missing, tags_dirty";
 
 /// What storing a track did to the database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,30 +112,7 @@ impl LibraryRepository {
     /// Returns [`AppError::Database`] when the row cannot be read or written.
     pub fn upsert_track(&mut self, track: &Track) -> Result<UpsertOutcome> {
         let path = normalise(&track.path);
-
-        let existing = self.track_by_path(&path)?;
-
-        match existing {
-            None => {
-                insert_track(&self.connection, &path, track)?;
-                Ok(UpsertOutcome::Inserted)
-            }
-            Some(existing) => {
-                let mut incoming = track.clone();
-                incoming.path = path;
-                if existing.same_content(&incoming) {
-                    // The file may have come back since it was marked missing.
-                    if existing.missing {
-                        set_missing(&self.connection, &incoming.path, false)?;
-                        return Ok(UpsertOutcome::Updated);
-                    }
-                    return Ok(UpsertOutcome::Unchanged);
-                }
-
-                update_track(&self.connection, &incoming)?;
-                Ok(UpsertOutcome::Updated)
-            }
-        }
+        merge(&self.connection, &path, track)
     }
 
     /// Store many tracks in one transaction.
@@ -152,35 +129,11 @@ impl LibraryRepository {
 
         for track in tracks {
             let path = normalise(&track.path);
-            let existing: Option<Track> = transaction
-                .query_row(
-                    &format!("SELECT {TRACK_COLUMNS} FROM tracks WHERE path = ?1"),
-                    params![path.to_string_lossy()],
-                    row_to_track,
-                )
-                .optional()
-                .map_err(AppError::database)?;
 
-            match existing {
-                None => {
-                    insert_track(&transaction, &path, track)?;
-                    summary.inserted += 1;
-                }
-                Some(existing) => {
-                    let mut incoming = track.clone();
-                    incoming.path = path;
-                    if existing.same_content(&incoming) {
-                        if existing.missing {
-                            set_missing(&transaction, &incoming.path, false)?;
-                            summary.updated += 1;
-                        } else {
-                            summary.unchanged += 1;
-                        }
-                    } else {
-                        update_track(&transaction, &incoming)?;
-                        summary.updated += 1;
-                    }
-                }
+            match merge(&transaction, &path, track)? {
+                UpsertOutcome::Inserted => summary.inserted += 1,
+                UpsertOutcome::Updated => summary.updated += 1,
+                UpsertOutcome::Unchanged => summary.unchanged += 1,
             }
         }
 
@@ -471,6 +424,55 @@ impl LibraryRepository {
             .map_err(AppError::database)
     }
 
+    /// Apply the user's edits to one row.
+    ///
+    /// `written` says whether the same values were also written into the file's
+    /// own tags: when they were, the row is allowed to stop advertising itself
+    /// as edited, and when they were not, [`Track::tags_dirty`] records that the
+    /// library and the file disagree. `artwork` is the cover the library should
+    /// now show, which the caller has already copied into the artwork cache;
+    /// passing `None` records that there is none. Nothing here touches the disk
+    /// — this is the database half of an edit, and the caller decides whether
+    /// the file half ever happens.
+    ///
+    /// Returns whether a row was found and changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::Database`] when the update fails.
+    pub fn apply_edit(
+        &self,
+        id: TrackId,
+        fields: &TrackFields,
+        artwork: Option<&Path>,
+        written: bool,
+    ) -> Result<bool> {
+        let changed = self
+            .connection
+            .execute(
+                "UPDATE tracks SET
+                     title = ?2, artist = ?3, album = ?4, album_artist = ?5, genre = ?6,
+                     track_number = ?7, disc_number = ?8, artwork_path = ?9, tags_dirty = ?10,
+                     updated_at = datetime('now')
+                 WHERE id = ?1",
+                params![
+                    id.get(),
+                    fields.title,
+                    fields.artist,
+                    fields.album,
+                    fields.album_artist,
+                    fields.genre,
+                    fields.track_number,
+                    fields.disc_number,
+                    artwork.map(|path| path.to_string_lossy().into_owned()),
+                    i64::from(!written),
+                ],
+            )
+            .map_err(AppError::database)?;
+
+        Ok(changed > 0)
+    }
+
     /// How many playlists exist.
     ///
     /// # Errors
@@ -532,6 +534,73 @@ fn normalise(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// Store one scanned track, keyed by its path.
+///
+/// Both the single-track and the batch write paths come through here, so the
+/// rule for what a scan does to a row the user has edited lives in exactly one
+/// place.
+///
+/// The rule: **a scan never overwrites an edit while the file itself has not
+/// changed**. A row marked [`Track::tags_dirty`] whose file still has the size
+/// and modification time the last scan recorded keeps the tags the user typed
+/// and only has its file-derived facts refreshed. Once the file *has* changed
+/// — retagged in another program, re-encoded, replaced — the file is the truth
+/// again and the row follows it, which is what makes a rescan able to pick up
+/// tags set outside this application.
+fn merge(connection: &Connection, path: &Path, track: &Track) -> Result<UpsertOutcome> {
+    let existing: Option<Track> = connection
+        .query_row(
+            &format!("SELECT {TRACK_COLUMNS} FROM tracks WHERE path = ?1"),
+            params![path.to_string_lossy()],
+            row_to_track,
+        )
+        .optional()
+        .map_err(AppError::database)?;
+
+    let Some(existing) = existing else {
+        insert_track(connection, path, track)?;
+        return Ok(UpsertOutcome::Inserted);
+    };
+
+    let mut incoming = track.clone();
+    incoming.path = path.to_path_buf();
+
+    if existing.tags_dirty && !file_changed(&existing, &incoming) {
+        let mut merged = existing.clone();
+        merged.duration = incoming.duration;
+        merged.size_bytes = incoming.size_bytes;
+        merged.modified_at = incoming.modified_at;
+        merged.missing = false;
+
+        if merged.same_content(&existing) && !existing.missing {
+            return Ok(UpsertOutcome::Unchanged);
+        }
+
+        update_file_facts(connection, &merged)?;
+        return Ok(UpsertOutcome::Updated);
+    }
+
+    if existing.same_content(&incoming) {
+        // The file may have come back since it was marked missing.
+        if existing.missing {
+            set_missing(connection, &incoming.path, false)?;
+            return Ok(UpsertOutcome::Updated);
+        }
+        return Ok(UpsertOutcome::Unchanged);
+    }
+
+    update_track(connection, &incoming)?;
+    Ok(UpsertOutcome::Updated)
+}
+
+/// Whether the file itself has been written since the row was last scanned.
+///
+/// Size and modification time are what a scan can see cheaply, and a retag, a
+/// re-encode or a replacement all move at least one of them.
+fn file_changed(existing: &Track, incoming: &Track) -> bool {
+    existing.size_bytes != incoming.size_bytes || existing.modified_at != incoming.modified_at
+}
+
 /// Build a track from a `tracks` row.
 ///
 /// Shared with the playlist queries so both read a track the same way.
@@ -561,6 +630,7 @@ pub(crate) fn row_to_track(row: &Row<'_>) -> rusqlite::Result<Track> {
             .and_then(|value| u64::try_from(value).ok()),
         modified_at: row.get(12)?,
         missing: row.get::<_, i64>(13)? != 0,
+        tags_dirty: row.get::<_, i64>(14)? != 0,
     })
 }
 
@@ -597,13 +667,18 @@ fn insert_track(connection: &Connection, path: &Path, track: &Track) -> Result<(
 }
 
 /// Rewrite the tag-derived fields of an existing row.
+///
+/// This is the scan's write path: the row is made to agree with the file, which
+/// includes dropping [`Track::tags_dirty`] — once the file has been re-read,
+/// the library and the file say the same thing again.
 fn update_track(connection: &Connection, track: &Track) -> Result<()> {
     connection
         .execute(
             "UPDATE tracks SET
                  title = ?2, artist = ?3, album = ?4, album_artist = ?5, genre = ?6,
                  track_number = ?7, disc_number = ?8, duration_ms = ?9, artwork_path = ?10,
-                 size_bytes = ?11, modified_at = ?12, missing = 0, updated_at = datetime('now')
+                 size_bytes = ?11, modified_at = ?12, missing = 0, tags_dirty = 0,
+                 updated_at = datetime('now')
              WHERE path = ?1",
             params![
                 track.path.to_string_lossy(),
@@ -621,6 +696,30 @@ fn update_track(connection: &Connection, track: &Track) -> Result<()> {
                     .artwork_path
                     .as_ref()
                     .map(|value| value.to_string_lossy().into_owned()),
+                track.size_bytes.map(|value| value as i64),
+                track.modified_at,
+            ],
+        )
+        .map(|_| ())
+        .map_err(AppError::database)
+}
+
+/// Refresh the facts a scan can see about a file, leaving the row's tags alone.
+///
+/// This is the second half of the merge rule: an edited row keeps its title,
+/// artist and the rest, but still learns that its file grew, was rewritten, or
+/// came back after having gone missing.
+fn update_file_facts(connection: &Connection, track: &Track) -> Result<()> {
+    connection
+        .execute(
+            "UPDATE tracks SET duration_ms = ?2, size_bytes = ?3, modified_at = ?4, missing = 0, \
+                 updated_at = datetime('now')
+             WHERE path = ?1",
+            params![
+                track.path.to_string_lossy(),
+                track
+                    .duration
+                    .map(|value| i64::try_from(value.as_millis()).unwrap_or(i64::MAX)),
                 track.size_bytes.map(|value| value as i64),
                 track.modified_at,
             ],
@@ -855,6 +954,223 @@ mod tests {
         // Forgetting it is a separate, deliberate step.
         assert_eq!(repository.remove_missing().expect("forget"), 1);
         assert_eq!(repository.track_count().expect("count"), 0);
+    }
+
+    #[test]
+    fn an_edit_is_stored_and_marks_the_row_as_ahead_of_its_file() {
+        let mut repository = repository();
+        repository
+            .upsert_track(&tagged("/music/a.mp3"))
+            .expect("insert");
+        let id = stored_id(&repository, "/music/a.mp3");
+
+        let mut fields = TrackFields::from_track(
+            &repository
+                .track_by_id(id)
+                .expect("lookup")
+                .expect("present"),
+        );
+        fields.title = "Olson".to_owned();
+        fields.track_number = Some(2);
+
+        assert!(
+            repository
+                .apply_edit(id, &fields, None, false)
+                .expect("edit")
+        );
+
+        let stored = repository
+            .track_by_id(id)
+            .expect("lookup")
+            .expect("present");
+        assert_eq!(stored.title, "Olson");
+        assert_eq!(stored.track_number, Some(2));
+        assert!(
+            stored.tags_dirty,
+            "the library says the file has not been told yet"
+        );
+    }
+
+    #[test]
+    fn an_edit_can_point_the_row_at_a_chosen_cover() {
+        let mut repository = repository();
+        repository
+            .upsert_track(&tagged("/music/a.mp3"))
+            .expect("insert");
+        let id = stored_id(&repository, "/music/a.mp3");
+        let fields = TrackFields::from_track(
+            &repository
+                .track_by_id(id)
+                .expect("lookup")
+                .expect("present"),
+        );
+        let cover = PathBuf::from("/cache/chosen.png");
+
+        repository
+            .apply_edit(id, &fields, Some(&cover), false)
+            .expect("edit");
+
+        assert_eq!(
+            repository
+                .track_by_id(id)
+                .expect("lookup")
+                .expect("present")
+                .artwork_path,
+            Some(cover)
+        );
+    }
+
+    #[test]
+    fn writing_the_edit_to_the_file_clears_the_flag() {
+        let mut repository = repository();
+        repository
+            .upsert_track(&tagged("/music/a.mp3"))
+            .expect("insert");
+        let id = stored_id(&repository, "/music/a.mp3");
+        let fields = TrackFields::from_track(
+            &repository
+                .track_by_id(id)
+                .expect("lookup")
+                .expect("present"),
+        );
+
+        repository
+            .apply_edit(id, &fields, None, false)
+            .expect("edit");
+        repository
+            .apply_edit(id, &fields, None, true)
+            .expect("write");
+
+        assert!(
+            !repository
+                .track_by_id(id)
+                .expect("lookup")
+                .expect("present")
+                .tags_dirty
+        );
+    }
+
+    #[test]
+    fn a_rescan_of_a_changed_file_takes_the_row_back_to_the_files_own_tags() {
+        let mut repository = repository();
+        repository
+            .upsert_track(&tagged("/music/a.mp3"))
+            .expect("insert");
+        let id = stored_id(&repository, "/music/a.mp3");
+
+        let mut fields = TrackFields::from_track(
+            &repository
+                .track_by_id(id)
+                .expect("lookup")
+                .expect("present"),
+        );
+        fields.title = "Olly".to_owned();
+        repository
+            .apply_edit(id, &fields, None, false)
+            .expect("edit");
+
+        // The file changed since the scan, so the scan wins and the edit goes.
+        let mut rescanned = tagged("/music/a.mp3");
+        rescanned.size_bytes = Some(4321);
+        rescanned.modified_at = Some(1_800_000_000);
+        let outcome = repository.upsert_track(&rescanned).expect("rescan");
+
+        assert_eq!(outcome, UpsertOutcome::Updated);
+        assert_eq!(
+            repository
+                .track_by_id(id)
+                .expect("lookup")
+                .expect("present")
+                .title,
+            "Roygbiv",
+            "the file is the source of truth once it changes"
+        );
+    }
+
+    #[test]
+    fn a_rescan_of_an_unchanged_file_leaves_a_hand_edit_alone() {
+        let mut repository = repository();
+        repository
+            .upsert_track(&tagged("/music/a.mp3"))
+            .expect("insert");
+        let id = stored_id(&repository, "/music/a.mp3");
+
+        let mut fields = TrackFields::from_track(
+            &repository
+                .track_by_id(id)
+                .expect("lookup")
+                .expect("present"),
+        );
+        fields.title = "Olly".to_owned();
+        repository
+            .apply_edit(id, &fields, None, false)
+            .expect("edit");
+
+        let outcome = repository
+            .upsert_track(&tagged("/music/a.mp3"))
+            .expect("rescan");
+
+        assert_eq!(outcome, UpsertOutcome::Unchanged);
+        let stored = repository
+            .track_by_id(id)
+            .expect("lookup")
+            .expect("present");
+        assert_eq!(stored.title, "Olly", "an edit survives a plain rescan");
+        assert!(stored.tags_dirty);
+    }
+
+    #[test]
+    fn an_edit_that_found_no_cover_records_that_there_is_none() {
+        let mut repository = repository();
+        repository
+            .upsert_track(&tagged("/music/a.mp3"))
+            .expect("insert");
+        let id = stored_id(&repository, "/music/a.mp3");
+        let fields = TrackFields::from_track(
+            &repository
+                .track_by_id(id)
+                .expect("lookup")
+                .expect("present"),
+        );
+        let cover = PathBuf::from("/cache/chosen.png");
+
+        repository
+            .apply_edit(id, &fields, Some(&cover), false)
+            .expect("with cover");
+        repository
+            .apply_edit(id, &fields, None, false)
+            .expect("without cover");
+
+        assert_eq!(
+            repository
+                .track_by_id(id)
+                .expect("lookup")
+                .expect("present")
+                .artwork_path,
+            None,
+            "the row shows the cover the editor showed"
+        );
+    }
+
+    #[test]
+    fn editing_an_unknown_row_reports_nothing_changed() {
+        let repository = repository();
+
+        assert!(
+            !repository
+                .apply_edit(TrackId(404), &TrackFields::default(), None, false)
+                .expect("edit")
+        );
+    }
+
+    /// The identifier of a stored row, for the edit tests.
+    fn stored_id(repository: &LibraryRepository, path: &str) -> TrackId {
+        repository
+            .track_by_path(path)
+            .expect("lookup")
+            .expect("present")
+            .id
+            .expect("a stored row has an identifier")
     }
 
     #[test]

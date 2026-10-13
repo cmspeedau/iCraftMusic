@@ -52,6 +52,33 @@ pub enum AppError {
         source: lofty::error::FileParseError,
     },
 
+    /// A file's audio tags could not be written.
+    #[error("the tags of `{}` could not be written: {source}", path.display())]
+    TagWrite {
+        /// The file whose tags could not be written.
+        path: PathBuf,
+        /// The underlying `lofty` failure.
+        #[source]
+        source: lofty::error::FileEncodingError,
+    },
+
+    /// A file's format has no tag block this player knows how to write.
+    ///
+    /// Nothing is written for such a file, and the user is told so rather than
+    /// being left with an edit that silently never reaches the disk.
+    #[error("`{}` is in a format whose tags this player cannot write", path.display())]
+    TagUnsupported {
+        /// The file that was refused.
+        path: PathBuf,
+    },
+
+    /// An image the user chose as cover art could not be read as an image.
+    #[error("`{}` could not be read as an image", path.display())]
+    NotAnImage {
+        /// The file that was rejected.
+        path: PathBuf,
+    },
+
     /// A file's extension is not one of the formats the player understands.
     #[error("`{}` is not a supported audio format", path.display())]
     UnsupportedFormat {
@@ -100,6 +127,21 @@ impl AppError {
     /// Build an [`AppError::UnsupportedFormat`] without repeating the plumbing.
     pub fn unsupported_format(path: impl AsRef<Path>) -> Self {
         Self::UnsupportedFormat {
+            path: path.as_ref().to_path_buf(),
+        }
+    }
+
+    /// Build an [`AppError::TagWrite`] without repeating the plumbing.
+    pub fn tag_write(path: impl AsRef<Path>, source: lofty::error::FileEncodingError) -> Self {
+        Self::TagWrite {
+            path: path.as_ref().to_path_buf(),
+            source,
+        }
+    }
+
+    /// Build an [`AppError::NotAnImage`] without repeating the plumbing.
+    pub fn not_an_image(path: impl AsRef<Path>) -> Self {
+        Self::NotAnImage {
             path: path.as_ref().to_path_buf(),
         }
     }

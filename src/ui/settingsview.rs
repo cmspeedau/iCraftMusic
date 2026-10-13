@@ -2,12 +2,15 @@
 //!
 //! Every control here writes straight through to [`MusicCraftApp`], which is
 //! what marks the settings dirty and schedules the write to disk at the end of
-//! the frame.
+//! the frame. The shortcuts are listed rather than configured: the keys are a
+//! fixed part of the interface, and the list is here so a user can find them
+//! without hunting through the menus.
 
 use egui::{Key, RichText, Slider, TextEdit, Vec2};
 
 use crate::app::MusicCraftApp;
 use crate::config::{DEFAULT_VOLUME, ThemeMode};
+use crate::ui::shortcuts::Command;
 use crate::ui::theme;
 
 /// Draw the settings pane.
@@ -24,6 +27,11 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.separator();
     ui.add_space(12.0);
     playback(app, ui);
+
+    ui.add_space(12.0);
+    ui.separator();
+    ui.add_space(12.0);
+    shortcuts(ui);
 
     ui.add_space(12.0);
     ui.separator();
@@ -73,6 +81,31 @@ fn playback(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             .small()
             .weak(),
     );
+}
+
+/// The keys the player answers to.
+///
+/// Two columns, one line per command: what it does on the left, the keys on the
+/// right, so the list can be read down either way.
+fn shortcuts(ui: &mut egui::Ui) {
+    ui.label(RichText::new("Keyboard shortcuts").strong());
+    ui.label(
+        RichText::new("These are ignored while you are typing into a text field.")
+            .small()
+            .weak(),
+    );
+    ui.add_space(6.0);
+
+    egui::Grid::new("musiccraft_shortcuts")
+        .num_columns(2)
+        .spacing([24.0, 4.0])
+        .show(ui, |ui| {
+            for command in Command::ALL {
+                ui.label(RichText::new(command.description()).small());
+                ui.label(RichText::new(command.keys()).small().weak().monospace());
+                ui.end_row();
+            }
+        });
 }
 
 /// Where settings live on disk.
@@ -238,6 +271,42 @@ mod tests {
     use crate::audio::{AudioEngine, Playback};
     use crate::config::AppConfig;
     use crate::error::AppError;
+
+    #[test]
+    fn the_shortcuts_list_names_every_command_and_its_keys() {
+        let mut app = app(None);
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| show(&mut app, ui));
+        });
+        output.textures_delta.clear();
+
+        let painted: Vec<String> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::epaint::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(
+            painted.iter().any(|text| text == "Keyboard shortcuts"),
+            "the list is not there: {painted:?}"
+        );
+
+        for command in Command::ALL {
+            assert!(
+                painted.iter().any(|text| text == command.keys()),
+                "{} is missing from the list",
+                command.keys()
+            );
+            assert!(
+                painted.iter().any(|text| text == command.description()),
+                "{command:?} has no line in the list"
+            );
+        }
+    }
 
     #[test]
     fn the_settings_pane_draws_with_its_about_section() {

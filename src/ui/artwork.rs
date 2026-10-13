@@ -49,6 +49,15 @@ impl ArtworkCache {
         self.textures.clear();
     }
 
+    /// Forget one cover, so the next frame decodes it again.
+    ///
+    /// The cache file for a track keeps its name when the user chooses a
+    /// different picture, so the decoded texture has to be dropped or the view
+    /// would keep drawing the cover that was just replaced.
+    pub fn forget(&mut self, path: &Path) {
+        self.textures.remove(path);
+    }
+
     /// The texture for the cover at `path`, decoding it the first time.
     ///
     /// Returns `None` when the file is missing, unreadable, or in a format the

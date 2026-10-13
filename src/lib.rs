@@ -4,15 +4,18 @@
 //! application modules can be exercised by `cargo test` without opening a
 //! desktop window.
 //!
-//! Module layout follows `AGENT.md` §4. Stage 0 and Stage 1 of `ROADMAP.md`
-//! provide only the foundation and the visual shell; audio, library, database,
-//! playlist and search modules are added by the stages that require them.
+//! Module layout follows `AGENT.md` §4; `ROADMAP.md` says what each stage
+//! delivers and which parts are still missing. Application code is Rust only —
+//! the modules under `audio`, `library`, `database`, `playlists` and `search`
+//! hold the behaviour, and `ui` draws it.
 
 pub mod app;
 pub mod audio;
 pub mod config;
 pub mod database;
 pub mod error;
+#[cfg(test)]
+pub(crate) mod fixtures;
 pub mod library;
 pub mod logging;
 pub mod playlists;

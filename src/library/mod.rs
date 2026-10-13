@@ -12,17 +12,19 @@
 
 pub mod artwork;
 pub mod browse;
+pub mod edit;
 pub mod metadata;
 pub mod scanner;
 pub mod track;
 
 pub use browse::{AlbumCard, BrowseKind, ClickMode, LibraryBrowse, Selection};
+pub use edit::{Field, FieldError, MetadataDraft, Outcome, TrackEditor};
 pub use metadata::AudioTags;
 pub use scanner::{
-    PROGRESS_INTERVAL, ScanError, ScanProgress, ScanReport, ScanRequest, ScanSession,
-    collect_audio_files, scan, scan_with_cancel,
+    FoundFiles, PROGRESS_INTERVAL, ScanError, ScanProgress, ScanReport, ScanRequest, ScanSession,
+    collect_audio_files, find_files, scan, scan_with_cancel, unreadable_formats,
 };
-pub use track::{Album, Artist, PlaylistId, Track, TrackId, display_title};
+pub use track::{Album, Artist, PlaylistId, Track, TrackFields, TrackId, display_title};
 
 use std::path::{Path, PathBuf};
 
