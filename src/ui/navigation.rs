@@ -1,15 +1,19 @@
 //! Left-hand navigation sidebar and the list of top-level sections.
 //!
-//! The sidebar holds the places you browse, and under the "Playlists" heading
-//! it holds the playlists themselves: the list lives here, not in the Playlists
-//! section, because a playlist is a place you go rather than something one
-//! section owns. The gear at the right end of the status bar is the one entry
-//! that is not here — Settings is opened from there, so the sections the app
-//! can be in stay a separate list from the ones shown.
+//! The sidebar holds the places you browse. Under the "Browse" heading are the
+//! sections and the Library's pages; under a "Playlists" heading of its own,
+//! level with them, are the playlists themselves. They are not nested inside
+//! the Playlists entry: a playlist is one of the places you go, the same as
+//! Library or Albums, and indenting it under another entry said it was a
+//! sub-page of that one rather than a destination of its own.
+//!
+//! The gear at the right end of the status bar is the one destination that is
+//! not here — Settings is opened from there, so the sections the app can be in
+//! stay a separate list from the ones shown.
 //!
 //! Clicking a playlist opens the Playlists section on it. That is the one
 //! action here that is not just a section switch, so the list reports what was
-//! clicked and the section applies it, the same way its own rows do.
+//! clicked and the sidebar applies it once it has finished reading the app.
 
 use egui::{Button, Panel, RichText, ScrollArea};
 
@@ -86,8 +90,8 @@ pub fn sidebar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// The sidebar's entries: the section list, the Library's pages, and the
-/// playlists themselves.
+/// The sidebar's entries: the places you browse, the Library's pages, and the
+/// playlists under a heading of their own.
 fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<PlaylistId>) {
     ui.add_space(2.0);
     ui.label(RichText::new("Browse").small().weak());
@@ -104,13 +108,9 @@ fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<P
         if selected && section == NavSection::Library {
             browse_items(app, ui);
         }
-
-        // The playlists hang off the Playlists entry the same way, and for the
-        // same reason: the list says where inside the section you could go.
-        if section == NavSection::Playlists {
-            playlist_items(app, ui, open);
-        }
     }
+
+    playlist_items(app, ui, open);
 }
 
 /// Draw a single sidebar entry, returning `true` when it was clicked.
@@ -141,7 +141,7 @@ fn browse_items(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     });
 }
 
-/// The playlists, drawn indented under the Playlists sidebar entry.
+/// The playlists, under a heading that sits level with "Browse".
 ///
 /// A click on one reports the playlist through `open`; switching to the section
 /// and opening it happens once the sidebar has finished reading the app. The
@@ -149,27 +149,29 @@ fn browse_items(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// an uncapped list would run out of the window and take the rest of the
 /// sidebar with it.
 fn playlist_items(app: &MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<PlaylistId>) {
-    ui.indent("sidebar_playlists", |ui| {
-        if app.playlists().is_empty() {
-            ui.label(RichText::new("None yet").small().weak());
-            return;
-        }
+    ui.add_space(12.0);
+    ui.label(RichText::new("Playlists").small().weak());
+    ui.add_space(4.0);
 
-        ScrollArea::vertical()
-            .id_salt("sidebar_playlists_scroll")
-            .max_height(theme::PLAYLIST_LIST_MAX_HEIGHT)
-            .auto_shrink([false, true])
-            .show(ui, |ui| {
-                for playlist in app.playlists() {
-                    if playlist_item(app, ui, playlist) {
-                        *open = Some(playlist.id);
-                    }
+    if app.playlists().is_empty() {
+        ui.label(RichText::new("None yet").small().weak());
+        return;
+    }
+
+    ScrollArea::vertical()
+        .id_salt("sidebar_playlists_scroll")
+        .max_height(theme::PLAYLIST_LIST_MAX_HEIGHT)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            for playlist in app.playlists() {
+                if playlist_item(app, ui, playlist) {
+                    *open = Some(playlist.id);
                 }
-            });
-    });
+            }
+        });
 }
 
-/// One playlist in the sidebar list. Returns `true` when it was clicked.
+/// One playlist in the sidebar. Returns `true` when it was clicked.
 ///
 /// The open playlist carries the accent fill, the same as the selected entry of
 /// any other list, so the sidebar shows which one the section is showing.
@@ -323,6 +325,38 @@ mod tests {
         assert!(
             painted.iter().any(|text| text == "None yet"),
             "the sidebar says nothing about playlists: {painted:?}"
+        );
+    }
+
+    /// A playlist is a place you go, so it lines up with the sections rather
+    /// than sitting inset under the Playlists entry.
+    #[test]
+    fn a_playlist_is_level_with_the_section_entries() {
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &library_ids(&app));
+
+        let context = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 600.0));
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        let output = context.run_ui(input, |ui| sidebar(&mut app, ui));
+
+        let section = painted_name(&output.shapes, "Playlists").expect("no Playlists entry");
+        let entry = painted_name(&output.shapes, "Evening").expect("no playlist entry");
+        output.drop_without_applying_deltas();
+
+        // Both names are centred in their own full-width button, so it is the
+        // centres that line up; the left edges differ by the width of the word.
+        // An indented entry would sit a whole indent step further right.
+        assert!(
+            (entry.center().x - section.center().x).abs() <= 1.0,
+            "the playlist is indented under the Playlists entry: {entry:?} vs {section:?}"
+        );
+        assert!(
+            entry.top() > section.top(),
+            "the playlist is listed above the Playlists entry: {entry:?} vs {section:?}"
         );
     }
 
