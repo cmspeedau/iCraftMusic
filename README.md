@@ -1,40 +1,140 @@
 # MusicCraft
 
-A native desktop music player inspired by classic iTunes, written entirely in Rust.
-The crate is named `musiccraft`; the repository is `openmusicstreaming`.
+![The MusicCraft library, grouped by album artist](docs/screenshot.png)
+
+A native desktop player inspired by [iTunes 11](#itunes-11-and-the-year-in-the-brief),
+written entirely in Rust: a local library, album artwork, playlists, a queue, a
+search field that is always a keystroke away, and one window with the navigation
+on the left, the list in the middle and the player across the top.
+
+**Written entirely in Rust** — every line of application code, from the audio
+engine to the tag writer to the UI. The only non-Rust things in the tree are the
+desktop entry and the icon a Linux package would install. There is no JavaScript
+runtime and no web view anywhere in it.
+
+The crate is named `musiccraft`. The project began in the repository
+`openmusicstreaming` and is mirrored at
+[iCraftMusic](https://github.com/cmspeedau/iCraftMusic) — it is a music player,
+and the name on the tin says so.
 
 MusicCraft is built incrementally against [ROADMAP.md](ROADMAP.md), which is the
 authority on what each stage delivers and on what is still missing.
+[ROADMAP-MEDIA.md](ROADMAP-MEDIA.md) is the second roadmap: movies, TV shows and
+podcasts, with gPodder synchronization.
 
 ## Status
 
-| Stage | Description                       | State    |
-| ----- | --------------------------------- | -------- |
-| 0     | Project Foundation                | Complete |
-| 1     | Desktop UI Shell                  | Complete |
-| 2     | Audio Playback Engine             | Complete |
-| 3     | Music Library and Metadata        | Complete |
-| 4     | Functional Music Library UI       | Complete |
-| 5     | Playlists and Queue Management    | Complete |
+| Stage | Description                         | State    |
+| ----- | ----------------------------------- | -------- |
+| 0     | Project Foundation                  | Complete |
+| 1     | Desktop UI Shell                    | Complete |
+| 2     | Audio Playback Engine               | Complete |
+| 3     | Music Library and Metadata          | Complete |
+| 4     | Functional Music Library UI         | Complete |
+| 5     | Playlists and Queue Management      | Complete |
 | 6     | Metadata Editing and Library Polish | Complete |
-| 7     | Settings, Reliability, Performance | Complete |
-| 8+    | See ROADMAP.md                    | Planned  |
+| 7     | Settings, Reliability, Performance  | Complete |
+| 8     | Visual Refinement and Accessibility | Planned  |
+| 9     | Release and Distribution            | Planned  |
+| 10    | Optional Future Enhancements        | Planned  |
 
-Known limitations: a scan indexes `mp3`, `flac`, `wav`,
-`ogg`, `m4a`, `mp4` and `aac` files; music in any other format is counted and
-named after a scan but cannot be played or tagged. Editing a track's details in
-the library keeps them there until the file changes or the tags are written into
-the file itself. A scan can be stopped but is not resumed after the application
-exits. There is no installer or release artifact yet; packaging is prepared
-under `packaging/` (see below), not finished. These are deliberate and tracked
-in the roadmap, not presented as finished features.
+Beyond music, three further stages are planned in
+[ROADMAP-MEDIA.md](ROADMAP-MEDIA.md):
 
-The All Tracks table has a **Plays** column: how many times each track has been
-started. It is counted by the library, not by the file — nothing in an audio tag
-carries it, so a rescan does not reset it — and the heading sorts by it like any
-other column (low to high first, click again for most-played first). A file
-played without being indexed (the play field, or the command line) has no row to
-count against and silently counts nothing.
+| Stage | Description                          | State   |
+| ----- | ------------------------------------ | ------- |
+| 11    | Media Library Generalisation         | Planned |
+| 12    | Movies and TV Shows                  | Planned |
+| 13    | Podcasts and gPodder Synchronization | Planned |
+
+The two roadmaps share one foundation: Stage 11 generalises the library and the
+player so that a film, an episode and a podcast episode are rows beside a song
+rather than a second application, and Stages 12 and 13 then add the surfaces
+those rows need.
+
+## What it plays
+
+A scan indexes the music formats the bundled decoder can read. Everything else
+is left alone: a text file, a cover image and a playlist in a watched folder are
+not counted as music, and a music format this build cannot decode is counted and
+named after a scan rather than passed over in silence.
+
+### Music
+
+| Format                    | Extensions              | Play | Read tags | Write tags | Tag block                                    |
+| ------------------------- | ----------------------- | ---- | --------- | ---------- | -------------------------------------------- |
+| MP3 (MPEG-1/2 Layer III)  | `.mp3`                  | Yes  | Yes       | Yes        | ID3v2                                        |
+| FLAC                      | `.flac`                 | Yes  | Yes       | Yes        | Vorbis Comments                              |
+| WAV                       | `.wav` `.wave`          | Yes  | Yes       | Yes        | ID3v2                                        |
+| Ogg Vorbis                | `.ogg` `.oga`           | Yes  | Yes       | Yes        | Vorbis Comments                              |
+| AAC / MP4 family          | `.m4a` `.mp4` `.aac`    | Yes  | Yes       | Yes        | MP4 `ilst` (`.m4a`, `.mp4`), ID3v2 (`.aac`)  |
+
+Every format above reads a title, artist, album, album artist, genre, track and
+disc number, duration and embedded cover art, and every one of them accepts a
+write. A write is what **Write to file** in the metadata editor does, and it is
+the only path in the application that changes a file; a file whose tags cannot
+be written is refused with a message rather than written badly.
+
+Recognised as music but not playable by this build, so a scan counts them and
+names the formats:
+
+| Extensions                                                                                            |
+| ----------------------------------------------------------------------------------------------------- |
+| `.aif` `.aiff` `.alac` `.ape` `.dff` `.dsf` `.mka` `.mpc` `.opus` `.ra` `.tak` `.tta` `.wma` `.wv`    |
+
+Nothing else is a media file as far as MusicCraft is concerned.
+
+### Planned
+
+| Media         | Stage | Notes                                                             |
+| ------------- | ----- | ----------------------------------------------------------------- |
+| Movies        | 12    | Container demux, artwork, per-title grouping for a series          |
+| TV shows      | 12    | Season and episode numbers, remembered next-episode position       |
+| Podcasts      | 13    | RSS/Atom feed parsing, episode download, resume position           |
+| gPodder sync  | 13    | Subscription and episode-action sync with gpodder.net or a self-hosted instance |
+
+The roadmap for these is [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md), which also carries
+the gPodder API reference those stages are written against.
+
+## Current functionality
+
+| Area                  | What works                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Playback              | Play, pause, stop, seek, volume, previous and next; device, decoder and missing-file failures reported in place of the track detail |
+| Queue                 | Move a track earlier or later, remove it, clear the list, jump to any entry; shuffle and repeat                       |
+| Library — All Tracks  | Sortable table (title, artist, album, genre, duration, plays) with click, ctrl-click and shift-click selection        |
+| Library — Albums      | Album grid with cover art, decoded once per album and re-decoded when the texture cache fills                         |
+| Library — Artists     | Artist list, virtualised like the track table                                                                        |
+| Search                | Live filtering as the query is typed, over the rows already in memory; typing never touches the database              |
+| Playlists             | Create, rename, copy and delete; add tracks from the Library's context menu; reorder entries; play the whole list     |
+| Metadata editing      | Title, artist, album, album artist, genre, track and disc numbers, and the cover; save to the database or write the tags into the file |
+| Play counts           | A **Plays** column, counted by the library rather than by the file, so a rescan does not reset it                     |
+| Sorting and filtering | A leading article is ignored (`The Beatles` files under B); the table can be narrowed to tracks whose files have vanished |
+| Keyboard              | Space, `Ctrl/⌘ ←/→/↑/↓`, `Ctrl/⌘ L/P/,/1/2/3/E`, `Delete` and `Esc`; listed in Settings, and none fires while a text field has focus |
+| Settings              | Theme, volume, watched folders and output device, each persisted as it changes                                        |
+| Diagnostics           | Build, schema version, library counts, exact paths, the audio stream in use, and an on-demand `PRAGMA integrity_check` |
+| Recovery              | A versioned database copied beside itself (`VACUUM INTO`) before a migration rewrites it                             |
+| Logging               | stderr and a rotated, bounded log file under the data directory                                                      |
+| Packaging             | Release profile, desktop entry and SVG icon prepared under `packaging/`                                              |
+
+Known limitations: a scan can be stopped but is not resumed after the application
+exits. Editing a track's details keeps them in the library until the file changes
+or the tags are written into the file itself. A file played without being indexed
+(the play field, or the command line) has no row to count a play against. There
+is no installer and no release artifact yet; packaging is prepared under
+`packaging/`, not finished. These are deliberate and tracked in the roadmap, not
+presented as finished features.
+
+## iTunes 11, and the year in the brief
+
+iTunes 11 shipped in **late 2012**; 2008 was the iTunes 8 era. MusicCraft treats
+11 as the visual reference because that is the release whose layout this window
+is copying: the sidebar on the left, the content area in the middle, one bar
+across the top carrying the transport and the cover of what is playing, and a
+status strip along the foot. The album grid and the cover-driven centre box are
+that release's idiom. What the two eras share, and what this project actually
+follows, is the shape of the thing — a local library you own, browsed rather
+than fed to you.
 
 ## Prerequisites
 
@@ -167,6 +267,12 @@ Stage 9's job; what is here is the preparation for it.
 ## Project layout
 
 ```
+docs/
+└── screenshot.png     # the image at the head of this file
+
+ROADMAP.md             # music: stages 0–10
+ROADMAP-MEDIA.md       # movies, TV shows and podcasts: stages 11–13
+
 src/
 ├── main.rs            # binary entry point
 ├── lib.rs             # library root

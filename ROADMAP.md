@@ -287,6 +287,27 @@ Possible additions:
     Optional network streaming or remote library integrations.
 
 These features are not prerequisites for the initial release. Each must be assessed for technical complexity, dependencies, privacy, licensing, and platform support before implementation.
+
+## Beyond music — stages 11 to 13
+
+Stages 0 to 10 above are the music player, and all of them that are marked
+Complete have been verified against the running application. The plan for the
+rest — one library and one player holding films, TV shows and podcast episodes
+as well as songs, with gPodder synchronization for the podcasts — lives in
+[ROADMAP-MEDIA.md](ROADMAP-MEDIA.md):
+
+| Stage | Description                          | State   |
+| ----- | ------------------------------------ | ------- |
+| 11    | Media Library Generalisation         | Planned |
+| 12    | Movies and TV Shows                  | Planned |
+| 13    | Podcasts and gPodder Synchronization | Planned |
+
+It is kept in its own file on purpose: these stages are unstarted, and mixing
+them in here made the music work look unfinished. That file also carries the
+gPodder API reference Stage 13 is written against, and the constraints — the
+cost of a video decoder, the fact that a feed is not a file, and why a resume
+position cannot be keyed by path — that a later stage must not quietly ignore.
+
 Recommended Delivery Sequence
 Milestone	Stages	Deliverable
 M1 — Foundation	0–1	Launchable desktop UI
@@ -296,6 +317,12 @@ M4 — Organization	5–6	Persistent playlists and metadata editing
 M5 — Stability	7	Reliable daily-use application
 M6 — Release	8–9	Polished, packaged desktop application
 M7 — Expansion	10	Optional advanced capabilities
+M8 — Generalisation	11	One library and player holding more than music
+M9 — Film and TV	12	Films and series indexed, browsed and played locally
+M10 — Podcasts	13	Subscriptions, downloads and playback, with gPodder sync
+
+M8 to M10 are the stages in [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md). M8 must land
+before M9 and M10; those two do not depend on each other.
 Development Rules
 
     Complete stages in order unless a dependency requires otherwise.
