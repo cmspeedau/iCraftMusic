@@ -152,7 +152,30 @@ pub const PLAYBACK_BAR_CONTROL_ACTIVE: Color32 = Color32::from_rgb(110, 112, 118
 /// drawn with.
 pub const PLAYBACK_BAR_CONTROL_EDGE: Color32 = Color32::from_rgb(84, 86, 92);
 
-/// Colour used for non-fatal warnings, such as a settings file that failed to
+/// Fill of the playback bar's centre box, in points.
+///
+/// A pale cream, so the box reads as a window onto the track rather than as
+/// another panel of the bar's gray. Like the bar's own fill it is deliberately
+/// not taken from the active theme: the box is a cream surface in the light
+/// theme and in the dark one.
+pub const CENTRE_BOX_FILL: Color32 = Color32::from_rgb(243, 234, 205);
+
+/// Label colour inside the centre box.
+///
+/// The box is a light surface, so it carries its own dark ink; the theme's
+/// foreground is near-white in the dark theme and would vanish on the cream.
+pub const CENTRE_BOX_INK: Color32 = Color32::from_rgb(38, 34, 24);
+
+/// Muted [`CENTRE_BOX_INK`], for the line under the title.
+pub const CENTRE_BOX_INK_MUTED: Color32 = Color32::from_rgb(92, 84, 62);
+
+/// Fill of a control inside the centre box, and of the empty cover slot.
+///
+/// A step of the box's own cream rather than the bar's gray, so a control on
+/// the box stays part of the box.
+pub const CENTRE_BOX_CONTROL: Color32 = Color32::from_rgb(226, 214, 180);
+
+/// Color used for non-fatal warnings, such as a settings file that failed to
 /// load.
 pub const WARNING: Color32 = Color32::from_rgb(255, 159, 10);
 
@@ -303,6 +326,37 @@ pub fn apply_playback_bar_visuals(visuals: &mut Visuals) {
     ] {
         widget.bg_stroke.color = PLAYBACK_BAR_CONTROL_EDGE;
     }
+}
+
+/// Points the playback bar's centre box leaves between its edge and its
+/// contents, on its left and right.
+///
+/// The box is sized from this, what it holds and its own height, so the pill it
+/// paints fits its contents exactly and cannot disagree with them.
+pub const CENTRE_BOX_PAD: i8 = 12;
+
+/// Corner radius of the centre box, in points.
+///
+/// Half the box's height, which is what makes it the pill the bar is built
+/// around rather than a rectangle sitting on it.
+pub const CENTRE_BOX_RADIUS: u8 = 26;
+
+/// Point a style at the centre box's own palette.
+///
+/// Call this inside a `Ui::scope` around the box's contents. Like the bar it
+/// sits on, the box paints a fill of its own in every theme, so its controls
+/// take the box's cream and its ink rather than the bar's gray.
+pub fn apply_centre_box_visuals(visuals: &mut Visuals) {
+    ink_surface(visuals, CENTRE_BOX_INK, CENTRE_BOX_INK_MUTED);
+
+    // A resting control on the box is the box, and only shows itself under the
+    // pointer or while it is on, exactly as a control on the bar does.
+    visuals.widgets.inactive.weak_bg_fill = CENTRE_BOX_FILL;
+    visuals.widgets.noninteractive.weak_bg_fill = CENTRE_BOX_FILL;
+    visuals.widgets.hovered.weak_bg_fill = CENTRE_BOX_CONTROL;
+    visuals.widgets.active.weak_bg_fill = CENTRE_BOX_CONTROL;
+    visuals.widgets.inactive.bg_fill = CENTRE_BOX_CONTROL;
+    visuals.widgets.hovered.bg_fill = CENTRE_BOX_CONTROL;
 }
 
 /// Frame used by the status bar.
@@ -485,6 +539,66 @@ mod tests {
                 contrast(PLAYBACK_BAR_INK, fill) >= 3.0,
                 "the bar's ink is too faint on the control fill {fill:?}: {:.2}",
                 contrast(PLAYBACK_BAR_INK, fill)
+            );
+        }
+    }
+
+    /// The centre box is a pale cream, and its ink reads on it in both themes:
+    /// the box paints its own fill whatever the theme, so the theme's
+    /// foreground — near-white in the dark theme — would vanish on it.
+    #[test]
+    fn the_centre_box_is_cream_and_its_ink_reads_on_it() {
+        let [r, g, b, a] = CENTRE_BOX_FILL.to_array();
+        assert_eq!(a, 255, "the box's surface must be opaque");
+        assert!(
+            r > g && g > b,
+            "cream leads with red, then green, then blue"
+        );
+        assert!(
+            luminance(CENTRE_BOX_FILL) > 0.7,
+            "the box has to stay a pale cream, not a tan: {CENTRE_BOX_FILL:?}"
+        );
+
+        for ink in [CENTRE_BOX_INK, CENTRE_BOX_INK_MUTED] {
+            assert!(
+                contrast(ink, CENTRE_BOX_FILL) >= 4.5,
+                "box ink {ink:?} is too faint on {CENTRE_BOX_FILL:?}"
+            );
+        }
+    }
+
+    /// A control on the box stays part of the box: at rest it is the cream
+    /// itself, and under the pointer a step of it, not the bar's gray.
+    #[test]
+    fn the_centre_box_holds_its_own_controls() {
+        for theme in [Visuals::light(), Visuals::dark()] {
+            let stock_resting = theme.widgets.inactive.weak_bg_fill;
+
+            let mut visuals = theme;
+            apply_centre_box_visuals(&mut visuals);
+
+            assert_eq!(
+                visuals.widgets.inactive.weak_bg_fill, CENTRE_BOX_FILL,
+                "a resting control on the box is painted in the box's own cream"
+            );
+            assert_ne!(
+                visuals.widgets.inactive.weak_bg_fill, stock_resting,
+                "the control is still taking the theme's own resting fill"
+            );
+            assert_eq!(
+                visuals.weak_text_color,
+                Some(CENTRE_BOX_INK_MUTED),
+                "the box's own muted ink did not reach its labels"
+            );
+
+            // The hover has to show, and the box's ink has to read on it.
+            assert!(
+                contrast(visuals.widgets.hovered.weak_bg_fill, CENTRE_BOX_FILL) > 1.1,
+                "a hovered control must show against the box"
+            );
+            assert!(
+                contrast(CENTRE_BOX_INK, CENTRE_BOX_CONTROL) >= 4.5,
+                "the box's ink is too faint on a hovered control"
             );
         }
     }
