@@ -33,6 +33,7 @@ pub mod theme;
 use egui::{CentralPanel, RichText, ScrollArea};
 
 use crate::app::MusicCraftApp;
+use crate::playlists::PlaylistSummary;
 
 use navigation::NavSection;
 
@@ -65,17 +66,26 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         // list you are looking at, where "Playlists" only says which page you
         // are on. With nothing open there is no name to show and the section's
         // own stands.
+        let section = app.section();
         let open = app.selected_playlist_summary();
 
-        let heading = match (app.section(), open.as_ref()) {
-            (NavSection::Playlists, Some(summary)) => summary.display_name().to_owned(),
-            (section, _) => section.label().to_owned(),
+        // Only the Playlists section takes the open playlist's name: a playlist
+        // left open in the sidebar must not rename the Library.
+        let shown = match (section, open) {
+            (NavSection::Playlists, Some(summary)) => Some(summary),
+            _ => None,
         };
 
-        let detail = match (app.section(), open.as_ref()) {
-            (NavSection::Playlists, Some(summary)) => summary.totals(),
-            (section, _) => section.description().to_owned(),
-        };
+        let heading = shown.map_or_else(
+            || section.label().to_owned(),
+            |summary| summary.display_name().to_owned(),
+        );
+        let detail =
+            shown.map_or_else(|| section.description().to_owned(), PlaylistSummary::totals);
+
+        // Decided before the heading row borrows the application to draw the
+        // section's own controls.
+        let counts_shown = shown.is_some();
 
         // The Library is the one section with something to search, so its field
         // rides on the heading line instead of taking a row of its own. The
@@ -96,7 +106,17 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             }
         });
 
-        ui.label(RichText::new(detail).small().weak());
+        // The Playlists section's line is the playlist's counts rather than a
+        // description of a page, and it is the only thing standing under the
+        // heading, so it is set larger than the other sections' one-liners.
+        let line = RichText::new(detail).weak();
+        let line = if counts_shown {
+            line.size(theme::PLAYLIST_TOTALS_SIZE)
+        } else {
+            line.small()
+        };
+
+        ui.label(line);
         ui.add_space(10.0);
 
         ScrollArea::vertical()
@@ -325,6 +345,60 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The counts line is set larger than the other sections' one-liners, which
+    /// are small print: it is a fact about the open playlist, not a description
+    /// of a page, and it stands alone under the heading.
+    #[test]
+    fn the_open_playlists_counts_are_set_bigger_than_a_section_description() {
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &[TrackId(1)]);
+
+        // The same section, once with a playlist open and once without.
+        app.set_section(NavSection::Playlists);
+        let quiet = size_of(&frame(&mut app), "Collections you have put together")
+            .expect("the section's own description");
+
+        app.open_playlist(app.playlists().first().expect("a playlist").id);
+        let counts = size_of(&frame(&mut app), "1 track").expect("the counts line");
+
+        assert!(
+            counts > quiet,
+            "the counts line is not bigger than the section's description: \
+             {counts} vs {quiet}"
+        );
+        assert_eq!(
+            counts - quiet,
+            3.0,
+            "the counts line should be 3 points bigger than the small print, \
+             which is egui's 9.0 plus 3: {counts} vs {quiet}"
+        );
+        // The Library's description is untouched by any of this.
+        app.set_section(NavSection::Library);
+        assert!(
+            size_of(&frame(&mut app), "Your music, by artist, album and track")
+                .expect("the Library's description")
+                == quiet,
+            "the Library's one-liner changed size with the Playlists section"
+        );
+    }
+
+    /// The font size the line of text reading `needle` was set in.
+    ///
+    /// The painted box, not the glyphs: it carries the line spacing as well, so
+    /// a 9pt line measures 10 and a 12pt one measures 14. What the request is
+    /// about is the size the text is *set* in.
+    fn size_of(shapes: &[egui::epaint::ClippedShape], needle: &str) -> Option<f32> {
+        shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(text) if text.galley.text() == needle => text
+                .galley
+                .job
+                .sections
+                .first()
+                .map(|section| section.format.font_id.size),
+            _ => None,
+        })
     }
 
     /// Every line of text a whole frame of the shell paints.

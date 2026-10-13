@@ -26,6 +26,16 @@ pub const NAV_ITEM_HEIGHT: f32 = 28.0;
 /// little shorter than one of the browsing entries above it without crowding.
 pub const PLAYLIST_ITEM_HEIGHT: f32 = 24.0;
 
+/// Size of the open playlist's counts under the section heading, in points.
+///
+/// The other sections' one-liners are a *description of the page* set small and
+/// weak, which is right for a line you read once. This one is a fact about the
+/// playlist you are looking at — how much is in it and how long it runs — and
+/// it is the only thing under the heading, so it is set a little larger: egui's
+/// "small" is 9.0, and 3 points over that reads as a caption rather than as
+/// fine print. Everything else keeps `small()`.
+pub const PLAYLIST_TOTALS_SIZE: f32 = 12.0;
+
 /// How many playlists the sidebar lists before it starts scrolling, in points.
 ///
 /// The list is inside the sidebar, which does not scroll: without a cap it
