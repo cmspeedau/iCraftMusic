@@ -44,6 +44,15 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     about(app, ui);
 }
 
+/// Width of the folder chooser button, in points.
+const BROWSE_WIDTH: f32 = 112.0;
+/// Width of the "add this folder" button.
+const IMPORT_WIDTH: f32 = 72.0;
+/// Width of the button that rescans the watched folders.
+const RESCAN_WIDTH: f32 = 68.0;
+/// Width of the button that stops a running scan.
+const STOP_WIDTH: f32 = 54.0;
+
 /// Theme choice.
 fn appearance(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.label(RichText::new("Appearance").strong());
@@ -166,15 +175,30 @@ fn version_line() -> String {
 fn library_management(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.label(RichText::new("Library management").strong());
     ui.label(
-        RichText::new("Folders you watch are scanned for audio files and indexed.")
-            .small()
-            .weak(),
+        RichText::new(
+            "Folders you watch are scanned for audio files and indexed. Pick one with the \
+             chooser, or type its path.",
+        )
+        .small()
+        .weak(),
     );
     ui.add_space(6.0);
 
     let scanning = app.is_scanning();
-    let rescan_width = 68.0;
-    let width = (ui.available_width() - rescan_width - 88.0).max(140.0);
+
+    // Everything on this row except the path field has a fixed width, and the
+    // gaps between them are counted as well: the field takes whatever is left,
+    // so the row can never overflow the pane and push a button off its edge.
+    let fixed = BROWSE_WIDTH
+        + IMPORT_WIDTH
+        + RESCAN_WIDTH
+        + ui.spacing().item_spacing.x * 3.0
+        + if scanning {
+            STOP_WIDTH + ui.spacing().item_spacing.x
+        } else {
+            0.0
+        };
+    let width = (ui.available_width() - fixed).max(140.0);
 
     ui.horizontal(|ui| {
         let field = ui.add_sized(
@@ -183,8 +207,19 @@ fn library_management(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         );
         let submitted = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
 
+        // The field is still the way to type a path — a folder on a network
+        // share or one behind a path only the user knows. The button beside it
+        // is for the much more common case of picking one out of a list.
+        if ui
+            .add_sized([BROWSE_WIDTH, 24.0], egui::Button::new("Choose a folder…"))
+            .on_hover_text("Pick a folder with the desktop's own file chooser")
+            .clicked()
+        {
+            app.choose_library_folder();
+        }
+
         let import = ui
-            .add_sized([80.0, 24.0], egui::Button::new("Import"))
+            .add_sized([IMPORT_WIDTH, 24.0], egui::Button::new("Import"))
             .on_hover_text("Add a folder to the library and scan it");
 
         if import.clicked() || submitted {
@@ -195,7 +230,7 @@ fn library_management(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         if ui
             .add_enabled(
                 can_scan,
-                egui::Button::new("Rescan").min_size(Vec2::new(rescan_width, 24.0)),
+                egui::Button::new("Rescan").min_size(Vec2::new(RESCAN_WIDTH, 24.0)),
             )
             .on_hover_text("Scan the watched folders again")
             .clicked()
@@ -205,7 +240,7 @@ fn library_management(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
         if scanning
             && ui
-                .add_sized([54.0, 24.0], egui::Button::new("Stop"))
+                .add_sized([STOP_WIDTH, 24.0], egui::Button::new("Stop"))
                 .on_hover_text("Stop the scan after the file it is reading")
                 .clicked()
         {
@@ -271,6 +306,112 @@ mod tests {
     use crate::audio::{AudioEngine, Playback};
     use crate::config::AppConfig;
     use crate::error::AppError;
+
+    #[test]
+    fn the_import_row_fits_the_pane_it_is_drawn_in() {
+        let mut app = app(None);
+        app.set_section(crate::ui::navigation::NavSection::Settings);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0));
+
+        let texts = painted(&mut app, screen);
+
+        for label in ["Choose a folder…", "Import", "Rescan"] {
+            let ink = texts
+                .iter()
+                .find(|(text, _)| text == label)
+                .unwrap_or_else(|| panic!("{label} is not drawn: {texts:?}"))
+                .1;
+
+            // The margin is the button's own padding: the label is centred in
+            // its box, so a label that ends within eight points of the edge
+            // means the box around it does not.
+            assert!(
+                ink.right() <= screen.right() - 8.0,
+                "{label} runs off the pane: {ink:?}"
+            );
+        }
+    }
+
+    /// Every line of text the pane paints, with the rectangle its ink covers.
+    fn painted(app: &mut MusicCraftApp, screen: egui::Rect) -> Vec<(String, egui::Rect)> {
+        let ctx = egui::Context::default();
+        let mut output = None;
+
+        for _ in 0..3 {
+            let mut frame = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ui| crate::ui::render(app, ui),
+            );
+            frame.textures_delta.clear();
+            output = Some(frame);
+        }
+
+        let output = output.expect("`run_ui` ran at least once");
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            collect(&clipped.shape, &mut texts);
+        }
+
+        texts
+    }
+
+    /// Collect a text shape's line and the ink it covers.
+    fn collect(shape: &egui::Shape, texts: &mut Vec<(String, egui::Rect)>) {
+        match shape {
+            egui::Shape::Text(text) => {
+                let size = text.galley.size();
+                let min = match text.galley.job.halign {
+                    egui::Align::LEFT => text.pos,
+                    egui::Align::Center => egui::pos2(text.pos.x - size.x / 2.0, text.pos.y),
+                    egui::Align::RIGHT => egui::pos2(text.pos.x - size.x, text.pos.y),
+                };
+                texts.push((
+                    text.galley.text().to_owned(),
+                    egui::Rect::from_min_size(min, size),
+                ));
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect(shape, texts);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn the_library_management_pane_offers_a_folder_chooser() {
+        let mut app = app(None);
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| show(&mut app, ui));
+        });
+        output.textures_delta.clear();
+
+        let painted: Vec<String> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::epaint::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+
+        assert!(
+            painted.iter().any(|text| text.contains("Choose a folder")),
+            "the chooser button is not drawn: {painted:?}"
+        );
+        // Drawing it must not open the dialog: a native chooser blocks the
+        // thread it is called from, and a test that called it would hang.
+        assert!(
+            app.library_folders().is_empty(),
+            "drawing the button waits for a click"
+        );
+        assert!(app.library_error().is_none());
+    }
 
     #[test]
     fn the_shortcuts_list_names_every_command_and_its_keys() {

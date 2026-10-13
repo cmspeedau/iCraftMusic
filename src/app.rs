@@ -579,6 +579,24 @@ impl MusicCraftApp {
         added
     }
 
+    /// Ask the desktop for a music folder, and start watching it.
+    ///
+    /// The chooser is the platform's own — the same dialog a file manager
+    /// opens, so the places the user already knows are there. Whatever comes
+    /// back takes the same route as a folder typed into the field: it is put in
+    /// the field and imported, which is what makes a typo and a wrong choice
+    /// fail in exactly the same way.
+    ///
+    /// Dismissing the dialog is not an error and does nothing at all.
+    pub fn choose_library_folder(&mut self) {
+        let Some(folder) = choose_folder(self.library_folders().first()) else {
+            return;
+        };
+
+        self.folder_input = folder.display().to_string();
+        self.import_folder_input();
+    }
+
     /// Start watching `folder` and scan it, returning whether it was new.
     ///
     /// The folder is written to the settings file, which is what makes a
@@ -1288,6 +1306,25 @@ impl MusicCraftApp {
     }
 }
 
+/// The desktop's folder chooser, or `None` when the user dismissed it.
+///
+/// The only call to the file-dialog crate in the application, kept on its own
+/// so everything around it — deciding what a chosen folder does, and saying so
+/// when it cannot be used — stays testable without a native dialog. It blocks
+/// until the dialog is answered, which is what a modal chooser does; nothing is
+/// drawn behind it meanwhile.
+fn choose_folder(start: Option<&PathBuf>) -> Option<PathBuf> {
+    let dialog = rfd::FileDialog::new().set_title("Choose a folder to add to the library");
+
+    // Open where the user's music already is, when there is anywhere to start.
+    let dialog = match start {
+        Some(folder) if folder.is_dir() => dialog.set_directory(folder),
+        _ => dialog,
+    };
+
+    dialog.pick_folder()
+}
+
 /// A queue entry for a library track, labelled with its tag title.
 fn queue_item(track: &Track) -> QueueItem {
     QueueItem::new(track.path.clone(), track.title.clone())
@@ -1600,6 +1637,48 @@ mod tests {
 
         assert!((app.volume() - crate::config::DEFAULT_VOLUME).abs() < f32::EPSILON);
         assert_eq!(app.transport(), TransportState::Unavailable);
+    }
+
+    #[test]
+    fn a_folder_chosen_into_the_field_is_added_and_scanned() {
+        let mut app = app();
+        let folder = crate::fixtures::scratch("chosen-folder");
+
+        *app.folder_input_mut() = folder.display().to_string();
+        let added = app.import_folder_input();
+
+        assert!(added, "the folder is new to the library");
+        assert_eq!(app.library_folders().len(), 1);
+        assert_eq!(
+            app.folder_input(),
+            "",
+            "the field resets, so the next folder starts from an empty line"
+        );
+        assert!(
+            app.is_scanning(),
+            "a folder is scanned as soon as it is chosen"
+        );
+    }
+
+    #[test]
+    fn a_path_that_is_not_a_folder_is_refused_with_a_reason() {
+        let mut app = app();
+
+        *app.folder_input_mut() = "/music/no-such-folder".to_owned();
+        let added = app.import_folder_input();
+
+        assert!(!added);
+        assert!(
+            app.library_folders().is_empty(),
+            "nothing is watched that cannot be read"
+        );
+        let message = app.library_error().expect("a reason the user can act on");
+        assert!(message.contains("not a folder"), "{message}");
+        assert_eq!(
+            app.folder_input(),
+            "/music/no-such-folder",
+            "a path that added nothing stays put so it can be corrected"
+        );
     }
 
     #[test]

@@ -43,6 +43,11 @@ as finished features.
 
   Exact package names vary by distribution.
 
+- The folder chooser in Settings → Library management is the desktop's own file
+  dialog. On Linux that is `xdg-desktop-portal`, which every KDE/GNOME session
+  already runs; if no portal is available the button reports the failure rather
+  than opening nothing. The path field beside it always works.
+
 ## Build
 
 ```sh

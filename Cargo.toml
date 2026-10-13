@@ -12,6 +12,11 @@ egui = "0.36"
 # already pulls the crate in, so the formats are the only real cost.
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 lofty = "0.25"
+# The folder chooser behind Settings → Library management's "Choose a folder…"
+# button. Without default features it uses the desktop's own file dialog
+# (xdg-desktop-portal on Linux) rather than linking GTK itself, so the only
+# crate it adds to the tree is `pollster`.
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal", "wayland"] }
 rodio = "0.23.0"
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
