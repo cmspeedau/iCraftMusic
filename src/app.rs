@@ -107,6 +107,8 @@ pub struct NowPlaying {
     pub position: Option<String>,
     /// The track's length, e.g. `3:45`, when the decoder reported one.
     pub duration: Option<String>,
+    /// The cover the library holds for this track, when it holds one.
+    pub artwork: Option<PathBuf>,
 }
 
 /// Top-level application state.
@@ -303,8 +305,11 @@ impl MusicCraftApp {
 
     /// The track the playback bar should show, if the queue has one selected.
     ///
-    /// Tags are not read yet, so the title comes from the file name and the
-    /// only other information available is what the queue and the decoder hold.
+    /// A queue entry carries a title and a path but no picture, so the cover
+    /// comes from the library row indexed at that path — taken from the rows the
+    /// last `refresh` loaded rather than queried from the database on every
+    /// frame. A track that is not indexed (one played from the command line)
+    /// simply has no cover.
     #[must_use]
     pub fn now_playing(&self) -> Option<NowPlaying> {
         let track = self.playback.current()?;
@@ -313,11 +318,18 @@ impl MusicCraftApp {
             .queue_position()
             .map(|(index, total)| format!("Track {index} of {total}"));
         let duration = self.playback.duration().map(format_duration);
+        let artwork = self
+            .browse
+            .tracks()
+            .iter()
+            .find(|row| row.path.as_path() == track.path())
+            .and_then(|row| row.artwork_path.clone());
 
         Some(NowPlaying {
             title: track.title().to_owned(),
             position,
             duration,
+            artwork,
         })
     }
 
@@ -1739,7 +1751,64 @@ mod tests {
                 title: "song".to_owned(),
                 position: Some("Track 1 of 1".to_owned()),
                 duration: None,
+                artwork: None,
             })
+        );
+    }
+
+    #[test]
+    fn the_bar_takes_its_cover_from_the_library_row_of_the_playing_track() {
+        let audio = crate::fixtures::scratch_file("cover.wav", &crate::fixtures::silent_wav(64));
+        let cover = crate::fixtures::scratch_file("cover.png", &crate::fixtures::png());
+        let library = crate::library::Library::in_memory(crate::fixtures::scratch("app-cover-art"))
+            .expect("an in-memory library");
+        let mut app = resolve(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error: None,
+            },
+            library,
+        );
+
+        let mut track = Track::from_path(&audio);
+        track.id = Some(TrackId(1));
+        track.title = "Roygbiv".to_owned();
+        track.artwork_path = Some(cover.clone());
+        app.library_mut()
+            .expect("a library")
+            .repository_mut()
+            .upsert_track(&track)
+            .expect("the track should be stored");
+        app.refresh().expect("the library should refresh");
+
+        // The queue entry carries the path the library indexed, which is what
+        // the bar looks the cover up by.
+        let path = std::fs::canonicalize(&audio).unwrap_or(audio);
+        app.open_path(&path);
+
+        assert_eq!(
+            app.now_playing().and_then(|track| track.artwork),
+            Some(cover),
+            "the playing track's cover is the library's"
+        );
+    }
+
+    #[test]
+    fn a_track_the_library_does_not_know_has_no_cover() {
+        let mut app = imported();
+        let known = app.browse().tracks()[0].path.clone();
+
+        app.open_path(Path::new("/music/nowhere.wav"));
+
+        assert_eq!(
+            app.now_playing().and_then(|track| track.artwork),
+            None,
+            "a track outside the library has no row to take a cover from"
+        );
+        assert!(
+            app.browse().tracks().iter().any(|row| row.path == known),
+            "and the library is left alone"
         );
     }
 

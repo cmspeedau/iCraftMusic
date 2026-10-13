@@ -5,10 +5,21 @@
 //! output device could be opened — the queue is still real work, so the
 //! controls stay live and the failure is shown in place of the track details.
 
-use egui::{Align, Button, Layout, Panel, Rect, RichText, Slider};
+use egui::{
+    Align, Button, Color32, CornerRadius, Layout, Panel, Pos2, Rect, RichText, Sense, Slider,
+    Stroke, Vec2,
+};
+use std::path::Path;
 
 use crate::app::{MusicCraftApp, format_duration};
 use crate::ui::{queueview, theme};
+
+/// Side of the square cover drawn beside the track details, in points.
+///
+/// The bar is 92 points tall and its frame leaves 10 on each side, so the two
+/// rows of text plus the seek bar come to about 65: a 40-point square marks the
+/// head of the bar without pushing anything past the bottom of it.
+const COVER_SIZE: f32 = 40.0;
 
 /// Draw the playback bar.
 pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
@@ -48,37 +59,78 @@ fn rows(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     progress(app, ui);
 }
 
-/// Track title, and either where it sits in the queue or the last failure.
+/// Cover art, track title, and either where it sits in the queue or the last
+/// failure.
 fn summary(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    let title = app
-        .now_playing()
-        .map_or_else(|| "Nothing playing".to_owned(), |track| track.title);
+    let playing = app.now_playing();
+    let title = playing
+        .as_ref()
+        .map_or_else(|| "Nothing playing".to_owned(), |track| track.title.clone());
+    let artwork = playing.and_then(|track| track.artwork);
     let error = app.playback_error();
 
-    ui.vertical(|ui| {
-        ui.label(RichText::new(title).strong());
+    ui.horizontal(|ui| {
+        cover(app, ui, artwork.as_deref());
 
-        match error {
-            // The failure takes the place of the usual subtitle: the bar has a
-            // fixed height, and a message the user must read outranks the
-            // queue position.
-            Some(message) => {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(message).small().color(theme::WARNING));
-                    if ui
-                        .small_button("Dismiss")
-                        .on_hover_text("Hide this message")
-                        .clicked()
-                    {
-                        app.dismiss_playback_error();
-                    }
-                });
+        ui.vertical(|ui| {
+            ui.label(RichText::new(title).strong());
+
+            match error {
+                // The failure takes the place of the usual subtitle: the bar has a
+                // fixed height, and a message the user must read outranks the
+                // queue position.
+                Some(message) => {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(message).small().color(theme::WARNING));
+                        if ui
+                            .small_button("Dismiss")
+                            .on_hover_text("Hide this message")
+                            .clicked()
+                        {
+                            app.dismiss_playback_error();
+                        }
+                    });
+                }
+                None => {
+                    ui.label(RichText::new(subtitle(app)).small().weak());
+                }
             }
-            None => {
-                ui.label(RichText::new(subtitle(app)).small().weak());
-            }
-        }
+        });
     });
+}
+
+/// The album cover beside the track details.
+///
+/// The picture belongs to the library row for the playing track, so the slot
+/// takes whatever `now_playing` resolved and draws an empty frame when there is
+/// none — the title then keeps its place as tracks change, and the bar says
+/// "no cover" rather than jumping sideways.
+fn cover(app: &mut MusicCraftApp, ui: &mut egui::Ui, artwork: Option<&Path>) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(COVER_SIZE), Sense::hover());
+    let texture = artwork.and_then(|path| app.artwork_mut().texture(ui.ctx(), path));
+    let painter = ui.painter();
+
+    match texture {
+        Some(texture) => {
+            painter.image(
+                texture.id(),
+                rect,
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                Color32::WHITE,
+            );
+        }
+        None => {
+            // The bar's own control gray, so the empty slot reads as part of the
+            // bar rather than as a hole punched in it.
+            painter.rect_filled(rect, CornerRadius::same(4), theme::PLAYBACK_BAR_CONTROL);
+            painter.rect_stroke(
+                rect,
+                CornerRadius::same(4),
+                Stroke::new(1.0, theme::PLAYBACK_BAR_EDGE),
+                egui::StrokeKind::Inside,
+            );
+        }
+    }
 }
 
 /// `Track 2 of 3 · Playing`, or how to get started when the queue is empty.
@@ -335,6 +387,195 @@ mod tests {
         let mut app = app();
 
         egui::__run_test_ui(|ui| super::bar(&mut app, ui));
+    }
+
+    /// Title the fixture track carries, spelled out so the assertion reads.
+    ///
+    /// It is also the file's name: the queue labels an entry from its path, so
+    /// the name it is written under is what the bar shows.
+    const TITLE: &str = "Roygbiv";
+
+    #[test]
+    fn the_cover_is_painted_beside_the_title_at_the_head_of_the_bar() {
+        let mut app = app_with_a_cover();
+        let painted = paint_bar(&mut app);
+
+        let art = painted
+            .images
+            .first()
+            .copied()
+            .expect("the playing track's cover is painted");
+        assert!(
+            (art.width() - COVER_SIZE).abs() < 0.5 && (art.height() - COVER_SIZE).abs() < 0.5,
+            "the cover is a {COVER_SIZE}-point square, got {art:?}"
+        );
+        assert!(
+            art.left() < art.right() && art.top() < art.bottom(),
+            "the cover is a real rectangle, got {art:?}"
+        );
+
+        let title = painted
+            .ink(TITLE)
+            .expect("the playing track's title is painted");
+        assert!(
+            art.right() <= title.left(),
+            "the cover sits to the left of the title: {art:?} against {title:?}"
+        );
+        assert!(
+            art.left() < title.left() && art.top() >= 0.0,
+            "the cover heads the row rather than following the title: {art:?} against {title:?}"
+        );
+        assert!(
+            art.bottom() <= theme::PLAYBACK_BAR_HEIGHT,
+            "the cover stays inside the bar: {art:?}"
+        );
+    }
+
+    #[test]
+    fn a_track_with_no_cover_still_marks_out_the_slot() {
+        let mut app = app();
+        app.open_path(std::path::Path::new("/music/song.mp3"));
+        let painted = paint_bar(&mut app);
+
+        assert!(
+            painted.images.is_empty(),
+            "a track the library has no cover for paints no picture"
+        );
+
+        let title = painted.ink("song").expect("the title is painted");
+        let slot = painted
+            .rects_with(theme::PLAYBACK_BAR_CONTROL)
+            .into_iter()
+            .find(|rect| {
+                (rect.width() - COVER_SIZE).abs() < 0.5 && (rect.height() - COVER_SIZE).abs() < 0.5
+            })
+            .expect("the empty cover slot is marked out");
+        assert!(
+            slot.right() <= title.left() && slot.bottom() <= theme::PLAYBACK_BAR_HEIGHT,
+            "the slot is where the cover would be: {slot:?} against {title:?}"
+        );
+    }
+
+    /// A device-less application whose library knows one track, with a cover,
+    /// and which is playing that track.
+    fn app_with_a_cover() -> MusicCraftApp {
+        use crate::library::{Library, Track, TrackId};
+
+        let audio = crate::fixtures::scratch_file("Roygbiv.wav", &crate::fixtures::silent_wav(64));
+        let cover = crate::fixtures::scratch_file("bar.png", &crate::fixtures::png());
+        let library = Library::in_memory(crate::fixtures::scratch("bar-artwork"))
+            .expect("an in-memory library");
+
+        let mut app = MusicCraftApp::with_library(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error: None,
+            },
+            Playback::with_engine(AudioEngine::without_device(), 1.0),
+            library,
+        );
+
+        let mut track = Track::from_path(&audio);
+        track.id = Some(TrackId(1));
+        track.title = TITLE.to_owned();
+        track.artwork_path = Some(cover);
+        app.library_mut()
+            .expect("a library")
+            .repository_mut()
+            .upsert_track(&track)
+            .expect("the track should be stored");
+        app.refresh().expect("the library should refresh");
+
+        // The queue entry carries the path the library indexed, which is what
+        // the bar looks the cover up by.
+        app.open_path(&std::fs::canonicalize(&audio).unwrap_or(audio));
+
+        app
+    }
+
+    /// Run the bar through real frames at a known window size and collect what
+    /// it painted.
+    ///
+    /// Three frames, because the panel measures itself first and only paints on
+    /// the frames after that.
+    fn paint_bar(app: &mut MusicCraftApp) -> Painted {
+        let ctx = egui::Context::default();
+        let mut output = None;
+        for _ in 0..3 {
+            let mut frame = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1180.0, 808.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| super::bar(app, ui),
+            );
+            frame.textures_delta.clear();
+            output = Some(frame);
+        }
+
+        let output = output.expect("`run_ui` ran at least once");
+        let mut painted = Painted::default();
+        for clipped in &output.shapes {
+            painted.collect(&clipped.shape);
+        }
+
+        painted
+    }
+
+    /// What one frame of the bar drew: the rectangles, the images and the text.
+    #[derive(Default)]
+    struct Painted {
+        rects: Vec<(egui::Rect, egui::Color32)>,
+        images: Vec<egui::Rect>,
+        texts: Vec<egui::epaint::TextShape>,
+    }
+
+    impl Painted {
+        fn collect(&mut self, shape: &egui::Shape) {
+            match shape {
+                egui::Shape::Rect(rect) => self.rects.push((rect.rect, rect.fill)),
+                egui::Shape::Mesh(mesh) => self.images.push(mesh.calc_bounds()),
+                egui::Shape::Text(text) => self.texts.push(text.clone()),
+                egui::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        self.collect(shape);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        /// Every filled rectangle painted in `fill`.
+        fn rects_with(&self, fill: egui::Color32) -> Vec<egui::Rect> {
+            self.rects
+                .iter()
+                .filter(|(_, colour)| *colour == fill)
+                .map(|(rect, _)| *rect)
+                .collect()
+        }
+
+        /// The ink of the first line containing `needle`.
+        ///
+        /// Read from the galley's own alignment: a centred line is painted from
+        /// its centre, so its position is not its left edge.
+        fn ink(&self, needle: &str) -> Option<egui::Rect> {
+            let text = self
+                .texts
+                .iter()
+                .find(|text| text.galley.text().contains(needle))?;
+            let size = text.galley.size();
+            let min = match text.galley.job.halign {
+                egui::Align::Center => text.pos - egui::vec2(size.x / 2.0, 0.0),
+                egui::Align::RIGHT => text.pos - egui::vec2(size.x, 0.0),
+                egui::Align::LEFT => text.pos,
+            };
+
+            Some(egui::Rect::from_min_size(min, size))
+        }
     }
 
     #[test]
