@@ -1,12 +1,18 @@
 //! Left-hand navigation sidebar and the list of top-level sections.
 //!
 //! The sidebar holds the places you browse. Under the 'Browse' heading is the
-//! Library and its pages; under a 'Playlists' heading of its own, level with
-//! them, are the playlists themselves. There is no Playlists *entry*: the
+//! Library; under a 'Playlists' heading of its own, level with it, are the
+//! playlists themselves. There is no Playlists *entry*: the
 //! section is about one of the user's lists at a time and nothing else, so a
 //! row for it led to an empty page whose only content was a line asking you to
 //! choose one — which is the list drawn right under the row. The heading stays
 //! because a list of names needs a name; what went is the row.
+//!
+//! The Library's three pages — Tracks, Albums and Artists — used to hang here,
+//! indented under the Library entry, and they no longer do: they are buttons on
+//! the playback bar now, where the icons that tell them apart (a note, a jewel
+//! case, a person) have the room the sidebar's rows did not. The sidebar keeps
+//! the one row that is a place rather than a page.
 //!
 //! The gear at the right end of the status bar is the one destination that is
 //! not here — Settings is opened from there, so the sections the app can be in
@@ -20,7 +26,6 @@ use egui::{Button, Panel, RichText, ScrollArea};
 
 use crate::app::MusicCraftApp;
 use crate::library::PlaylistId;
-use crate::library::browse::BrowseKind;
 use crate::playlists::PlaylistSummary;
 
 use super::theme;
@@ -94,8 +99,8 @@ pub fn sidebar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// The sidebar's entries: the places you browse, the Library's pages, and the
-/// playlists under a heading of their own.
+/// The sidebar's entries: the places you browse, and the playlists under a
+/// heading of their own.
 fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<PlaylistId>) {
     ui.add_space(2.0);
     ui.label(RichText::new("Browse").small().weak());
@@ -105,12 +110,6 @@ fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<P
         let selected = app.section() == section;
         if nav_item(ui, section, selected) {
             app.set_section(section);
-        }
-
-        // The Library's pages hang off its entry, so the sidebar shows
-        // where you are inside it as well as which section is open.
-        if selected && section == NavSection::Library {
-            browse_items(app, ui);
         }
     }
 
@@ -125,24 +124,6 @@ fn nav_item(ui: &mut egui::Ui, section: NavSection, selected: bool) -> bool {
     ui.add_sized(size, button)
         .on_hover_text(section.description())
         .clicked()
-}
-
-/// The Library's pages, drawn indented under its sidebar entry.
-///
-/// Clicking one switches the page; the Library section is already open when
-/// these are drawn, so no section change is needed.
-fn browse_items(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    ui.indent("library_browse", |ui| {
-        for kind in BrowseKind::ALL {
-            let selected = app.browse().kind() == kind;
-            let size = [ui.available_width(), theme::NAV_ITEM_HEIGHT];
-            let button = Button::selectable(selected, RichText::new(kind.label()));
-
-            if ui.add_sized(size, button).clicked() {
-                app.browse_mut().set_kind(kind);
-            }
-        }
-    });
 }
 
 /// The playlists, under a heading that sits level with "Browse".
@@ -210,9 +191,24 @@ mod tests {
         }
     }
 
+    /// The sidebar lists the one place it holds. The Library's three pages —
+    /// Tracks, Albums and Artists — are buttons on the playback bar now, so a
+    /// page name painted here would be the indented list coming back.
     #[test]
-    fn the_sidebar_lists_the_library_and_its_pages() {
+    fn the_sidebar_lists_the_library_and_no_pages() {
         assert_eq!(NavSection::TOP, [NavSection::Library]);
+
+        let mut app = imported();
+        app.set_section(NavSection::Library);
+
+        let painted = painted(&mut app);
+
+        for page in ["Tracks", "Albums", "Artists"] {
+            assert!(
+                !painted.iter().any(|text| text == page),
+                "{page} is still listed in the sidebar: {painted:?}"
+            );
+        }
     }
 
     #[test]
@@ -271,17 +267,6 @@ mod tests {
         for section in NavSection::ALL {
             app.set_section(section);
             egui::__run_test_ui(|ui| sidebar(&mut app, ui));
-        }
-    }
-
-    #[test]
-    fn drawing_the_library_pages_is_harmless_for_every_page() {
-        let mut app = app();
-        app.set_section(NavSection::Library);
-
-        for kind in BrowseKind::ALL {
-            app.browse_mut().set_kind(kind);
-            egui::__run_test_ui(|ui| browse_items(&mut app, ui));
         }
     }
 

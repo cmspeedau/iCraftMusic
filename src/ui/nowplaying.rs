@@ -22,6 +22,14 @@
 //! and the query it holds are now reachable from all of them, and the heading
 //! line goes back to naming the section.
 //!
+//! The Library's three pages — Tracks, Albums and Artists — are buttons here
+//! too, centred on the room between the centre box and the search field: they
+//! left the sidebar, where they were three indented rows under the Library
+//! entry with nothing to tell them apart, and each carries the icon the request
+//! named for it — a musical note, a compact disc, and a person's head and
+//! shoulders. Like the field, they are drawn only while the Library is open:
+//! they are the Library's own pages, and the section is what they page through.
+//!
 //! Shuffle and repeat are not here. Both moved down to the status bar, where
 //! they sit with the controls that are about the session rather than about the
 //! track: on this bar each took a button's width out of the transport row to
@@ -29,11 +37,12 @@
 
 use egui::{
     Align, Button, Color32, CornerRadius, Layout, Panel, Pos2, Rect, RichText, Sense, Slider,
-    TextEdit, UiBuilder, Vec2,
+    Stroke, TextEdit, UiBuilder, Vec2,
 };
 use std::path::Path;
 
 use crate::app::{MusicCraftApp, format_duration};
+use crate::library::browse::BrowseKind;
 use crate::ui::navigation::NavSection;
 use crate::ui::{queueview, theme};
 
@@ -123,6 +132,43 @@ const VOLUME_GLYPH_WIDTH: f32 = 16.0;
 /// controls rather than as the glyph it draws.
 const QUEUE_BUTTON_SIZE: f32 = 28.0;
 
+/// Room a page button is given, in points.
+///
+/// Square, and the size the transport's buttons are drawn at, so the row of
+/// pages reads as part of the bar's own controls rather than as a second kind.
+const PAGE_BUTTON_SIZE: f32 = 28.0;
+
+/// The music note that stands for Tracks, on the Library's first page button.
+///
+/// A note is what a track is; the request named it, and the bundled fonts carry
+/// it at the size it is drawn (the quarter note and the beamed pair ink the
+/// same width, so either would do — this is the plainer of the two).
+const TRACKS_GLYPH: &str = "♪";
+
+/// The jewel case that stands for Albums.
+const ALBUMS_GLYPH: &str = "💿";
+
+/// The head and shoulders that stand for Artists.
+const ARTISTS_GLYPH: &str = "👤";
+
+/// The Library's three pages, in the order the buttons are drawn: each page
+/// with the icon that tells it apart and the words the pointer reads.
+///
+/// One list rather than three hand-placed buttons, so a page cannot arrive
+/// without its icon, its hover text and a place in the row.
+const PAGES: [(BrowseKind, &str, &str); 3] = [
+    (BrowseKind::Tracks, TRACKS_GLYPH, "Tracks"),
+    (BrowseKind::Albums, ALBUMS_GLYPH, "Albums"),
+    (BrowseKind::Artists, ARTISTS_GLYPH, "Artists"),
+];
+
+/// Points between two of the Library's page buttons.
+///
+/// Tighter than the bar's own item spacing: the three carry no words, so a
+/// 10-point gap between 28-point squares read as three separate controls rather
+/// than as the one row they are.
+const PAGE_BUTTON_GAP: f32 = 4.0;
+
 /// Length of the search field at the bar's right end, in points.
 ///
 /// The width the query was typed into when the field lived on the Library's
@@ -147,17 +193,19 @@ const SEARCH_HEIGHT: f32 = 22.0;
 /// The button's width is its text's; this is the room reserved for it so the
 /// field it belongs to stays against the bar's right edge whether or not a
 /// query is on.
-const SEARCH_CLEAR_WIDTH: f32 = 48.0;
-
-/// Narrowest the field is allowed to become, in points.
 ///
-/// The centre box is 304 points wide and sits on the window's middle, so on the
-/// narrowest window the bar has room for (760 points) the field is squeezed to
-/// this side of the box rather than drawn over it.
-const SEARCH_MIN_WIDTH: f32 = 90.0;
+/// Kept small on purpose. The room is set off the field's leading edge, and the
+/// page group is centred on the room between the centre box and that edge, so
+/// the room has to fit in the gap the group's trailing end leaves over. A wide
+/// room would reach back under the last page button once the window is narrow
+/// enough for the field to meet the middle of the bar. 44 holds the label at the
+/// bar's text size with padding to spare, and leaves that gap the larger of the
+/// two on the narrowest window the app opens at.
+const SEARCH_CLEAR_WIDTH: f32 = 44.0;
 
 /// Points between the search field and what is beside it — the Clear button on
-/// its left, and the centre box on a window too narrow to hold both.
+/// its left, and the centre box beyond that when the window is too narrow for
+/// both.
 const SEARCH_GAP: f32 = 8.0;
 
 /// Width of one of the seek row's two time labels, in points.
@@ -291,26 +339,50 @@ fn volume_width() -> f32 {
     VOLUME_GLYPH_WIDTH + TRANSPORT_GAP + VOLUME_SLIDER_WIDTH
 }
 
-/// The Library's search field, at the bar's right end.
+/// The Library's own controls, at the bar's right end: the three page buttons
+/// and the search field with the Clear button beside it.
 ///
-/// It sits on the same line as the transport and the box — placed by its own
-/// rectangle off the bar's middle, the way the volume is — rather than in a row
+/// They sit on the same line as the transport and the box — placed by their own
+/// rectangles off the bar's middle, the way the volume is — rather than in a row
 /// of the bar's layout: the field's right edge is the bar's own inner edge,
 /// whatever the window is, and nothing else on the bar can move it.
 ///
-/// The field is only drawn while the Library is the open section. The query
-/// filters the Library, so the bar only offers the field there; a query already
-/// typed stays in the application and is waiting in the field when the section
-/// is opened again.
+/// All of it is drawn only while the Library is the open section. The pages are
+/// the Library's, and the query filters the Library, so the bar offers them
+/// there and nowhere else; a query already typed stays in the application and
+/// is waiting in the field when the section is opened again.
 fn search_row(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     if app.section() != NavSection::Library {
         return;
     }
 
-    let field = search_rect(ui.max_rect(), centre_box_rect(ui.max_rect()));
+    let bar = ui.max_rect();
+    let pill = centre_box_rect(bar);
+    // The field is sized first and the pages take the room that is left over:
+    // at the app's narrowest window the bar has none to spare, and a field that
+    // took its full width anyway would push the pages back over the box.
+    let field = search_rect(bar, pill);
+    // The Clear button's room, which the field leaves to its left whether or
+    // not a query is on: the way back out of a filter belongs to the field.
     let clear = Rect::from_min_size(
         Pos2::new(field.left() - SEARCH_GAP - SEARCH_CLEAR_WIDTH, field.top()),
         Vec2::new(SEARCH_CLEAR_WIDTH, field.height()),
+    );
+    let pages = page_buttons_rect(bar, pill, field, clear);
+
+    ui.scope_builder(
+        UiBuilder::new()
+            .id_salt("playback_pages")
+            .max_rect(pages)
+            .layout(Layout::left_to_right(Align::Center)),
+        |ui| {
+            // The group is placed from its own width, and the layout's default
+            // spacing would put the buttons further apart than that width
+            // accounts for — the last one then hangs out of the room the group
+            // was centred in. The gap is the group's own.
+            ui.spacing_mut().item_spacing.x = PAGE_BUTTON_GAP;
+            page_buttons(app, ui);
+        },
     );
 
     ui.scope_builder(
@@ -321,17 +393,130 @@ fn search_row(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     );
 }
 
+/// Where the Library's three page buttons sit: centred on the room the centre
+/// box and the search field leave between them.
+///
+/// The two are what the request said the buttons are between, so the group is
+/// placed on the MIDPOINT of the room they leave — its ends sit off from them by
+/// whatever that room happens to be, and the two gaps are equal by construction.
+/// Placing it against the box instead would slide it about as the window
+/// changed; a gap of its own would say a distance the request never named.
+///
+/// The room runs to the field's own leading edge — the white edge the user sees,
+/// and the searchbar the buttons were asked to sit beside — rather than to the
+/// Clear button's reserved room beyond it, which is part of the field's own strip
+/// and would drag the group left of the middle of what is on screen.
+///
+/// The button's room is passed in as a bound to clear, since it is reserved
+/// whether or not a query is on: the centre box and the Clear button are the two
+/// things the group is wedged between, and its trailing end is pushed back along
+/// the room rather than left sitting under the button. On a window wide enough
+/// for the exact centre the bound is slack and nothing moves.
+fn page_buttons_rect(bar: Rect, pill: Rect, field: Rect, clear: Rect) -> Rect {
+    let room = f32::midpoint(pill.right(), field.left());
+    let group = Rect::from_center_size(
+        Pos2::new(room, bar.center().y),
+        Vec2::new(page_buttons_width(), PAGE_BUTTON_SIZE),
+    );
+
+    // Written as the shift it is rather than as a clamp, so the group keeps its
+    // width and only slides.
+    let overlap = clear.left() - group.right();
+    if overlap < 0.0 {
+        return group.translate(Vec2::new(overlap, 0.0));
+    }
+
+    group
+}
+
+/// How wide the three page buttons are together, in points.
+///
+/// The sum of the three and the two gaps between them, so the rectangle is what
+/// the buttons actually fill rather than a width the last one hangs out of.
+fn page_buttons_width() -> f32 {
+    3.0 * PAGE_BUTTON_SIZE + 2.0 * PAGE_BUTTON_GAP
+}
+
+/// One button per Library page, each with the icon that tells it apart.
+///
+/// All three are white at the user's request, like the transport's buttons and
+/// the search field beside them, so the row reads as one control strip on the
+/// bar rather than as three wordless squares resting on it.
+///
+/// The fill is set on the button rather than left to the style, because
+/// `Button::fill` is what overrides the state's fill in every state — and
+/// `selected` cannot say which page is open the way it did before. On a white
+/// button the open page shows itself with the accent instead: an accent ring
+/// and an accent icon, against the grey ring and the bar's ink on the two that
+/// are closed. That is the same accent the sidebar used to fill the selected
+/// entry with, moved to the edge of a control that is no longer filled by the
+/// theme.
+///
+/// The closed pages' icons take the bar's own ink — the same ink the
+/// transport's glyphs take on their white buttons, since a white control on
+/// this bar is drawn with dark ink: the bar's fill is light in every theme, and
+/// the theme's button ink is near-white in the dark one.
+fn page_buttons(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    for (kind, glyph, label) in PAGES {
+        let selected = app.browse().kind() == kind;
+        let size = Vec2::splat(PAGE_BUTTON_SIZE);
+
+        let ink = if selected {
+            theme::ACCENT
+        } else {
+            theme::PLAYBACK_BAR_INK
+        };
+        let edge = if selected {
+            Stroke::new(2.0, theme::ACCENT)
+        } else {
+            Stroke::new(1.0, theme::PLAYBACK_BAR_CONTROL_EDGE)
+        };
+
+        if ui
+            .add_sized(
+                size,
+                Button::new(RichText::new(glyph).color(ink))
+                    .selected(selected)
+                    .fill(theme::PLAYBACK_BAR_CONTROL)
+                    .stroke(edge)
+                    .frame(true),
+            )
+            .on_hover_text(label)
+            .clicked()
+        {
+            app.browse_mut().set_kind(kind);
+        }
+    }
+}
+
 /// Where the search field sits: its right edge at the bar's right-hand edge.
 ///
-/// Trimmed to the room the centre box leaves on a window too narrow for both,
-/// so the field never reaches the pill; on every window wide enough for the
-/// 220 points the query is comfortably typed into, it keeps them.
+/// Kept to `SEARCH_WIDTH` wherever the bar has them — the width the query was
+/// typed into when the field lived on the Library's heading — and trimmed on a
+/// narrow window, because the field is what gives way: the box is centred on the
+/// window and holds the track, the pages are the navigation, and a narrower field
+/// only elides its query.
+///
+/// The room it leaves is not just the page buttons'. The buttons are centred on
+/// the middle of the room between the box and the field's leading edge, so half
+/// of what the field keeps comes back to the right of that middle — and what the
+/// field keeps also has to hold the Clear button's reserved room, set off its
+/// leading edge. For the buttons' trailing end to clear that room, their width
+/// and BOTH copies of the button's are what has to be left: `page_buttons_width`
+/// once for the group itself, and `SEARCH_GAP + SEARCH_CLEAR_WIDTH` twice,
+/// because one copy sits on each side of the group's centre. Without the second
+/// copy the group is pushed back against the box on a narrow window and the
+/// button's room reaches under its last square.
+///
+/// On a wide window the whole reservation is smaller than `SEARCH_WIDTH`, so
+/// nothing is trimmed and the field is the width it has always been; the trim
+/// only bites once the window is too narrow for the box, the buttons, the box's
+/// room and the field to sit side by side — which is below the width the app
+/// opens at, so the initial window shows the field at full width.
 fn search_rect(bar: Rect, pill: Rect) -> Rect {
     let right = bar.right();
-    let available = right - pill.right() - 2.0 * SEARCH_GAP - SEARCH_CLEAR_WIDTH;
-    let width = (right - bar.left() - SEARCH_GAP)
-        .min(available.max(SEARCH_MIN_WIDTH))
-        .min(SEARCH_WIDTH);
+    let reserved = page_buttons_width() + 2.0 * (SEARCH_GAP + SEARCH_CLEAR_WIDTH);
+    let width = (right - pill.right() - reserved).clamp(0.0, SEARCH_WIDTH);
 
     Rect::from_min_size(
         Pos2::new(right - width, bar.center().y - SEARCH_HEIGHT / 2.0),
@@ -870,6 +1055,402 @@ mod tests {
     use crate::audio::{AudioEngine, Playback, RepeatMode};
     use crate::config::AppConfig;
 
+    /// The Library's pages moved out of the sidebar and onto the bar, at the
+    /// request: three icon buttons centred in the room between the cream box and
+    /// the search field, each with the icon named for it — a musical note, a
+    /// compact disc, and a person's head and shoulders.
+    ///
+    /// Centre, not merely "somewhere between": the two gaps are measured, since
+    /// a group that merely fitted in the room would pass an ordering check while
+    /// sitting against one end of it.
+    #[test]
+    fn the_page_buttons_are_centred_between_the_box_and_the_search_field() {
+        let mut app = app();
+        let painted = paint_bar(&mut app);
+
+        let pill = painted
+            .rects_with(theme::CENTRE_BOX_FILL)
+            .into_iter()
+            .max_by(|a, b| a.area().total_cmp(&b.area()))
+            .expect("the centre box paints its own fill");
+        let field = painted
+            .rects
+            .iter()
+            .map(|(rect, _)| *rect)
+            .filter(|rect| (rect.width() - SEARCH_WIDTH).abs() < 1.0)
+            .max_by(|a, b| a.right().total_cmp(&b.right()))
+            .expect("the field paints its own background");
+
+        // The three buttons' own squares, in the order they are drawn: their
+        // glyphs are narrower than the buttons they sit in, so it is the squares
+        // that say where the group's two ends are.
+        let mut buttons: Vec<egui::Rect> = painted
+            .rects
+            .iter()
+            .map(|(rect, _)| *rect)
+            .filter(|rect| {
+                (rect.width() - PAGE_BUTTON_SIZE).abs() < 1.0
+                    && (rect.height() - PAGE_BUTTON_SIZE).abs() < 1.0
+                    && rect.center().x > pill.right()
+            })
+            .collect();
+        buttons.sort_by(|a, b| a.left().total_cmp(&b.left()));
+        assert_eq!(buttons.len(), 3, "the bar does not draw three pages");
+
+        let first = buttons[0];
+        let last = buttons[2];
+
+        assert!(
+            first.left() > pill.right() && last.right() < field.left(),
+            "the pages are not between the box and the field: \
+             {first:?}, {last:?}, {pill:?}, {field:?}"
+        );
+
+        // The two gaps, end to end — each button's own edge, since the group is
+        // what is centred rather than the first and last glyph.
+        let before = first.left() - pill.right();
+        let after = field.left() - last.right();
+        assert!(
+            (before - after).abs() <= 1.0,
+            "the pages are not centred between the box and the field: \
+             {before} before them, {after} after them"
+        );
+
+        // And the group's own centre is the room's midpoint, which is the same
+        // statement read from the other end.
+        assert!(
+            (f32::midpoint(first.left(), last.right()) - f32::midpoint(pill.right(), field.left()))
+                .abs()
+                <= 1.0,
+            "the group's centre is not the midpoint of the room: {} against {}",
+            f32::midpoint(first.left(), last.right()),
+            f32::midpoint(pill.right(), field.left())
+        );
+    }
+
+    /// All three page buttons are filled white, and the open one is still told
+    /// apart from the closed two.
+    ///
+    /// The fill is the point of the request, and it also takes away the cue that
+    /// used to say which page was open: a `Button`'s `selected` fills it through
+    /// the theme's selection, and an explicit `fill` overrides that in every
+    /// state. So the open page has to say so some other way, and the accent ring
+    /// is it — if the white fill ever leaves all three looking alike, this fails.
+    #[test]
+    fn every_page_button_is_white_and_the_open_one_is_still_marked() {
+        let mut app = app();
+        let painted = paint_bar(&mut app);
+
+        let pill = painted
+            .rects_with(theme::CENTRE_BOX_FILL)
+            .into_iter()
+            .max_by(|a, b| a.area().total_cmp(&b.area()))
+            .expect("the centre box paints its own fill");
+
+        let in_group = |rect: &egui::Rect| {
+            (rect.width() - PAGE_BUTTON_SIZE).abs() < 3.0
+                && (rect.height() - PAGE_BUTTON_SIZE).abs() < 3.0
+                && rect.center().x > pill.right()
+        };
+
+        // The three white squares, found by their size, to the right of the box.
+        let mut white: Vec<egui::Rect> = painted
+            .rects_with(theme::PLAYBACK_BAR_CONTROL)
+            .into_iter()
+            .filter(|rect| in_group(rect))
+            .collect();
+        white.sort_by(|a, b| a.left().total_cmp(&b.left()));
+
+        assert_eq!(
+            white.len(),
+            3,
+            "not every page button is filled with the bar's white ({} found: {white:?})",
+            white.len()
+        );
+
+        // The open page is Tracks by default, which is the leftmost button; its
+        // ring is the accent, where the two closed ones wear the grey edge.
+        let accents = painted.stroked_with(theme::ACCENT);
+        assert!(
+            !accents.is_empty(),
+            "the open page no longer marks itself, so all three read alike"
+        );
+        let ring = accents
+            .into_iter()
+            .find(|rect| in_group(rect))
+            .expect("the accent ring is on the open page's button");
+
+        assert!(
+            (ring.center().x - white[0].center().x).abs() <= 2.0,
+            "the accent ring is not on the open page: ring {ring:?}, \
+             first button {:?}, all {white:?}",
+            white[0]
+        );
+    }
+
+    /// Each page carries the icon the request named for it, and the one that is
+    /// open says so. The glyphs are read off the painted shapes rather than off
+    /// the constants, so a button that stopped drawing its icon fails here.
+    ///
+    /// The open page's icon is the accent, like its ring: the three buttons are
+    /// white now, so the bar's ink alone would not say which one you are on.
+    #[test]
+    fn each_page_button_carries_its_own_icon() {
+        let mut app = app();
+
+        for (kind, glyph) in [
+            (BrowseKind::Tracks, TRACKS_GLYPH),
+            (BrowseKind::Albums, ALBUMS_GLYPH),
+            (BrowseKind::Artists, ARTISTS_GLYPH),
+        ] {
+            app.browse_mut().set_kind(kind);
+            let painted = paint_bar(&mut app);
+
+            assert!(
+                painted.ink(glyph).is_some(),
+                "the {} page draws no icon",
+                kind.label()
+            );
+            assert!(
+                painted.coloured(glyph, theme::ACCENT).is_some(),
+                "the open {} page's icon is not the accent, which is what marks \\
+                 the page you are on now that every button is white",
+                kind.label()
+            );
+
+            // And the two closed pages' icons keep the bar's ink, which is what
+            // reads on a white button.
+            for (other, other_glyph) in [
+                (BrowseKind::Tracks, TRACKS_GLYPH),
+                (BrowseKind::Albums, ALBUMS_GLYPH),
+                (BrowseKind::Artists, ARTISTS_GLYPH),
+            ] {
+                if other == kind {
+                    continue;
+                }
+                assert!(
+                    painted
+                        .coloured(other_glyph, theme::PLAYBACK_BAR_INK)
+                        .is_some(),
+                    "the closed {} page's icon is not in the bar's ink",
+                    other.label()
+                );
+            }
+        }
+    }
+
+    /// Clicking a page button opens that page: the pages moved off the sidebar,
+    /// and a control that no longer answers is not a control that moved.
+    #[test]
+    fn a_click_on_a_page_button_opens_that_page() {
+        let mut app = app();
+        assert_eq!(app.browse().kind(), BrowseKind::Tracks);
+
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(WINDOW_WIDTH, 808.0));
+
+        let mut frame = |events: Vec<egui::Event>| {
+            let mut run = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ui| super::bar(&mut app, ui),
+            );
+            let mut painted = Painted::default();
+            for clipped in &run.shapes {
+                painted.collect(&clipped.shape);
+            }
+            run.textures_delta.clear();
+            painted
+        };
+
+        // One pass so egui learns the buttons' rectangles: a hit is decided
+        // against the previous frame.
+        let painted = frame(Vec::new());
+        let albums = painted
+            .ink(ALBUMS_GLYPH)
+            .expect("the Albums button was drawn")
+            .center();
+
+        frame(vec![egui::Event::PointerMoved(albums)]);
+        frame(vec![egui::Event::PointerButton {
+            pos: albums,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        }]);
+        frame(vec![egui::Event::PointerButton {
+            pos: albums,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }]);
+
+        assert_eq!(
+            app.browse().kind(),
+            BrowseKind::Albums,
+            "clicking the Albums button at {albums:?} did not open the page"
+        );
+    }
+
+    /// The pages are the Library's, so the bar offers them only there — the same
+    /// rule the search field beside them follows.
+    #[test]
+    fn the_page_buttons_are_only_on_the_library() {
+        let mut app = app();
+        app.set_section(crate::ui::navigation::NavSection::Settings);
+
+        let painted = paint_bar(&mut app);
+
+        for glyph in [TRACKS_GLYPH, ALBUMS_GLYPH, ARTISTS_GLYPH] {
+            assert!(
+                painted.ink(glyph).is_none(),
+                "the bar offers the Library's pages outside the Library"
+            );
+        }
+    }
+
+    /// The three icons really paint, rather than falling back to the
+    /// replacement box.
+    ///
+    /// The app installs no fonts of its own and paints with epaint's bundled
+    /// set, so a glyph outside that set would come out as `◻` here — and a
+    /// request for a musical note, a disc and a person would be answered with
+    /// three identical boxes.
+    ///
+    /// `Fonts::has_glyphs` is NOT the check to use: epaint picks its
+    /// replacement glyph's face with `has_glyph` and returns false for every
+    /// char that face owns, so `has_glyphs` reports a false negative for the
+    /// whole of NotoEmoji — the one face that carries these three. The glyphs
+    /// are read off the atlas instead: each is rasterised, the ink it paints is
+    /// hashed, and the hash is compared against a glyph nothing can draw. A
+    /// glyph that is really present has its own shape; one that is replaced
+    /// comes back with the replacement's.
+    #[test]
+    fn the_page_icons_paint_their_own_shapes() {
+        let ctx = egui::Context::default();
+        let mut drawn: Vec<(&str, u64)> = Vec::new();
+        let mut replacement = 0;
+
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let font = egui::FontId::proportional(PAGE_BUTTON_SIZE / 2.0);
+
+            // A char no bundled face can draw, to learn what a replaced glyph
+            // looks like on this build.
+            replacement = painted_ink(ui, &font, "\u{FE838}");
+
+            for glyph in [TRACKS_GLYPH, ALBUMS_GLYPH, ARTISTS_GLYPH] {
+                drawn.push((glyph, painted_ink(ui, &font, glyph)));
+            }
+        });
+        output.drop_without_applying_deltas();
+
+        for (glyph, ink) in drawn {
+            assert_ne!(
+                ink, replacement,
+                "{glyph:?} is painted as the replacement box: the bundled fonts \
+                 do not carry it, so that button would not show its icon"
+            );
+        }
+    }
+
+    /// The ink one glyph paints, hashed: enough to tell one shape from another
+    /// without naming any of them.
+    ///
+    /// The glyph is laid out and the atlas region it was rasterised into is
+    /// read back — the same pixels the renderer would upload.
+    fn painted_ink(ui: &egui::Ui, font: &egui::FontId, glyph: &str) -> u64 {
+        ui.ctx().fonts_mut(|fonts| {
+            let galley = fonts.layout_no_wrap(glyph.to_owned(), font.clone(), egui::Color32::WHITE);
+            let image = fonts.image();
+            let (width, height) = (image.size[0], image.size[1]);
+            let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+
+            for row in &galley.rows {
+                for g in &row.glyphs {
+                    let uv = g.uv_rect;
+                    let x_end = (uv.max[0] as usize).min(width);
+                    let y_end = (uv.max[1] as usize).min(height);
+
+                    for y in uv.min[1] as usize..y_end {
+                        for x in uv.min[0] as usize..x_end {
+                            let [r, g, b, a] = image.pixels[y * width + x].to_array();
+                            let pixel = u64::from(r)
+                                | (u64::from(g) << 8)
+                                | (u64::from(b) << 16)
+                                | (u64::from(a) << 24);
+                            hash ^= pixel;
+                            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+                        }
+                    }
+                }
+            }
+
+            hash
+        })
+    }
+
+    /// On a window too narrow for everything, the field gives way and the pages
+    /// still fit between the box and it.
+    ///
+    /// The bar has only so much room, and at the app's narrowest window the
+    /// three buttons and the field cannot both have their full width. What must
+    /// not happen is the pages being pushed back over the box, or the buttons
+    /// ending up under the Clear button's reserved room — the buttons are the
+    /// navigation and the field only elides a query, so the field is what is
+    /// trimmed.
+    #[test]
+    fn the_pages_still_fit_on_the_narrowest_window() {
+        for width in [760.0, 900.0, 1000.0, 1180.0] {
+            let bar = Rect::from_min_size(Pos2::ZERO, Vec2::new(width, theme::PLAYBACK_BAR_HEIGHT));
+            let pill = centre_box_rect(bar);
+            let field = search_rect(bar, pill);
+            let clear = Rect::from_min_size(
+                Pos2::new(field.left() - SEARCH_GAP - SEARCH_CLEAR_WIDTH, field.top()),
+                Vec2::new(SEARCH_CLEAR_WIDTH, field.height()),
+            );
+            let pages = page_buttons_rect(bar, pill, field, clear);
+
+            assert!(
+                pages.left() >= pill.right(),
+                "at {width} wide the pages overlap the centre box: {pages:?} vs {pill:?}"
+            );
+            assert!(
+                pages.right() <= clear.left(),
+                "at {width} wide the pages run under the Clear button: \
+                 {pages:?} vs {clear:?}"
+            );
+            assert!(
+                field.left() >= pill.right(),
+                "at {width} wide the field overlaps the centre box: {field:?} vs {pill:?}"
+            );
+            assert!(
+                field.right() <= bar.right(),
+                "at {width} wide the field runs off the bar: {field:?} vs {bar:?}"
+            );
+
+            // And the group is still centred in the room, which is what the
+            // request asked for at every width.
+            let before = pages.left() - pill.right();
+            let after = field.left() - pages.right();
+            assert!(
+                (before - after).abs() <= 1.0,
+                "at {width} wide the pages are not centred: {before} before, {after} after"
+            );
+        }
+
+        // The bar is measured through the real frame at its own width, so the
+        // helper above is not the only thing agreeing with itself.
+        let mut app = app();
+        let painted = paint_bar(&mut app);
+        assert!(
+            painted.ink(TRACKS_GLYPH).is_some(),
+            "the pages are not drawn on the window the bar is painted into"
+        );
+    }
+
     #[test]
     fn an_empty_queue_says_nothing_but_the_transport_state() {
         let app = app();
@@ -1086,6 +1667,10 @@ mod tests {
     struct Painted {
         #[allow(dead_code)]
         rects: Vec<(egui::Rect, egui::Color32)>,
+        /// Every rectangle's outline, which is where a hand-painted edge lives —
+        /// `Shape::Rect` carries its fill and its stroke separately, so an
+        /// accent ring on a white button is NOT in `rects`.
+        strokes: Vec<(egui::Rect, egui::Color32)>,
         images: Vec<egui::Rect>,
         texts: Vec<egui::epaint::TextShape>,
     }
@@ -1093,7 +1678,10 @@ mod tests {
     impl Painted {
         fn collect(&mut self, shape: &egui::Shape) {
             match shape {
-                egui::Shape::Rect(rect) => self.rects.push((rect.rect, rect.fill)),
+                egui::Shape::Rect(rect) => {
+                    self.rects.push((rect.rect, rect.fill));
+                    self.strokes.push((rect.rect, rect.stroke.color));
+                }
                 egui::Shape::Mesh(mesh) => self.images.push(mesh.calc_bounds()),
                 egui::Shape::Text(text) => self.texts.push(text.clone()),
                 egui::Shape::Vec(shapes) => {
@@ -1110,6 +1698,15 @@ mod tests {
             self.rects
                 .iter()
                 .filter(|(_, colour)| *colour == fill)
+                .map(|(rect, _)| *rect)
+                .collect()
+        }
+
+        /// Every rectangle OUTLINED in `colour` — the stroke, not the fill.
+        fn stroked_with(&self, colour: egui::Color32) -> Vec<egui::Rect> {
+            self.strokes
+                .iter()
+                .filter(|(_, stroke)| *stroke == colour)
                 .map(|(rect, _)| *rect)
                 .collect()
         }

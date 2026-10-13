@@ -316,23 +316,6 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn zz_dump_positions() {
-        let mut app = imported();
-        app.add_tracks_to_playlist("Evening", &[TrackId(1)]);
-        app.set_section(NavSection::Playlists);
-        app.open_playlist(app.playlists().first().expect("a playlist").id);
-        let shapes = frame(&mut app);
-        for clipped in &shapes {
-            if let egui::Shape::Text(t) = &clipped.shape {
-                let txt = t.galley.text();
-                if ["Play", "Evening", "1 track", "Delete", "Rename"].contains(&txt) {
-                    println!("{txt:?} pos={:?}", t.pos);
-                }
-            }
-        }
-    }
-
     /// Nothing in the interface is set at egui's default "small" size: 9.0 is
     /// too small to read on a desktop, so the style raises it to 12.0 once,
     /// rather than each `.small()` call site overriding it.
