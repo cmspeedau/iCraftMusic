@@ -7,10 +7,14 @@
 //!
 //! The bar has three parts. The transport is at the far LEFT, where the pointer
 //! arrives first: previous · play · next, then the speaker and the volume
-//! slider, all in white and centred on the same line as the box beside them. The middle is
-//! the centre box — a pale cream pill centred on the window, holding the album
-//! cover at its left, the track's title and state beside it, and the queue
-//! button at its right. The seek row runs under both.
+//! slider, all in white. The buttons sit against the bar's left edge and the
+//! volume hangs in the middle of the room between them and the box — the two
+//! controls that start the music are where the pointer is, and the one that
+//! sets how loud it is is centred on the gap it belongs to rather than pushed
+//! up against the buttons. The middle is the centre box — a pale cream pill
+//! centred on the window, holding the album cover at its left, the track's
+//! title and state beside it, and the queue button at its right. The seek row
+//! runs under both.
 //!
 //! Shuffle and repeat are not here. Both moved down to the status bar, where
 //! they sit with the controls that are about the session rather than about the
@@ -85,8 +89,26 @@ const CENTRE_BOX_TEXT_WIDTH: f32 = 200.0;
 /// Points between the transport's controls.
 const TRANSPORT_GAP: f32 = 8.0;
 
+/// Width of one of the transport's three buttons, in points.
+///
+/// Named so the row the buttons are placed in is their own sum rather than a
+/// number that has to be kept in step with `controls` by hand.
+const TRANSPORT_BUTTON_WIDTH: f32 = 38.0;
+
+/// Height of one of the transport's three buttons, in points.
+const TRANSPORT_BUTTON_HEIGHT: f32 = 28.0;
+
 /// Length of the volume slider, in points.
 const VOLUME_SLIDER_WIDTH: f32 = 90.0;
+
+/// Width of the box the volume speaker is drawn in, in points.
+///
+/// Fixed, so the group the volume is centred by is a sum of constants rather
+/// than whatever the glyph happened to measure: the speaker is narrower than
+/// its box and centres inside it, and a label that reported the glyph's own 11
+/// points would leave the rail half the difference off the centre it was put
+/// on.
+const VOLUME_GLYPH_WIDTH: f32 = 16.0;
 
 /// Side of the queue button in the centre box, in points.
 ///
@@ -149,6 +171,13 @@ pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// so the three buttons sit level with the box they play into — the box is the
 /// thing the transport belongs to, and the bar's extra height is padding around
 /// the two of them.
+///
+/// The two halves of the row are placed in rectangles of their own rather than
+/// run together in one layout. The buttons are a fixed row at the bar's left
+/// edge, and the volume is centred on the room between that row and the box
+/// beside it: what the user asked for is the volume halfway along the empty bar
+/// rather than stacked against the buttons, and a layout that simply advanced a
+/// cursor would leave it wherever the buttons stopped.
 fn transport_row(app: &mut MusicCraftApp, ui: &mut egui::Ui) -> Rect {
     // The row is placed by its own rectangle so its MIDDLE is the centre box's,
     // which is the bar's own middle: a horizontal layout would put the row's
@@ -158,19 +187,61 @@ fn transport_row(app: &mut MusicCraftApp, ui: &mut egui::Ui) -> Rect {
         Vec2::new(ui.max_rect().width(), COVER_SIZE),
     );
 
+    let buttons = buttons_rect(row);
     ui.scope_builder(
         UiBuilder::new()
             .id_salt("playback_transport")
-            .max_rect(row)
+            .max_rect(buttons)
             .layout(Layout::left_to_right(Align::Center)),
-        |ui| {
-            controls(app, ui);
-            ui.add_space(TRANSPORT_GAP);
-            volume(app, ui);
-        },
+        |ui| controls(app, ui),
+    );
+
+    let volume_row = volume_rect(row, centre_box_rect(ui.max_rect()));
+    ui.scope_builder(
+        UiBuilder::new()
+            .id_salt("playback_volume")
+            .max_rect(volume_row)
+            .layout(Layout::left_to_right(Align::Center)),
+        |ui| volume(app, ui),
     );
 
     row
+}
+
+/// Where the three transport buttons sit: a fixed row against the bar's left
+/// edge, on the centre box's own line.
+///
+/// Wide enough for the three buttons AND the two gaps between them, so the
+/// rectangle is what the buttons actually fill rather than a width the third
+/// one hangs out of.
+fn buttons_rect(row: Rect) -> Rect {
+    let width = 3.0 * TRANSPORT_BUTTON_WIDTH + 2.0 * TRANSPORT_GAP;
+    Rect::from_min_size(
+        Pos2::new(row.left(), row.center().y - TRANSPORT_BUTTON_HEIGHT / 2.0),
+        Vec2::new(width, TRANSPORT_BUTTON_HEIGHT),
+    )
+}
+
+/// Where the volume group sits: centred on the empty bar between the transport
+/// buttons and the centre box.
+///
+/// The two are the things it is between — the box is what the volume belongs to
+/// and the buttons are what it follows — so the group's own centre is the
+/// midpoint of the room they leave, and its ends sit off from them by whatever
+/// that room happens to be rather than by a gap of its own.
+fn volume_rect(row: Rect, pill: Rect) -> Rect {
+    let button_edge = row.left() + 3.0 * TRANSPORT_BUTTON_WIDTH + 2.0 * TRANSPORT_GAP;
+    let left = f32::midpoint(button_edge, pill.left()) - volume_width() / 2.0;
+
+    Rect::from_min_size(
+        Pos2::new(left, row.center().y - TRANSPORT_BUTTON_HEIGHT / 2.0),
+        Vec2::new(volume_width(), TRANSPORT_BUTTON_HEIGHT),
+    )
+}
+
+/// How wide the speaker and the slider are together, in points.
+fn volume_width() -> f32 {
+    VOLUME_GLYPH_WIDTH + TRANSPORT_GAP + VOLUME_SLIDER_WIDTH
 }
 
 /// The cream box on the window's centre: cover, track details, queue button,
@@ -416,7 +487,7 @@ fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     fn white(glyph: &str) -> RichText {
         RichText::new(glyph).color(theme::PLAYBACK_BAR_CONTROL_INK)
     }
-    let size = [38.0, 28.0];
+    let size = [TRANSPORT_BUTTON_WIDTH, TRANSPORT_BUTTON_HEIGHT];
 
     if ui
         .add_enabled(has_current, Button::new(white("⏮")).min_size(size.into()))
@@ -496,12 +567,23 @@ fn queue_popup(app: &mut MusicCraftApp, ui: &mut egui::Ui, bar: Rect) {
 /// Speaker icon and volume slider, at the tail of the transport: the buttons
 /// come first and the slider follows them, so the pointer's first stop is the
 /// control that starts the music.
+///
+/// The group is handed a rectangle of its own by [`transport_row`], sized from
+/// [`volume_width`], so the speaker is allocated exactly its box and the rail
+/// exactly [`VOLUME_SLIDER_WIDTH`]: the label is a fixed 16 points rather than
+/// the 11 the glyph inks, and the pair's own centre is the point the group is
+/// placed by. A label sized to its text would make the group 5 points narrower
+/// than the rectangle it is centred in and leave the rail that much right of
+/// where the room between the buttons and the box says it belongs.
 fn volume(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.spacing_mut().slider_width = VOLUME_SLIDER_WIDTH;
-    ui.label(
-        RichText::new(VOLUME_GLYPH)
-            .small()
-            .color(theme::PLAYBACK_BAR_CONTROL_INK),
+    ui.add_sized(
+        Vec2::new(VOLUME_GLYPH_WIDTH, TRANSPORT_BUTTON_HEIGHT),
+        egui::Label::new(
+            RichText::new(VOLUME_GLYPH)
+                .small()
+                .color(theme::PLAYBACK_BAR_CONTROL_INK),
+        ),
     );
 
     let mut value = app.playback().volume();
@@ -1282,6 +1364,80 @@ mod tests {
             buttons[2].right() < WINDOW_WIDTH / 4.0,
             "the transport has drifted out of the bar's left end: {:?}",
             buttons[2]
+        );
+    }
+
+    /// The volume group is centred on the room the transport buttons and the
+    /// centre box leave between them.
+    ///
+    /// The two are what it is between: the user asked for the volume control in
+    /// the middle of the gap rather than pushed up against the buttons, so the
+    /// assertion is on the two gaps — button row to the speaker, and the rail to
+    /// the pill — being equal. Measured off a real frame, where both ends of the
+    /// group are painted rather than read from the constants that placed it.
+    #[test]
+    fn the_volume_is_centred_between_the_transport_and_the_centre_box() {
+        let mut app = app();
+        let painted = paint_bar(&mut app);
+
+        let speaker = painted.ink(VOLUME_GLYPH).expect("the volume speaker");
+        let rail = painted
+            .rects_with(theme::PLAYBACK_BAR_CONTROL_INK)
+            .into_iter()
+            .filter(|rect| (rect.width() - VOLUME_SLIDER_WIDTH).abs() < 2.0)
+            .max_by(|a, b| a.width().total_cmp(&b.width()))
+            .expect("the volume slider's rail");
+        let pill = painted
+            .rects_with(theme::CENTRE_BOX_FILL)
+            .into_iter()
+            .max_by(|a, b| a.area().total_cmp(&b.area()))
+            .expect("the centre box paints its own fill");
+
+        // The buttons' own rectangles, not their glyphs' ink: a glyph is
+        // narrower than the button it sits in, and it is the button the volume
+        // is set off from.
+        let buttons_end = painted
+            .rects
+            .iter()
+            .map(|(rect, _)| *rect)
+            .filter(|rect| {
+                (rect.width() - TRANSPORT_BUTTON_WIDTH).abs() < 0.5
+                    && (rect.height() - TRANSPORT_BUTTON_HEIGHT).abs() < 0.5
+                    && rect.left() < WINDOW_WIDTH / 4.0
+            })
+            .map(|rect| rect.right())
+            .max_by(f32::total_cmp)
+            .expect("the transport buttons paint their own rectangles");
+
+        // The glyph is inset in its 16-point box, so the group's left edge is
+        // half the inset further left than the speaker's own ink.
+        let group_left = speaker.center().x - VOLUME_GLYPH_WIDTH / 2.0;
+        let before = group_left - buttons_end;
+        let after = pill.left() - rail.right();
+
+        assert!(
+            before > 0.0 && after > 0.0,
+            "the volume is not between the buttons and the box: {before} before, \
+             {after} after ({speaker:?}, {rail:?}, {pill:?})"
+        );
+        assert!(
+            (before - after).abs() <= 1.0,
+            "the volume is not centred between the transport and the box: \
+             {before} before it, {after} after it"
+        );
+
+        // And the group as a whole — the speaker's fixed box and the rail — is
+        // the thing that is centred. The box is at the group's head, where the
+        // glyph is inset both sides, so the group's left edge is that half-inset
+        // out from the speaker's own ink; its right edge is the rail's.
+        let group_right = rail.right();
+        assert!(
+            ((group_left + group_right) / 2.0 - f32::midpoint(buttons_end, pill.left())).abs()
+                <= 0.5,
+            "the volume group's centre is not the room's midpoint: \
+             group {} against {}",
+            f32::midpoint(group_left, group_right),
+            f32::midpoint(buttons_end, pill.left())
         );
     }
 
