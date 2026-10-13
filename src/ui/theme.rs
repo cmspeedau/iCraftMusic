@@ -335,6 +335,13 @@ pub fn apply_playback_bar_visuals(visuals: &mut Visuals) {
 /// paints fits its contents exactly and cannot disagree with them.
 pub const CENTRE_BOX_PAD: i8 = 12;
 
+/// Points the centre box leaves above its contents and below them, in points.
+///
+/// Its top row and the seek row under it are placed from this and the bar's own
+/// height, so the two rows sit inside the pill rather than being measured off
+/// whatever a child happened to report.
+pub const CENTRE_BOX_PAD_Y: i8 = 6;
+
 /// Corner radius of the centre box, in points.
 ///
 /// Half the box's height, which is what makes it the pill the bar is built
