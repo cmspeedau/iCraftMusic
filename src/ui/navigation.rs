@@ -1,11 +1,12 @@
 //! Left-hand navigation sidebar and the list of top-level sections.
 //!
-//! The sidebar holds the places you browse. Under the "Browse" heading are the
-//! sections and the Library's pages; under a "Playlists" heading of its own,
-//! level with them, are the playlists themselves. They are not nested inside
-//! the Playlists entry: a playlist is one of the places you go, the same as
-//! Library or Albums, and indenting it under another entry said it was a
-//! sub-page of that one rather than a destination of its own.
+//! The sidebar holds the places you browse. Under the 'Browse' heading is the
+//! Library and its pages; under a 'Playlists' heading of its own, level with
+//! them, are the playlists themselves. There is no Playlists *entry*: the
+//! section is about one of the user's lists at a time and nothing else, so a
+//! row for it led to an empty page whose only content was a line asking you to
+//! choose one — which is the list drawn right under the row. The heading stays
+//! because a list of names needs a name; what went is the row.
 //!
 //! The gear at the right end of the status bar is the one destination that is
 //! not here — Settings is opened from there, so the sections the app can be in
@@ -44,7 +45,10 @@ impl NavSection {
     ///
     /// Settings is not among them: it is opened from the gear in the status
     /// bar, and `ALL` is what the app can be in rather than what is listed.
-    pub const TOP: [NavSection; 2] = [Self::Library, Self::Playlists];
+    /// Playlists is not either: its section only ever shows one of the lists
+    /// drawn under it, so the entry was a row that led nowhere of its own —
+    /// the lists themselves are the way in, along with the `+` that makes one.
+    pub const TOP: [NavSection; 1] = [Self::Library];
 
     /// Name shown in the sidebar.
     pub fn label(self) -> &'static str {
@@ -207,11 +211,8 @@ mod tests {
     }
 
     #[test]
-    fn the_sidebar_lists_the_places_you_browse() {
-        assert_eq!(
-            NavSection::TOP,
-            [NavSection::Library, NavSection::Playlists]
-        );
+    fn the_sidebar_lists_the_library_and_its_pages() {
+        assert_eq!(NavSection::TOP, [NavSection::Library]);
     }
 
     #[test]
@@ -223,6 +224,43 @@ mod tests {
         assert!(
             NavSection::ALL.contains(&NavSection::Settings),
             "…but the app can still be in Settings"
+        );
+    }
+
+    /// The Playlists section is one of the user's own lists or nothing, so the
+    /// sidebar reaches it through the named lists rather than through a row for
+    /// the section itself.
+    #[test]
+    fn the_playlists_have_no_entry_of_their_own() {
+        assert!(
+            !NavSection::TOP.contains(&NavSection::Playlists),
+            "the lists under the heading are the way into the section"
+        );
+        assert!(
+            NavSection::ALL.contains(&NavSection::Playlists),
+            "…but the app can still be in the Playlists section, opened from a list"
+        );
+    }
+
+    /// The word 'Playlists' is painted once on an imported library: as the
+    /// heading over the list, not as a section entry above it. Two copies is
+    /// the entry coming back; the count is the literal because that is what the
+    /// screen has to show.
+    #[test]
+    fn the_sidebar_names_the_playlists_once_over_the_list() {
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &library_ids(&app));
+
+        let painted = painted(&mut app);
+
+        assert_eq!(
+            painted
+                .iter()
+                .filter(|text| text.as_str() == "Playlists")
+                .count(),
+            1,
+            "the sidebar names the playlists more than once, so an entry is back \
+             above the heading: {painted:?}"
         );
     }
 
@@ -328,8 +366,8 @@ mod tests {
         );
     }
 
-    /// A playlist is a place you go, so it lines up with the sections rather
-    /// than sitting inset under the Playlists entry.
+    /// A playlist is a place you go, so it lines up with the section entries
+    /// rather than sitting inset under the heading above it.
     #[test]
     fn a_playlist_is_level_with_the_section_entries() {
         let mut app = imported();
@@ -343,7 +381,9 @@ mod tests {
         };
         let output = context.run_ui(input, |ui| sidebar(&mut app, ui));
 
-        let section = painted_name(&output.shapes, "Playlists").expect("no Playlists entry");
+        // The Library is the one entry left under the Browse heading; a
+        // playlist has to line up with it rather than with the heading over it.
+        let section = painted_name(&output.shapes, "Library").expect("no Library entry");
         let entry = painted_name(&output.shapes, "Evening").expect("no playlist entry");
         output.drop_without_applying_deltas();
 
@@ -352,11 +392,11 @@ mod tests {
         // An indented entry would sit a whole indent step further right.
         assert!(
             (entry.center().x - section.center().x).abs() <= 1.0,
-            "the playlist is indented under the Playlists entry: {entry:?} vs {section:?}"
+            "the playlist is indented under the heading: {entry:?} vs {section:?}"
         );
         assert!(
             entry.top() > section.top(),
-            "the playlist is listed above the Playlists entry: {entry:?} vs {section:?}"
+            "the playlist is listed above the Library entry: {entry:?} vs {section:?}"
         );
     }
 
