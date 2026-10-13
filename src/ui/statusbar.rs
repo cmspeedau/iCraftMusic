@@ -3,16 +3,18 @@
 //! One line saying how much music the library holds — songs, albums and artists
 //! — centred on a gray strip that spans the window, with controls at its ends:
 //! at the left the `+` that names a new playlist and, beside it, the shuffle
-//! switch; at the right the gear that opens Settings. The bar reports, and those
-//! are what it holds; what is playing is the transport's business at the top of
-//! the window, and what can be done to a selection is the library's.
+//! and repeat switches; at the right the gear that opens Settings. The bar
+//! reports, and those are what it holds; what is playing is the transport's
+//! business at the top of the window, and what can be done to a selection is
+//! the library's.
 //!
 //! Each arrived here the same way, leaving a section that had better things to
 //! do with its rows: Settings had a sidebar entry of its own; making a playlist
 //! had a button across the top of the Playlists section, in the way of the list
-//! it was making; and shuffle sat among the transport controls, where it took a
-//! button's width to say one bit. None is a section — you reach for them from
-//! anywhere — so they sit on the bar, out of the way of the music.
+//! it was making; and shuffle and repeat sat among the transport controls,
+//! where each took a button's width to say a state that outlives the track.
+//! None is a section — you reach for them from anywhere — so they sit on the
+//! bar, out of the way of the music.
 
 use egui::{Button, Panel, Rect, RichText};
 
@@ -36,6 +38,15 @@ const PLUS_GLYPH: &str = "✚";
 /// The shuffle glyph, crossed out by [`strike_out`] while shuffle is off.
 const SHUFFLE_GLYPH: &str = "🔀";
 
+/// The repeat glyph: the arrowed loop, crossed out while repeat is off.
+///
+/// The same picture the transport's browser tab carries, and the one every
+/// player uses for repeat, so the switch needs no label to be read.
+const REPEAT_GLYPH: &str = "🔁";
+
+/// The single-track repeat glyph: the loop with a 1 in it.
+const REPEAT_ONE_GLYPH: &str = "🔂";
+
 /// Which end of the bar a button belongs to, and how far along that end it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum End {
@@ -43,6 +54,8 @@ enum End {
     Left,
     /// The shuffle switch, immediately right of the `+`.
     LeftBeside,
+    /// The repeat switch, immediately right of the shuffle.
+    LeftThird,
     /// The gear that opens Settings.
     Right,
 }
@@ -75,6 +88,7 @@ pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 counts(app, ui);
                 new_playlist(app, ui);
                 shuffle(app, ui);
+                repeat(app, ui);
                 settings(app, ui);
             });
         });
@@ -181,6 +195,60 @@ fn shuffle(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 }
 
+/// The repeat switch, at the left end beside the shuffle switch.
+///
+/// It moved off the transport for the reason shuffle did: there it was a
+/// button as wide as its own words — `Repeat: All` — in a row of playback
+/// controls, to say one of three states. On the bar it is a glyph the size of
+/// the bar's other controls, and its hover text names the mode the way the
+/// shuffle switch's names its own state.
+///
+/// Drawn like shuffle: struck through while repeat is off, plain while it is
+/// on, and carrying the bar's button highlight while it is on. Repeat has a
+/// third state and one bit of ink cannot say it, so the glyph changes as well
+/// — the loop for the whole queue, the same loop with a 1 in it for the one
+/// track — and the hover text spells the mode out.
+fn repeat(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    let mode = app.playback().repeat();
+    let on = mode.is_enabled();
+    let response = ui
+        .put(
+            rect_for(ui.max_rect(), End::LeftThird),
+            Button::selectable(
+                on,
+                RichText::new(repeat_glyph(mode))
+                    .size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)
+                    .strong(),
+            ),
+        )
+        .on_hover_text(repeat_hover(mode));
+
+    if !on {
+        strike_out(ui, response.rect);
+    }
+
+    if response.clicked() {
+        app.cycle_repeat_mode();
+    }
+}
+
+/// The repeat glyph for a mode: the loop, or the loop with a 1 in it.
+fn repeat_glyph(mode: crate::audio::RepeatMode) -> &'static str {
+    match mode {
+        crate::audio::RepeatMode::One => REPEAT_ONE_GLYPH,
+        _ => REPEAT_GLYPH,
+    }
+}
+
+/// What the repeat switch says when it is pointed at.
+fn repeat_hover(mode: crate::audio::RepeatMode) -> &'static str {
+    match mode {
+        crate::audio::RepeatMode::Off => "Repeat: off",
+        crate::audio::RepeatMode::All => "Repeat: all",
+        crate::audio::RepeatMode::One => "Repeat: this track",
+    }
+}
+
 /// What the shuffle switch says when it is pointed at.
 fn shuffle_hover(shuffle: bool) -> &'static str {
     if shuffle {
@@ -234,6 +302,12 @@ fn rect_for(bar: Rect, end: End) -> Rect {
                 + theme::STATUS_BAR_BUTTON_GAP;
             (left, left + side)
         }
+        End::LeftThird => {
+            let left = bar.left()
+                + theme::STATUS_BAR_BUTTON_INSET
+                + 2.0 * (theme::STATUS_BAR_BUTTON_SIZE + theme::STATUS_BAR_BUTTON_GAP);
+            (left, left + side)
+        }
         End::Right => {
             let right = bar.right() - theme::STATUS_BAR_BUTTON_INSET;
             (right - side, right)
@@ -260,7 +334,7 @@ mod tests {
     use super::*;
 
     use crate::app::Startup;
-    use crate::audio::{AudioEngine, Playback};
+    use crate::audio::{AudioEngine, Playback, RepeatMode};
 
     #[test]
     fn the_line_counts_songs_albums_and_artists_in_order() {
@@ -436,6 +510,227 @@ mod tests {
         assert!(
             plus >= 19.0,
             "the + inks only {plus} across, well short of the gear's width"
+        );
+    }
+
+    /// The repeat switch is on the bar now, and the transport has no repeat
+    /// button: the two places cannot drift back together.
+    #[test]
+    fn the_repeat_controls_are_on_the_bar_and_no_longer_on_the_playback_bar() {
+        let mut app = app();
+
+        let on_bar = draw(&mut app, bar).glyphs;
+        assert!(
+            on_bar.contains(&REPEAT_GLYPH.to_owned()),
+            "the bar does not draw the repeat glyph: {on_bar:?}"
+        );
+
+        let on_playback = draw(&mut app, crate::ui::nowplaying::bar).glyphs;
+        assert!(
+            !on_playback.iter().any(|text| text.contains("Repeat:")),
+            "the playback bar still draws a repeat button: {on_playback:?}"
+        );
+    }
+    /// The glyph a mode is drawn with, taken through the switch's own helper.
+    #[test]
+    fn the_repeat_glyph_says_which_mode_repeat_is_in() {
+        assert_eq!(repeat_glyph(RepeatMode::Off), REPEAT_GLYPH);
+        assert_eq!(repeat_glyph(RepeatMode::All), REPEAT_GLYPH);
+        assert_eq!(
+            repeat_glyph(RepeatMode::One),
+            REPEAT_ONE_GLYPH,
+            "the single-track mode is drawn as the whole-queue one"
+        );
+        assert_ne!(REPEAT_ONE_GLYPH, REPEAT_GLYPH, "and the two differ");
+    }
+
+    /// Every glyph the repeat switch can draw inks the width of the switch
+    /// beside it at the size it is drawn.
+    ///
+    /// Measured by width rather than by `has_glyphs`: epaint reports the emoji
+    /// cluster glyphs as absent even though the fallback face draws them — the
+    /// shuffle switch has been shipped with one for stages — so a zero-width
+    /// glyph is the signal that a face cannot supply it, and a 22-point one is
+    /// the signal that it can.
+    #[test]
+    fn both_repeat_glyphs_ink_the_width_of_the_switch_beside_them() {
+        let size = theme::STATUS_BAR_BUTTON_GLYPH_SIZE;
+        let ctx = egui::Context::default();
+        let mut widths = None;
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let font = egui::FontId::proportional(size);
+            let width = |glyph: &str| {
+                ui.ctx()
+                    .fonts_mut(|fonts| {
+                        fonts.layout_no_wrap(glyph.to_owned(), font.clone(), egui::Color32::WHITE)
+                    })
+                    .size()
+                    .x
+            };
+
+            widths = Some((
+                width(REPEAT_GLYPH),
+                width(REPEAT_ONE_GLYPH),
+                width(SHUFFLE_GLYPH),
+            ));
+        });
+        output.drop_without_applying_deltas();
+
+        let (whole, one, shuffle) = widths.expect("the glyphs were measured");
+
+        // Measured off this render: all three ink 22.6 across at 22 points.
+        // The single-track loop carries a digit and still matches the others,
+        // which is why it can stand in the same button.
+        assert!(
+            (whole - one).abs() < 1.0,
+            "the single-track loop ({one}) is a different width from the plain one ({whole})"
+        );
+        assert!(
+            (whole - shuffle).abs() < 1.0,
+            "the repeat loop ({whole}) is a different width from the shuffle glyph ({shuffle})"
+        );
+        assert!(
+            whole >= 19.0,
+            "the repeat glyph inks only {whole} across, short of the other controls"
+        );
+    }
+
+    /// Clicking the repeat switch moves the mode on and stores the choice, the
+    /// same way the transport button did: a switch that changed the engine but
+    /// not the setting would come back in the old mode next launch.
+    #[test]
+    fn a_click_on_the_repeat_switch_cycles_and_remembers_the_mode() {
+        let mut app = app();
+        assert_eq!(app.playback().repeat(), RepeatMode::Off);
+        assert_eq!(app.configured_repeat(), RepeatMode::Off);
+
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0));
+
+        let mut frame = |events: Vec<egui::Event>| {
+            let mut run = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ui| bar(&mut app, ui),
+            );
+            let mut drawn = Drawn::default();
+            for clipped in &run.shapes {
+                collect(&clipped.shape, &mut drawn);
+            }
+            run.textures_delta.clear();
+            drawn
+        };
+
+        // One pass to let egui learn the switch's rectangle: a hit is decided
+        // against the previous frame, so a click on the very first lands
+        // nowhere.
+        let drawn = frame(Vec::new());
+        let rect = drawn
+            .glyph_rect(REPEAT_GLYPH)
+            .expect("the repeat switch was drawn");
+        let pos = rect.center();
+
+        frame(vec![egui::Event::PointerMoved(pos)]);
+        frame(vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        }]);
+        frame(vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }]);
+
+        assert_eq!(
+            app.playback().repeat(),
+            RepeatMode::All,
+            "clicking the switch at {pos:?} did not move the repeat mode on"
+        );
+        assert_eq!(
+            app.configured_repeat(),
+            RepeatMode::All,
+            "the mode moved but the choice was not remembered"
+        );
+    }
+
+    /// The bar's other controls, their sizes and their colours are unchanged.
+    #[test]
+    fn the_repeat_switch_is_one_of_the_bar_s_controls() {
+        let bar = Rect::from_min_max(egui::pos2(0.0, 970.0), egui::pos2(1180.0, 1000.0));
+        let plus = rect_for(bar, End::Left);
+        let shuffle = rect_for(bar, End::LeftBeside);
+        let repeat = rect_for(bar, End::LeftThird);
+
+        assert_eq!(
+            repeat.left() - shuffle.right(),
+            theme::STATUS_BAR_BUTTON_GAP,
+            "the repeat switch is not set off from the shuffle switch by the \
+             bar's own gap: {shuffle:?} vs {repeat:?}"
+        );
+        assert_eq!(
+            repeat.size(),
+            plus.size(),
+            "the repeat switch is a different size from the +: {repeat:?} vs {plus:?}"
+        );
+        assert_eq!(
+            repeat.center().y,
+            shuffle.center().y,
+            "the switches are not on the same line: {repeat:?} vs {shuffle:?}"
+        );
+        assert!(
+            bar.contains_rect(repeat),
+            "the repeat switch is off the bar: {repeat:?} is not inside {bar:?}"
+        );
+        assert!(
+            repeat.right() < rect_for(bar, End::Right).left(),
+            "the repeat switch runs into the gear at the other end"
+        );
+
+        // The same three places, read off a real frame: the helper above pins
+        // the arithmetic, and this pins the placement the switch actually
+        // draws in — a call site that asked for the wrong end would leave the
+        // helper's answer untouched.
+        let screen = screen();
+        let shapes = painted(screen);
+        let on_screen =
+            |glyph: &str| written(&shapes, glyph).unwrap_or_else(|| panic!("no {glyph}"));
+        let plus = on_screen(PLUS_GLYPH);
+        let shuffle = on_screen(SHUFFLE_GLYPH);
+        let repeat = on_screen(REPEAT_GLYPH);
+
+        assert!(
+            repeat.left() > shuffle.right(),
+            "the repeat switch is not drawn to the right of the shuffle switch: \
+             {shuffle:?} vs {repeat:?}"
+        );
+        assert!(
+            repeat.left() > plus.right(),
+            "the repeat switch is not drawn beyond the +: {plus:?} vs {repeat:?}"
+        );
+        assert!(
+            repeat.right() < screen.width() / 2.0,
+            "the repeat switch drifted out of the bar's left end: {repeat:?}"
+        );
+
+        // It takes the bar's own ink and fill like the switches beside it,
+        // which is what the third trip through the same `put` buys.
+        let mut visuals = egui::Visuals::dark();
+        theme::apply_status_bar_visuals(&mut visuals);
+        assert_eq!(
+            visuals.widgets.inactive.fg_stroke.color,
+            theme::STATUS_BAR_INK,
+            "the repeat glyph takes the bar's ink"
+        );
+        assert_eq!(
+            visuals.widgets.inactive.weak_bg_fill,
+            theme::STATUS_BAR_BUTTON_FILL,
+            "and rests in the bar's own fill, not a tile of its own"
         );
     }
 

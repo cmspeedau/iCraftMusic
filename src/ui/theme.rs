@@ -47,8 +47,8 @@ pub const PLAYLIST_LIST_MAX_HEIGHT: f32 = 260.0;
 /// Height of the status bar across the bottom of the window, in points.
 ///
 /// One line of text with the room to centre it vertically, plus the squares
-/// holding the two corner buttons — new playlist at the left, Settings at the
-/// right.
+/// along it: the `+` that names a playlist and the shuffle and repeat switches
+/// at the left, and the gear that opens Settings at the right.
 pub const STATUS_BAR_HEIGHT: f32 = 30.0;
 
 /// Side of a corner button on the status bar, in points.
@@ -76,9 +76,9 @@ pub const STATUS_BAR_BUTTON_INSET: f32 = 3.0;
 
 /// Gap between two buttons sharing one end of the status bar, in points.
 ///
-/// The left end holds two — the `+` that names a playlist and the shuffle
-/// switch — which read as separate controls rather than as one wide button
-/// because of this hair of the bar showing between them.
+/// The left end holds three — the `+` that names a playlist, the shuffle
+/// switch and the repeat switch — which read as separate controls rather than
+/// as one wide button because of this hair of the bar showing between them.
 pub const STATUS_BAR_BUTTON_GAP: f32 = 2.0;
 
 /// Fill of a status bar corner button while the pointer is over it, or held

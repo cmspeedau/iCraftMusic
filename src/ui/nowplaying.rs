@@ -4,6 +4,11 @@
 //! is, and the controls that drive it. The bar is always drawn, even when no
 //! output device could be opened — the queue is still real work, so the
 //! controls stay live and the failure is shown in place of the track details.
+//!
+//! Shuffle and repeat are not here. Both moved down to the status bar, where
+//! they sit with the controls that are about the session rather than about the
+//! track: on this bar each took a button's width out of the transport row to
+//! say a state that outlives the track.
 
 use egui::{
     Align, Button, Color32, CornerRadius, Layout, Panel, Pos2, Rect, RichText, Sense, Slider,
@@ -65,7 +70,7 @@ fn rows(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         summary(app, ui);
 
         // Laid out right to left so the reading order stays
-        // previous · play · next · repeat, with volume last.
+        // previous · play · next, with volume last.
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             volume(app, ui);
             ui.add_space(18.0);
@@ -168,22 +173,15 @@ fn subtitle(app: &MusicCraftApp) -> String {
     parts.join(" · ")
 }
 
-/// Previous, play/pause, next and repeat, in that on-screen order.
+/// Previous, play/pause and next, in that on-screen order.
 ///
-/// Shuffle is not here: it took a button's width in this row to say one bit,
-/// and it moved to the status bar, where it sits with the other controls that
-/// are about the application rather than about the track.
+/// Shuffle and repeat are not here: each took a button's width in this row —
+/// `Repeat: All` took more than a button's — to say a state that belongs to
+/// the session rather than to the track, and both moved to the status bar,
+/// where they sit with the other controls that are about the application.
 fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let has_current = app.playback().current().is_some();
     let size = [38.0, 28.0];
-
-    if ui
-        .add(Button::new(repeat_label(app)))
-        .on_hover_text("Repeat")
-        .clicked()
-    {
-        app.playback_mut().cycle_repeat();
-    }
 
     if ui
         .add_enabled(has_current, Button::new("⏭").min_size(size.into()))
@@ -213,11 +211,6 @@ fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     {
         app.previous_track();
     }
-}
-
-/// The repeat button's text, e.g. `Repeat: All`.
-fn repeat_label(app: &MusicCraftApp) -> String {
-    format!("Repeat: {}", app.playback().repeat().label())
 }
 
 /// The burger button that opens the queue, at the right of the transport row.
@@ -346,16 +339,22 @@ mod tests {
         );
     }
 
+    /// The transport no longer has a repeat button; the mode is cycled from the
+    /// status bar's switch now, and that helper is what it calls.
     #[test]
-    fn the_repeat_button_shows_the_current_mode() {
+    fn cycling_the_repeat_mode_remembers_it() {
         let mut app = app();
-        let initial = repeat_label(&app);
+        assert_eq!(app.playback().repeat(), RepeatMode::Off);
 
-        app.set_repeat_mode(RepeatMode::One);
-        let after = repeat_label(&app);
+        assert_eq!(app.cycle_repeat_mode(), RepeatMode::All);
+        assert_eq!(
+            app.configured_repeat(),
+            RepeatMode::All,
+            "the mode moved but the setting did not follow"
+        );
 
-        assert_ne!(initial, after);
-        assert!(after.ends_with(RepeatMode::One.label()), "{after}");
+        assert_eq!(app.cycle_repeat_mode(), RepeatMode::One);
+        assert_eq!(app.configured_repeat(), RepeatMode::One);
     }
 
     #[test]

@@ -766,6 +766,18 @@ impl MusicCraftApp {
         }
     }
 
+    /// Advance the repeat mode to the next one, remembering the choice.
+    ///
+    /// Routed through [`MusicCraftApp::set_repeat_mode`] rather than writing
+    /// the setting here: a switch that cycled the engine and left the stored
+    /// mode behind would come back in the old mode on the next launch.
+    pub fn cycle_repeat_mode(&mut self) -> RepeatMode {
+        let next = self.playback_mut().cycle_repeat();
+        self.set_repeat_mode(next);
+
+        next
+    }
+
     /// Turn shuffle on or off, returning the new state.
     pub fn toggle_shuffle(&mut self) -> bool {
         let shuffle = self.playback.toggle_shuffle();
@@ -1826,6 +1838,16 @@ impl MusicCraftApp {
     /// The configured default volume, in the range `0.0..=1.0`.
     pub fn volume(&self) -> f32 {
         self.config.volume
+    }
+
+    /// The repeat mode that was stored, as the config holds it.
+    ///
+    /// It is read through here rather than off the playback engine because the
+    /// setting is what survives a restart: the two can only disagree for the
+    /// moment between a change and `persist()`, and a test that compares the
+    /// remembered choice with the engine's needs to see the former.
+    pub fn configured_repeat(&self) -> RepeatMode {
+        self.config.repeat
     }
 
     /// Change the default volume and schedule a save.
