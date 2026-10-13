@@ -59,9 +59,6 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         error_banner(app, ui, &message);
     }
 
-    toolbar(app, ui, &mut action);
-    ui.add_space(8.0);
-
     detail_column(app, ui, &mut action);
 
     if let Some(action) = action {
@@ -69,43 +66,37 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// The section's own toolbar: what the open playlist can do.
+/// What the open playlist can do, drawn at the right of the section's heading.
+///
+/// The buttons sit on the heading line rather than on a row of their own: they
+/// act on the playlist the heading names, so putting them beside it says which
+/// playlist they are about, and the row they used to take went to the tracks.
 ///
 /// Making a playlist is not here. It is a `+` in the status bar's left corner,
 /// reachable from every section rather than only from this one, and out of the
 /// way of the list it was making.
-fn toolbar(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action>) {
-    ui.horizontal(|ui| {
-        let open = app.selected_playlist_summary();
-        let has_tracks = !app.playlist_tracks().is_empty();
+///
+/// The action is applied straight away: unlike the track rows, nothing this
+/// draws is being read out of the application while the buttons are up, so
+/// there is no borrow to wait for.
+pub fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    let mut action = None;
 
-        ui.add_enabled_ui(has_tracks, |ui| {
+    // Copied out first, so the application is free to be borrowed mutably by
+    // `apply` once a button has been clicked.
+    let open = app.selected_playlist();
+    let has_tracks = !app.playlist_tracks().is_empty();
+
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        if let Some(id) = open {
+            // Added right to left, so they read left to right as Rename,
+            // Duplicate, Delete from the inside out.
             if ui
-                .button("Play")
-                .on_hover_text("Play this playlist from the top")
+                .button(RichText::new("Delete").color(theme::WARNING))
+                .on_hover_text("Remove the playlist; the tracks and their files stay")
                 .clicked()
             {
-                *action = Some(Action::Play);
-            }
-
-            if ui
-                .button("Add to queue")
-                .on_hover_text("Put this playlist on the end of the queue")
-                .clicked()
-            {
-                *action = Some(Action::Queue);
-            }
-        });
-
-        if let Some(summary) = open {
-            ui.separator();
-
-            if ui
-                .button("Rename")
-                .on_hover_text("Give this playlist another name")
-                .clicked()
-            {
-                *action = Some(Action::Rename(summary.id));
+                action = Some(Action::Delete(id));
             }
 
             if ui
@@ -113,18 +104,42 @@ fn toolbar(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action>) 
                 .on_hover_text("Copy this playlist under a new name")
                 .clicked()
             {
-                *action = Some(Action::Duplicate(summary.id));
+                action = Some(Action::Duplicate(id));
             }
 
             if ui
-                .button(RichText::new("Delete").color(theme::WARNING))
-                .on_hover_text("Remove the playlist; the tracks and their files stay")
+                .button("Rename")
+                .on_hover_text("Give this playlist another name")
                 .clicked()
             {
-                *action = Some(Action::Delete(summary.id));
+                action = Some(Action::Rename(id));
             }
+
+            ui.separator();
         }
+
+        ui.add_enabled_ui(has_tracks, |ui| {
+            if ui
+                .button("Add to queue")
+                .on_hover_text("Put this playlist on the end of the queue")
+                .clicked()
+            {
+                action = Some(Action::Queue);
+            }
+
+            if ui
+                .button("Play")
+                .on_hover_text("Play this playlist from the top")
+                .clicked()
+            {
+                action = Some(Action::Play);
+            }
+        });
     });
+
+    if let Some(action) = action {
+        apply(app, action);
+    }
 }
 
 /// The open playlist: the tracks in play order.

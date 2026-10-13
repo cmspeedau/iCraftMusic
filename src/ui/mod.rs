@@ -78,14 +78,21 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         };
 
         // The Library is the one section with something to search, so its field
-        // rides on the heading line instead of taking a row of its own.
+        // rides on the heading line instead of taking a row of its own. The
+        // Playlists section puts the open playlist's buttons there instead.
         ui.horizontal(|ui| {
             ui.label(RichText::new(heading).heading());
 
-            if app.section() == NavSection::Library {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    libraryview::search_field(app, ui);
-                });
+            match app.section() {
+                NavSection::Library => {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        libraryview::search_field(app, ui);
+                    });
+                }
+                NavSection::Playlists => {
+                    playlistview::controls(app, ui);
+                }
+                NavSection::Settings => {}
             }
         });
 
@@ -217,6 +224,107 @@ mod tests {
                 .any(|text| text == "Collections you have put together"),
             "the section says nothing about itself: {painted:?}"
         );
+    }
+
+    /// The buttons act on the playlist the heading names, so they belong on
+    /// that line, at the far end of it — not on a row of their own above the
+    /// tracks, where they read as belonging to whatever came next.
+    #[test]
+    fn the_open_playlists_buttons_ride_on_the_heading_line_at_its_right() {
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &[TrackId(1)]);
+        app.set_section(NavSection::Playlists);
+        app.open_playlist(app.playlists().first().expect("a playlist").id);
+
+        let shapes = frame(&mut app);
+
+        // "Evening" is on screen twice — the sidebar entry and the heading —
+        // and the sidebar comes first, so the heading is the one in the
+        // content area, past the sidebar's width.
+        let heading = texts(&shapes, "Evening")
+            .into_iter()
+            .find(|rect| rect.left() > 208.0)
+            .expect("the heading");
+        let detail = named(&shapes, "1 track").expect("the count line");
+        let play = named(&shapes, "Play").expect("the Play button");
+
+        assert!(
+            play.top() < heading.bottom() && play.bottom() > heading.top(),
+            "the buttons are not on the heading's line: {play:?} vs {heading:?}"
+        );
+        assert!(
+            play.left() > heading.right(),
+            "the buttons are not to the right of the heading: {play:?} vs {heading:?}"
+        );
+        assert!(
+            play.top() < detail.top(),
+            "the buttons are not above the count line: {play:?} vs {detail:?}"
+        );
+    }
+
+    /// The tokens are changed on the shapes directly: what is on the screen is
+    /// the pixels, not the string parameter that was passed in.
+    fn frame(app: &mut MusicCraftApp) -> Vec<egui::epaint::ClippedShape> {
+        let ctx = egui::Context::default();
+        let mut output = None;
+
+        for _ in 0..3 {
+            let mut run = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1180.0, 808.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| render(app, ui),
+            );
+            run.textures_delta.clear();
+            output = Some(run);
+        }
+
+        output.expect("`run_ui` ran at least once").shapes
+    }
+
+    /// The rectangle the first line of text reading `needle` was painted into.
+    fn named(shapes: &[egui::epaint::ClippedShape], needle: &str) -> Option<egui::Rect> {
+        texts(shapes, needle).into_iter().next()
+    }
+
+    /// Every rectangle a line of text reading `needle` was painted into.
+    fn texts(shapes: &[egui::epaint::ClippedShape], needle: &str) -> Vec<egui::Rect> {
+        shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) if text.galley.text() == needle => {
+                    let size = text.galley.size();
+                    let min = match text.galley.job.halign {
+                        egui::Align::LEFT => text.pos,
+                        egui::Align::Center => egui::pos2(text.pos.x - size.x / 2.0, text.pos.y),
+                        egui::Align::RIGHT => egui::pos2(text.pos.x - size.x, text.pos.y),
+                    };
+                    Some(egui::Rect::from_min_size(min, size))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn zz_dump_positions() {
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &[TrackId(1)]);
+        app.set_section(NavSection::Playlists);
+        app.open_playlist(app.playlists().first().expect("a playlist").id);
+        let shapes = frame(&mut app);
+        for clipped in &shapes {
+            if let egui::Shape::Text(t) = &clipped.shape {
+                let txt = t.galley.text();
+                if ["Play", "Evening", "1 track", "Delete", "Rename"].contains(&txt) {
+                    println!("{txt:?} pos={:?}", t.pos);
+                }
+            }
+        }
     }
 
     /// Every line of text a whole frame of the shell paints.
