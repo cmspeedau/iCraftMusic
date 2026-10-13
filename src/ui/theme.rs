@@ -314,8 +314,6 @@ pub fn status_bar_frame() -> Frame {
 /// A resting button takes the bar's own fill, so the `+` reads as the bar
 /// rather than as a pale tile sitting on it: the bar is a surface, and a
 /// control only shows itself when the pointer is over it or its state is on.
-/// Only the hover and the selected fills step away, and there only as far as
-/// [`STATUS_BAR_HOVER`] and the accent.
 pub const STATUS_BAR_BUTTON_FILL: Color32 = STATUS_BAR_FILL;
 
 /// Point a style at the status bar's own palette.
@@ -333,6 +331,12 @@ pub fn apply_status_bar_visuals(visuals: &mut Visuals) {
     // where it has something to say: under the pointer, or while it is on.
     visuals.widgets.inactive.weak_bg_fill = STATUS_BAR_BUTTON_FILL;
     visuals.widgets.noninteractive.weak_bg_fill = STATUS_BAR_BUTTON_FILL;
+
+    // `RichText::strong()` needs no colour of its own here: egui resolves it
+    // through `Visuals::strong_text_color()`, which is `widgets.active`'s text
+    // colour, and `ink_surface` above has just set that to the bar's ink. So
+    // the bar's glyphs can say `strong()` and mean it, without a second place
+    // to keep in step.
 
     // The hover fill is the bar's own step-darker shade rather than the themes':
     // theirs is near-black in the dark theme, which would put the bar's dark ink

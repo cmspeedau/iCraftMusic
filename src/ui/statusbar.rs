@@ -24,8 +24,14 @@ use crate::ui::theme;
 /// The gear drawn at the right end of the bar, opening Settings.
 const GEAR_GLYPH: &str = "⚙";
 
-/// The `+` drawn at the left end of the bar, naming a new playlist.
-const PLUS_GLYPH: &str = "+";
+/// The plus drawn at the left end of the bar, naming a new playlist.
+///
+/// The heavy Greek cross rather than ASCII `+`: an ASCII plus is drawn thin and
+/// narrow in the Ubuntu face egui bundles — at 22 points it inks 12 points
+/// across where the gear inks 24 — so it sat in its button looking smaller and
+/// lighter than the glyphs on either side of it. `✚` is the same cross, drawn
+/// heavy and square, and the bundled fonts carry it.
+const PLUS_GLYPH: &str = "✚";
 
 /// The shuffle glyph, crossed out by [`strike_out`] while shuffle is off.
 const SHUFFLE_GLYPH: &str = "🔀";
@@ -101,7 +107,11 @@ fn counts(app: &MusicCraftApp, ui: &mut egui::Ui) {
 fn new_playlist(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let response = ui.put(
         rect_for(ui.max_rect(), End::Left),
-        Button::new(RichText::new(PLUS_GLYPH).size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)),
+        Button::new(
+            RichText::new(PLUS_GLYPH)
+                .size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)
+                .strong(),
+        ),
     );
 
     if response
@@ -126,7 +136,9 @@ fn settings(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         rect_for(ui.max_rect(), End::Right),
         Button::selectable(
             app.section() == NavSection::Settings,
-            RichText::new(GEAR_GLYPH).size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE),
+            RichText::new(GEAR_GLYPH)
+                .size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)
+                .strong(),
         ),
     );
 
@@ -153,7 +165,9 @@ fn shuffle(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             rect_for(ui.max_rect(), End::LeftBeside),
             Button::selectable(
                 on,
-                RichText::new(SHUFFLE_GLYPH).size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE),
+                RichText::new(SHUFFLE_GLYPH)
+                    .size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)
+                    .strong(),
             ),
         )
         .on_hover_text(shuffle_hover(on));
@@ -375,6 +389,111 @@ mod tests {
             app.playback().shuffle(),
             "clicking the switch at {pos:?} did not turn shuffle on"
         );
+    }
+
+    /// The `+` inks as wide as the glyphs beside it.
+    ///
+    /// This is the assertion behind "bigger and bold", and it is measured in
+    /// ink widths rather than taste: the ASCII plus inked **12.4** points across
+    /// at the bar's glyph size while the gear inked **19.8**, which is what made
+    /// the `+` read as the runt of the three. The heavy cross inks **19.8** —
+    /// the gear's own width — so it needs no size of its own.
+    ///
+    /// The expected widths are literals on purpose. Comparing the plus against
+    /// `GEAR_GLYPH` would compare two numbers that move together, and would pass
+    /// with the ASCII plus still in place, which is exactly the shape of test
+    /// that catches nothing.
+    #[test]
+    fn the_plus_inks_as_wide_as_the_glyphs_beside_it() {
+        let ctx = egui::Context::default();
+        let mut widths = None;
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let font = egui::FontId::proportional(theme::STATUS_BAR_BUTTON_GLYPH_SIZE);
+            let ink = |glyph: &str| {
+                ui.ctx()
+                    .fonts_mut(|fonts| {
+                        fonts.layout_no_wrap(glyph.to_owned(), font.clone(), egui::Color32::WHITE)
+                    })
+                    .size()
+                    .x
+            };
+
+            widths = Some((ink(PLUS_GLYPH), ink(GEAR_GLYPH), ink("+")));
+        });
+        output.drop_without_applying_deltas();
+
+        let (plus, gear, ascii) = widths.expect("the glyphs were measured");
+
+        // Measured off this render: the thin plus 12.4, the gear 19.8.
+        assert!(
+            ascii < 14.0,
+            "the ASCII plus is expected to be the narrow one, but measured {ascii}"
+        );
+        assert!(
+            (gear - plus).abs() < 1.0,
+            "the + ({plus}) and the gear ({gear}) do not ink the same width"
+        );
+        assert!(
+            plus >= 19.0,
+            "the + inks only {plus} across, well short of the gear's width"
+        );
+    }
+
+    /// Every button on the bar lights up when the pointer is over it.
+    ///
+    /// The `+` is a plain `Button::new`, and egui draws a plain button from its
+    /// `inactive` visuals even while it is hovered — the bar restyles those to
+    /// its own fill, so before this the `+` gave no sign at all that the pointer
+    /// had found it, while the gear (a `selectable`) did. This drives a real
+    /// pointer onto each control in turn and reads the fill that was painted
+    /// under it, so "alight" is measured off a frame rather than assumed.
+    #[test]
+    fn every_button_on_the_bar_lights_up_under_the_pointer() {
+        for glyph in [PLUS_GLYPH, GEAR_GLYPH, SHUFFLE_GLYPH] {
+            let mut app = app();
+            let ctx = egui::Context::default();
+
+            // Frame 1: find the control the way a pointer would.
+            let first = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen()),
+                    ..Default::default()
+                },
+                |ui| crate::ui::render(&mut app, ui),
+            );
+            let rect =
+                written(&first.shapes, glyph).unwrap_or_else(|| panic!("the bar has no {glyph:?}"));
+            first.drop_without_applying_deltas();
+
+            // Frame 2: with the pointer sitting on it.
+            let pos = rect.center();
+            let mut input = egui::RawInput {
+                screen_rect: Some(screen()),
+                ..Default::default()
+            };
+            input.events = vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ];
+            let hovered = ctx.run_ui(input, |ui| crate::ui::render(&mut app, ui));
+            let mut drawn = Drawn::default();
+            for clipped in &hovered.shapes {
+                collect(&clipped.shape, &mut drawn);
+            }
+            hovered.drop_without_applying_deltas();
+
+            assert_eq!(
+                drawn.glyph_fill(glyph),
+                Some(theme::STATUS_BAR_HOVER),
+                "{glyph:?} does not light up under the pointer: got {:?}",
+                drawn.glyph_fill(glyph)
+            );
+        }
     }
 
     /// What one pass over a bar painted.
@@ -612,20 +731,47 @@ mod tests {
     }
 
     #[test]
-    fn the_plus_is_a_plus_the_fonts_can_draw() {
-        assert_eq!(PLUS_GLYPH, "+");
+    fn the_plus_is_a_heavy_cross_the_fonts_can_draw() {
+        // The heavy Greek cross, not an ASCII plus: an ASCII plus is drawn thin
+        // and narrow (12 points across at 22pt, against the gear's 24), so it
+        // reads as a smaller, lighter control than the glyphs beside it.
+        assert_eq!(PLUS_GLYPH, "✚");
 
         let size = theme::STATUS_BAR_BUTTON_GLYPH_SIZE;
         let ctx = egui::Context::default();
-        let mut drawable = false;
+        let mut measured = None;
         let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            drawable = ui
+            let drawable = ui
                 .ctx()
                 .fonts_mut(|fonts| fonts.has_glyphs(&egui::FontId::proportional(size), PLUS_GLYPH));
+            assert!(drawable, "none of egui's fonts can draw {PLUS_GLYPH}");
+
+            // The reason the glyph was changed, measured rather than asserted
+            // from taste: the heavy cross inks far wider than the thin one at
+            // the same point size, so it fills its button like the gear does.
+            let heavy = ui.ctx().fonts_mut(|fonts| {
+                fonts.layout_no_wrap(
+                    PLUS_GLYPH.to_owned(),
+                    egui::FontId::proportional(size),
+                    egui::Color32::WHITE,
+                )
+            });
+            let thin = ui.ctx().fonts_mut(|fonts| {
+                fonts.layout_no_wrap(
+                    "+".to_owned(),
+                    egui::FontId::proportional(size),
+                    egui::Color32::WHITE,
+                )
+            });
+            measured = Some((heavy.size().x, thin.size().x));
         });
         output.drop_without_applying_deltas();
 
-        assert!(drawable, "none of egui's fonts can draw {PLUS_GLYPH}");
+        let (heavy, thin) = measured.expect("both glyphs were measured");
+        assert!(
+            heavy > thin * 1.3,
+            "the heavy cross ({heavy}) is not markedly wider than the ASCII plus ({thin})"
+        );
     }
 
     #[test]
@@ -747,9 +893,9 @@ mod tests {
         let bar = filled(&shapes, theme::STATUS_BAR_FILL).expect("the bar never painted its fill");
         let counts = written(&shapes, "songs").expect("the bar says nothing");
         let gear = written(&shapes, "⚙").expect("the bar has no gear");
-        let plus = written(&shapes, "+").expect("the bar has no +");
+        let plus = written(&shapes, PLUS_GLYPH).expect("the bar has no +");
 
-        for (label, button) in [("+", plus), ("gear", gear)] {
+        for (label, button) in [("plus", plus), ("gear", gear)] {
             assert!(
                 bar.contains_rect(button),
                 "the {label} is off the bar: {button:?} inside {bar:?}"
@@ -803,7 +949,7 @@ mod tests {
             },
             |ui| crate::ui::render(&mut app, ui),
         );
-        let plus = written(&first.shapes, "+").expect("the bar has no +");
+        let plus = written(&first.shapes, PLUS_GLYPH).expect("the bar has no +");
         first.drop_without_applying_deltas();
 
         assert!(
