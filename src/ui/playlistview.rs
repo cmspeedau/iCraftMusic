@@ -37,8 +37,6 @@ enum Action {
     Rename(PlaylistId),
     /// Start copying a playlist.
     Duplicate(PlaylistId),
-    /// Start a new playlist.
-    Create,
     /// Play the open playlist from the top.
     Play,
     /// Add the open playlist to the queue.
@@ -75,17 +73,13 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// The section's own toolbar: making a playlist, and what the open one can do.
+/// The section's own toolbar: what the open playlist can do.
+///
+/// Making a playlist is not here. It is a `+` in the status bar's left corner,
+/// reachable from every section rather than only from this one, and out of the
+/// way of the list it was making.
 fn toolbar(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action>) {
     ui.horizontal(|ui| {
-        if ui
-            .button("New playlist")
-            .on_hover_text("Name a playlist, then add tracks to it")
-            .clicked()
-        {
-            *action = Some(Action::Create);
-        }
-
         let open = app.selected_playlist_summary();
         let has_tracks = !app.playlist_tracks().is_empty();
 
@@ -147,7 +141,8 @@ fn list_column(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Actio
             ui.add_space(4.0);
             ui.label(
                 RichText::new(
-                    "Make one, then add tracks from the library with the right-click menu.",
+                    "Make one with the + in the status bar, then add tracks from the library \
+                     with the right-click menu.",
                 )
                 .small()
                 .weak(),
@@ -343,7 +338,6 @@ fn apply(app: &mut MusicCraftApp, action: Action) {
         Action::Delete(id) => app.ask_to_delete_playlist(id),
         Action::Rename(id) => app.start_playlist_edit(PlaylistEditKind::Rename(id)),
         Action::Duplicate(id) => app.start_playlist_edit(PlaylistEditKind::Duplicate(id)),
-        Action::Create => app.start_playlist_edit(PlaylistEditKind::Create),
         Action::Play => {
             app.play_playlist();
         }

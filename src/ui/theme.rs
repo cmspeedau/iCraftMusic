@@ -22,32 +22,36 @@ pub const NAV_ITEM_HEIGHT: f32 = 28.0;
 
 /// Height of the status bar across the bottom of the window, in points.
 ///
-/// One line of text with the room to centre it vertically, plus the square that
-/// holds the gear opening Settings at the right end.
+/// One line of text with the room to centre it vertically, plus the squares
+/// holding the two corner buttons — new playlist at the left, Settings at the
+/// right.
 pub const STATUS_BAR_HEIGHT: f32 = 30.0;
 
-/// Side of the square setting button at the right end of the status bar, in
-/// points.
+/// Side of a corner button on the status bar, in points.
 ///
 /// Smaller than [`STATUS_BAR_HEIGHT`] so a hair of the gray shows above and
 /// below it: the button then reads as a control sitting on the bar rather than
 /// as a block filling its corner.
-pub const STATUS_BAR_GEAR_SIZE: f32 = 24.0;
+///
+/// Both corner buttons are this size, so the bar's two ends read as a pair
+/// rather than as two independently sized controls.
+pub const STATUS_BAR_BUTTON_SIZE: f32 = 24.0;
 
-/// Size of the gear drawn in that button, in points.
+/// Size of the glyph drawn in a corner button, in points.
 ///
 /// A glyph draws a box taller than its own size -- some 1.16 times it, so this
-/// stands the gear at 25.5 of the bar's 29 points, most of the bar's height and
+/// stands the glyph at 25.5 of the bar's 29 points, most of the bar's height and
 /// as much as it has room for: the bar is only as tall as what it holds, and at
-/// 23 the gear pushes the bar's fill past the foot of the window. At 19 it read
+/// 23 the glyph pushes the bar's fill past the foot of the window. At 19 it read
 /// as a speck in the corner rather than as the one control at that end of the
 /// bar.
-pub const STATUS_BAR_GEAR_GLYPH_SIZE: f32 = 22.0;
+pub const STATUS_BAR_BUTTON_GLYPH_SIZE: f32 = 22.0;
 
-/// Gap between the status bar's gear and the right end of the bar, in points.
-pub const STATUS_BAR_GEAR_INSET: f32 = 3.0;
+/// Gap between a corner button and its end of the status bar, in points.
+pub const STATUS_BAR_BUTTON_INSET: f32 = 3.0;
 
-/// Fill of the status bar's gear while the pointer is over it, or held down.
+/// Fill of a status bar corner button while the pointer is over it, or held
+/// down.
 ///
 /// The bar paints its own gray, so the themes' hover fill — near-black in the
 /// dark theme — would put the bar's dark ink on a dark square. This is the
@@ -493,29 +497,29 @@ mod tests {
         // gives no sign it is over the control.
         assert!(
             contrast(STATUS_BAR_HOVER, STATUS_BAR_FILL) > 1.2,
-            "a hovered gear must show: {STATUS_BAR_HOVER:?} on {STATUS_BAR_FILL:?}"
+            "a hovered corner button must show: {STATUS_BAR_HOVER:?} on {STATUS_BAR_FILL:?}"
         );
         // And the bar's ink must stay readable on it, which is why the hover
         // fill is a darker gray rather than the themes' own.
         assert!(
             contrast(STATUS_BAR_INK, STATUS_BAR_HOVER) >= 4.5,
-            "the gear's ink is too faint on {STATUS_BAR_HOVER:?}"
+            "the bar's ink is too faint on {STATUS_BAR_HOVER:?}"
         );
     }
 
     #[test]
-    fn the_gear_glyph_fills_its_button_within_the_bar() {
+    fn the_corner_button_glyph_fills_its_button_within_the_bar() {
         // Sized here and not at the call site: the button has to leave gray
         // above and below it on the bar, and the glyph has to fit the button.
         const {
             assert!(
-                STATUS_BAR_GEAR_SIZE < STATUS_BAR_HEIGHT,
-                "the gear button must leave gray above and below it on the bar"
+                STATUS_BAR_BUTTON_SIZE < STATUS_BAR_HEIGHT,
+                "a corner button must leave gray above and below it on the bar"
             )
         };
         const {
             assert!(
-                STATUS_BAR_GEAR_GLYPH_SIZE <= STATUS_BAR_GEAR_SIZE,
+                STATUS_BAR_BUTTON_GLYPH_SIZE <= STATUS_BAR_BUTTON_SIZE,
                 "a glyph wider than its button would be clipped by it"
             )
         };

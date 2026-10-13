@@ -1,21 +1,39 @@
 //! The status bar across the bottom of the window.
 //!
 //! One line saying how much music the library holds — songs, albums and artists
-//! — centred on a gray strip that spans the window, and a gear at the right end
-//! that opens Settings. The bar reports and it holds that one control: what is
-//! playing is the transport's business at the top of the window, what can be
-//! done to a selection is the library's, and the sections you browse are the
-//! sidebar's. Settings had a sidebar entry of its own; it is here now, in the
-//! corner, out of the way of the sections that hold the music.
+//! — centred on a gray strip that spans the window, with a control in each
+//! corner: a `+` at the left that names a new playlist, and a gear at the right
+//! that opens Settings. The bar reports, and those are the two things it holds;
+//! what is playing is the transport's business at the top of the window, and
+//! what can be done to a selection is the library's.
+//!
+//! Both arrived here the same way, leaving a section that had better things to
+//! do with its rows: Settings had a sidebar entry of its own, and making a
+//! playlist had a button across the top of the Playlists section, in the way of
+//! the list it was making. Neither is a section — you reach for them from
+//! anywhere — so they sit in the corners, out of the way of the music.
 
-use egui::{Button, Panel, Rect, Response, RichText};
+use egui::{Button, Panel, Rect, RichText};
 
 use crate::app::MusicCraftApp;
+use crate::playlists::PlaylistEditKind;
 use crate::ui::navigation::NavSection;
 use crate::ui::theme;
 
-/// The gear drawn at the right end of the bar.
+/// The gear drawn at the right end of the bar, opening Settings.
 const GEAR_GLYPH: &str = "⚙";
+
+/// The `+` drawn at the left end of the bar, naming a new playlist.
+const PLUS_GLYPH: &str = "+";
+
+/// Which end of the bar a corner button belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum End {
+    /// The `+` that makes a playlist.
+    Left,
+    /// The gear that opens Settings.
+    Right,
+}
 
 /// Draw the status bar.
 pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
@@ -26,11 +44,24 @@ pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             ui.scope(|ui| {
                 // The bar paints its own fill in every theme, so its line and
-                // its button take the bar's ink rather than the theme's
+                // its buttons take the bar's ink rather than the theme's
                 // foreground, which is near-white in the dark theme and would
                 // vanish on the gray.
                 theme::apply_status_bar_visuals(&mut ui.style_mut().visuals);
+
+                // Neither corner button pads its glyph. The bar is only as tall
+                // as what it holds, so at the size the glyphs are drawn,
+                // padding alone is enough to push a button -- and with it the
+                // bar's own fill -- past the foot of the window. The gray a
+                // button leaves around its glyph comes from
+                // [`theme::STATUS_BAR_BUTTON_SIZE`], not from its padding.
+                ui.style_mut().spacing.button_padding = egui::Vec2::ZERO;
+
+                // The line first, so the buttons draw over it rather than
+                // under: they claim their own rectangles, which the line's
+                // centred layout knows nothing about.
                 counts(app, ui);
+                new_playlist(app, ui);
                 settings(app, ui);
             });
         });
@@ -47,11 +78,31 @@ fn counts(app: &MusicCraftApp, ui: &mut egui::Ui) {
 
     // The bar is taller than its text in either direction, so the line is laid
     // out along both axes of the whole bar rather than from its top left. It
-    // stays centred in the window rather than in what the gear leaves over, so
-    // the gear is placed by its rectangle instead of taking a row.
+    // stays centred in the window rather than in what the corner buttons leave
+    // over, so neither button is placed by taking a row.
     ui.centered_and_justified(|ui| {
         ui.label(RichText::new(line).small().weak());
     });
+}
+
+/// The `+` at the left end of the bar, which names a new playlist.
+///
+/// It opens the same name editor the Playlists section used to raise, and asks
+/// the library for the same thing; what moved is where the control sits, not
+/// what it does. It carries no highlight, unlike the gear: a new playlist is
+/// something you ask for, not somewhere you are.
+fn new_playlist(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    let response = ui.put(
+        corner_rect(ui.max_rect(), End::Left),
+        Button::new(RichText::new(PLUS_GLYPH).size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)),
+    );
+
+    if response
+        .on_hover_text("Name a playlist, then add tracks to it")
+        .clicked()
+    {
+        app.start_playlist_edit(PlaylistEditKind::Create);
+    }
 }
 
 /// The gear at the right end of the bar, which opens Settings.
@@ -60,23 +111,15 @@ fn counts(app: &MusicCraftApp, ui: &mut egui::Ui) {
 /// entries did — the gear is now the only place that shows where you are when
 /// you are there.
 ///
-/// The gear is drawn at [`theme::STATUS_BAR_GEAR_GLYPH_SIZE`] rather than at
-/// the bar's line size: it is the only thing in the corner to aim at, so it is
-/// drawn as tall as the bar has room for.
+/// Both glyphs are drawn at [`theme::STATUS_BAR_BUTTON_GLYPH_SIZE`] rather than
+/// at the bar's line size: each is the only thing in its corner to aim at, so
+/// each is drawn as tall as the bar has room for.
 fn settings(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    // The bar is only as tall as what it holds, so the button must not pad the
-    // glyph: at the size the gear is drawn, padding alone is enough to push the
-    // button -- and with it the bar's own fill -- past the foot of the window.
-    // The gray the button leaves above and below the gear comes from
-    // [`theme::STATUS_BAR_GEAR_SIZE`], not from its padding.
-    ui.style_mut().spacing.button_padding = egui::Vec2::ZERO;
-
-    let rect = gear_rect(ui.max_rect());
-    let response: Response = ui.put(
-        rect,
+    let response = ui.put(
+        corner_rect(ui.max_rect(), End::Right),
         Button::selectable(
             app.section() == NavSection::Settings,
-            RichText::new(GEAR_GLYPH).size(theme::STATUS_BAR_GEAR_GLYPH_SIZE),
+            RichText::new(GEAR_GLYPH).size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE),
         ),
     );
 
@@ -88,14 +131,24 @@ fn settings(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// Where the gear sits on a bar filling `bar`: a square tucked into the right
-/// end, centred on the bar's own vertical centre.
-fn gear_rect(bar: Rect) -> Rect {
-    let side = theme::STATUS_BAR_GEAR_SIZE;
-    let right = bar.right() - theme::STATUS_BAR_GEAR_INSET;
+/// Where a corner button sits on a bar filling `bar`: a square tucked into one
+/// end, inset from it, and centred on the bar's own vertical centre.
+fn corner_rect(bar: Rect, end: End) -> Rect {
+    let side = theme::STATUS_BAR_BUTTON_SIZE;
+    let top = bar.center().y - side / 2.0;
+    let (left, right) = match end {
+        End::Left => {
+            let left = bar.left() + theme::STATUS_BAR_BUTTON_INSET;
+            (left, left + side)
+        }
+        End::Right => {
+            let right = bar.right() - theme::STATUS_BAR_BUTTON_INSET;
+            (right - side, right)
+        }
+    };
 
     Rect::from_min_max(
-        egui::pos2(right - side, bar.center().y - side / 2.0),
+        egui::pos2(left, top),
         egui::pos2(right, bar.center().y + side / 2.0),
     )
 }
@@ -143,16 +196,16 @@ mod tests {
     #[test]
     fn the_gear_sits_in_the_right_corner_of_the_bar() {
         let bar = Rect::from_min_max(egui::pos2(0.0, 970.0), egui::pos2(1180.0, 1000.0));
-        let gear = gear_rect(bar);
+        let gear = corner_rect(bar, End::Right);
 
         assert_eq!(
             bar.right() - gear.right(),
-            theme::STATUS_BAR_GEAR_INSET,
+            theme::STATUS_BAR_BUTTON_INSET,
             "the gear is inset from the right end"
         );
         assert_eq!(
             gear.right(),
-            gear.left() + theme::STATUS_BAR_GEAR_SIZE,
+            gear.left() + theme::STATUS_BAR_BUTTON_SIZE,
             "and square"
         );
         assert_eq!(
@@ -167,12 +220,48 @@ mod tests {
     }
 
     #[test]
+    fn the_plus_sits_in_the_left_corner_of_the_bar() {
+        let bar = Rect::from_min_max(egui::pos2(0.0, 970.0), egui::pos2(1180.0, 1000.0));
+        let plus = corner_rect(bar, End::Left);
+        let gear = corner_rect(bar, End::Right);
+
+        assert_eq!(
+            plus.left() - bar.left(),
+            theme::STATUS_BAR_BUTTON_INSET,
+            "the + is inset from the left end"
+        );
+        assert_eq!(
+            plus.right(),
+            plus.left() + theme::STATUS_BAR_BUTTON_SIZE,
+            "and square"
+        );
+        assert_eq!(
+            plus.size(),
+            gear.size(),
+            "the two corner buttons are the same size: {plus:?} vs {gear:?}"
+        );
+        assert_eq!(
+            plus.center().y,
+            bar.center().y,
+            "centred on the bar, level with the gear at the other end"
+        );
+        assert!(
+            bar.contains_rect(plus),
+            "the + stays on the bar: {plus:?} is not inside {bar:?}"
+        );
+        assert!(
+            plus.right() < gear.left(),
+            "the corners do not meet: {plus:?} overlaps {gear:?}"
+        );
+    }
+
+    #[test]
     fn the_gear_is_a_gear_the_fonts_can_draw() {
         assert_eq!(GEAR_GLYPH, "⚙");
 
         // At the size it is actually drawn: a glyph the proportional face can
         // only supply at the bar's line size would come out blank.
-        let size = theme::STATUS_BAR_GEAR_GLYPH_SIZE;
+        let size = theme::STATUS_BAR_BUTTON_GLYPH_SIZE;
 
         // Not through `__run_test_ui`: that starts a context with no fonts at
         // all, which would make this pass for the wrong reason.
@@ -189,15 +278,32 @@ mod tests {
     }
 
     #[test]
-    fn the_gear_stands_out_from_the_bar_line() {
-        // The counts are drawn `.small`; the gear must not be, or the bar's
-        // only control reads as one more word on the bar.
+    fn the_plus_is_a_plus_the_fonts_can_draw() {
+        assert_eq!(PLUS_GLYPH, "+");
+
+        let size = theme::STATUS_BAR_BUTTON_GLYPH_SIZE;
+        let ctx = egui::Context::default();
+        let mut drawable = false;
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            drawable = ui
+                .ctx()
+                .fonts_mut(|fonts| fonts.has_glyphs(&egui::FontId::proportional(size), PLUS_GLYPH));
+        });
+        output.drop_without_applying_deltas();
+
+        assert!(drawable, "none of egui's fonts can draw {PLUS_GLYPH}");
+    }
+
+    #[test]
+    fn the_corner_glyphs_stand_out_from_the_bar_line() {
+        // The counts are drawn `.small`; the corner glyphs must not be, or the
+        // bar's controls read as more words on the bar.
         let line = egui::TextStyle::Small.resolve(&egui::Style::default());
 
         assert!(
-            theme::STATUS_BAR_GEAR_GLYPH_SIZE > line.size,
-            "the gear ({}) is no bigger than the bar's line ({})",
-            theme::STATUS_BAR_GEAR_GLYPH_SIZE,
+            theme::STATUS_BAR_BUTTON_GLYPH_SIZE > line.size,
+            "the corner glyphs ({}) are no bigger than the bar's line ({})",
+            theme::STATUS_BAR_BUTTON_GLYPH_SIZE,
             line.size
         );
     }
@@ -295,37 +401,114 @@ mod tests {
         );
     }
 
-    /// The gear is drawn inside the bar's right corner and reads bigger than
-    /// the line it sits next to.
+    /// Each corner button paints on the bar, at its own end, bigger than the
+    /// line between them.
     #[test]
-    fn the_gear_sits_in_the_corner_and_reads_bigger_than_the_counts() {
+    fn the_corner_buttons_sit_at_their_ends_and_read_bigger_than_the_counts() {
         let screen = screen();
         let shapes = painted(screen);
         let bar = filled(&shapes, theme::STATUS_BAR_FILL).expect("the bar never painted its fill");
         let counts = written(&shapes, "songs").expect("the bar says nothing");
         let gear = written(&shapes, "⚙").expect("the bar has no gear");
+        let plus = written(&shapes, "+").expect("the bar has no +");
 
+        for (label, button) in [("+", plus), ("gear", gear)] {
+            assert!(
+                bar.contains_rect(button),
+                "the {label} is off the bar: {button:?} inside {bar:?}"
+            );
+            assert!(
+                button.height() > counts.height(),
+                "the {label} ({}) does not read bigger than the counts ({}): {button:?} vs {counts:?}",
+                button.height(),
+                counts.height()
+            );
+        }
+
+        // The `+` at the left end and the gear at the right, each within a
+        // quarter of the window of its own edge, and neither one meeting the
+        // other across the bar.
         assert!(
-            bar.contains_rect(gear),
-            "the gear is off the bar: {gear:?} inside {bar:?}"
+            plus.left() - screen.left() < screen.width() / 4.0,
+            "the + is not in the left corner: {plus:?} on {screen:?}"
         );
         assert!(
             screen.right() - gear.right() < screen.width() / 4.0,
             "the gear is not in the right corner: {gear:?} on {screen:?}"
         );
         assert!(
-            gear.height() > counts.height(),
-            "the gear ({}) does not read bigger than the counts ({}): {gear:?} vs {counts:?}",
-            gear.height(),
-            counts.height()
+            plus.right() < gear.left(),
+            "the two corner buttons meet: {plus:?} overlaps {gear:?}"
         );
-        // The move out of the sidebar replaced a 19-point glyph, which drew a
-        // 22-point box. The gear drawn here has to stand taller than that, or
+
+        // The gear's own move out of the sidebar replaced a 19-point glyph,
+        // which drew a 22-point box. It still has to stand taller than that, or
         // having moved it bought nothing.
         assert!(
             gear.height() > 22.0,
             "the gear reads {} points, no bigger than the 22 it replaced: {gear:?}",
             gear.height()
+        );
+    }
+
+    /// Clicking the `+` raises the name editor; clicking nothing does not.
+    #[test]
+    fn a_click_on_the_plus_starts_a_new_playlist() {
+        let screen = screen();
+        let mut app = app();
+        let ctx = egui::Context::default();
+
+        // Frame 1: lay the bar out and find the `+` the way a pointer would.
+        let first = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| crate::ui::render(&mut app, ui),
+        );
+        let plus = written(&first.shapes, "+").expect("the bar has no +");
+        first.drop_without_applying_deltas();
+
+        assert!(
+            app.playlist_draft().is_none(),
+            "the + opened an editor before it was clicked"
+        );
+
+        // Frame 2: press and release on it.
+        let centre = plus.center();
+        let press = |pressed: bool| {
+            vec![egui::Event::PointerButton {
+                pos: centre,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::default(),
+            }]
+        };
+        let mut input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+
+        input.events = vec![egui::Event::PointerMoved(centre)];
+        input.events.extend(press(true));
+        let down = ctx.run_ui(input, |ui| crate::ui::render(&mut app, ui));
+        down.drop_without_applying_deltas();
+
+        let mut input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        input.events = press(false);
+        let up = ctx.run_ui(input, |ui| crate::ui::render(&mut app, ui));
+        up.drop_without_applying_deltas();
+
+        let draft = app
+            .playlist_draft()
+            .expect("clicking the + did not raise the name editor");
+        assert_eq!(
+            draft.kind(),
+            PlaylistEditKind::Create,
+            "the + opened something other than a new playlist"
         );
     }
 
