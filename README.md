@@ -20,7 +20,9 @@ and the name on the tin says so.
 iCraftMusic is built incrementally against [ROADMAP.md](ROADMAP.md), which is the
 authority on what each stage delivers and on what is still missing.
 [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md) is the second roadmap: movies, TV shows and
-podcasts, with gPodder synchronization.
+podcasts, with gPodder synchronization — and Apple iPod synchronization, whose
+approach is not yet decided and which that file marks **Unknown** rather than
+pretending otherwise.
 
 ## Status
 
@@ -38,7 +40,7 @@ podcasts, with gPodder synchronization.
 | 9     | Release and Distribution            | Planned  |
 | 10    | Optional Future Enhancements        | Planned  |
 
-Beyond music, three further stages are planned in
+Beyond music, four further stages are planned in
 [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md):
 
 | Stage | Description                          | State   |
@@ -46,11 +48,21 @@ Beyond music, three further stages are planned in
 | 11    | Media Library Generalisation         | Planned |
 | 12    | Movies and TV Shows                  | Planned |
 | 13    | Podcasts and gPodder Synchronization | Planned |
+| 14    | Apple iPod Synchronization           | Unknown |
 
 The two roadmaps share one foundation: Stage 11 generalises the library and the
 player so that a film, an episode and a podcast episode are rows beside a song
 rather than a second application, and Stages 12 and 13 then add the surfaces
 those rows need.
+
+**Unknown** is a state of its own, not a shy way of writing Planned. Stages 11 to
+13 each have an approach that has been thought through and only the work left;
+Stage 14 does not. An iPod verifies a checksummed database against a hash that,
+on the newer generations, cannot be derived without a file only iTunes can
+produce — so writing to the device is a different class of operation from
+anything else in this application, and there are three candidate approaches with
+no obvious winner. [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md) records the research and
+the three open questions rather than inventing a plan to have one.
 
 ## What it plays
 
@@ -86,15 +98,27 @@ Nothing else is a media file as far as iCraftMusic is concerned.
 
 ### Planned
 
-| Media         | Stage | Notes                                                             |
-| ------------- | ----- | ----------------------------------------------------------------- |
-| Movies        | 12    | Container demux, artwork, per-title grouping for a series          |
-| TV shows      | 12    | Season and episode numbers, remembered next-episode position       |
-| Podcasts      | 13    | RSS/Atom feed parsing, episode download, resume position           |
-| gPodder sync  | 13    | Subscription and episode-action sync with gpodder.net or a self-hosted instance |
+| Media         | Stage | State   | Notes                                                             |
+| ------------- | ----- | ------- | ----------------------------------------------------------------- |
+| Movies        | 12    | Planned | Container demux, artwork, per-title grouping for a series          |
+| TV shows      | 12    | Planned | Season and episode numbers, remembered next-episode position       |
+| Podcasts      | 13    | Planned | RSS/Atom feed parsing, episode download, resume position           |
+| gPodder sync  | 13    | Planned | Subscription and episode-action sync with gpodder.net or a self-hosted instance |
+| Apple iPod sync | 14  | Unknown | Writing the device's checksummed database; approach undecided      |
 
 The roadmap for these is [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md), which also carries
 the gPodder API reference those stages are written against.
+
+Apple iPod sync is the one entry here with no agreed approach, and it is listed
+as **Unknown** rather than Planned for that reason. An iPod reads a database of
+what is on it, and since the iPod classic that database is verified against a
+cryptographic hash — so a sync means rewriting the database and recomputing the
+hash, and on the newer generations that hash depends on a `HashInfo` file only
+iTunes can generate. Three approaches are on the table (bindings to the C
+`libgpod`, a from-scratch Rust implementation of the format, or export-only and
+never write to the device); the trade-offs, the generation-by-generation
+requirements and the open questions are written down in
+[ROADMAP-MEDIA.md](ROADMAP-MEDIA.md#stage-14--apple-ipod-synchronization).
 
 ### The three Library pages
 

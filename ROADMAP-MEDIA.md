@@ -1,8 +1,9 @@
 # Roadmap — Media Beyond Music
 
 The second roadmap. [ROADMAP.md](ROADMAP.md) covers the music player, stages 0
-to 10; this file carries stages **11 to 13**, which turn MusicCraft from a music
+to 10; this file carries stages **11 to 14**, which turn iCraftMusic from a music
 player into a media player: movies, TV shows, and podcasts with gPodder
+synchronization — and, with its approach still undecided, Apple iPod
 synchronization.
 
 It is deliberately separate. The music stages are finished and their acceptance
@@ -10,6 +11,10 @@ criteria were verified against the running application; the stages below are
 unstarted, and keeping them in one file made it look as though the music work
 was still open. The two files share one status table in
 [README.md](README.md).
+
+Stage 14 is marked **Unknown** rather than Planned. Everything up to Stage 13 has
+an approach that has been thought through; Stage 14 does not, and writing it down
+as though it did would be the exact thing this file exists to avoid.
 
 ## Why these stages exist
 
@@ -37,12 +42,16 @@ These extend the constraints in [ROADMAP.md](ROADMAP.md) and do not replace them
   — a feed refresh, a download, a sync — and never as a background fact of
   running the application.
 - Nothing already working may stop working. A user who only ever plays music
-  must not be able to tell that Stages 11–13 landed, except that the scan got
+  must not be able to tell that Stages 11–14 landed, except that the scan got
   slower in proportion to how much more it is being asked to look at.
 - Every stage compiles, keeps the previous stages' acceptance criteria passing,
   and is verified against the running application before it is marked complete.
 - No new decoder is added without saying in this file what it is, what it can
   read, and what it costs to build.
+- Work whose approach is not yet decided is marked **Unknown**, not Planned. A
+  stage is Planned when its approach has been chosen and only the work is left;
+  an Unknown stage says so in the status itself rather than pretending the
+  research is done.
 
 ---
 
@@ -197,6 +206,114 @@ phone and the position on the desktop agree.
 
 ---
 
+## Stage 14 — Apple iPod Synchronization
+
+**Status: Unknown.**
+
+The work here is not "add a sync target". It is "write to a database that is
+checksummed, on hardware that is no longer manufactured, through a C library
+whose maintenance has been intermittent for years" — and the honest position is
+that the approach has not been chosen yet, not that it is merely unstarted. What
+follows is the research, so that whoever picks this up starts from the facts
+instead of rediscovering them.
+
+### Why this is Unknown rather than Planned
+
+Every other stage here has an approach. Stage 11's is a `MediaKind`; Stage 12's
+is a demuxer plus a picture surface; Stage 13's is gPodder's HTTP API. This stage
+has three candidate approaches, none of which is obviously right (see below), and
+the choice between them decides the whole shape of the work. Marking it Planned
+would mean inventing a plan to have one.
+
+### What is actually involved
+
+An iPod does not read the files on it — it reads a database describing them, and
+since the iPod classic that database carries a cryptographic hash that the device
+verifies. Adding a track means rewriting the database and recomputing that hash,
+not just copying a file in.
+
+| Model family                        | What the write needs                                                                    |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- |
+| iPod 1G–3G, Mini 1G–2G              | A plain `iTunesDB`. No hash, no sqlite.                                                    |
+| iPod 4G–5G, Nano 1G–2G              | `iTunesDB` plus a `SysInfoExtended` file                                                  |
+| iPod Classic, Nano 3G/4G            | As above, plus a **hash58** computed over the database                                     |
+| Nano 5G, iPhone/iPod touch (OS 2.x/3.x) | A compressed `iTunesCDB`, **hash72**, and checksummed sqlite databases plus a `.cbk` file |
+
+The hash is the whole difficulty:
+
+- **hash58** is derived from the device's FireWire ID, which `libgpod` reads off
+  the device over SCSI/USB.
+- **hash72** is *not* derivable. It needs a `HashInfo` file that only iTunes, or
+  a device that has been synced by iTunes at least once, can produce. Without it
+  the database is written and then silently rejected — the classic "syncs fine,
+  unplug and nothing is there" failure.
+- **`SysInfoExtended`** is a plist describing the device's capabilities, produced
+  by libgpod's `ipod-read-sysinfo-extended` helper (installed as a HAL/udev
+  callout, or run by hand).
+- On Nano 5G and later, the sqlite databases must be generated and then have
+  post-processing SQL run against them, which on some models is only obtainable
+  from the device itself.
+
+None of that is a library problem; it is the device's own design, and it means
+supporting "iPod" is really supporting a matrix of generations with different
+requirements.
+
+### The three candidate approaches
+
+| Approach                                              | Pros                                                                 | Cons                                                                                                              |
+| ----------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **`libgpod` bindings** (FFI)                           | The formats, the hashes and the device quirks are all implemented and battle-tested by a decade of use | C dependency; `libgpod`'s own support for the newer models is partial; the maintainership is intermittent; **its licence is LGPL**, which matters for a distributed binary |
+| **A pure-Rust implementation of `iTunesDB`/`iTunesCDB`** | No C dependency, and an all-Rust tree, which the project treats as a constraint | Reimplementing a checksummed binary format, and the hash72 problem does not go away — it is a hardware limitation, not a library one. Nothing else in the ecosystem has done this |
+| **Do not sync, export**                                 | Honest, cheap, and never writes to the device                          | Not really iPod sync; the device is read-only to us, and the user copies files themselves                          |
+
+A fourth possibility deserves naming and is not recommended: several older tools
+sidestep the hash by restoring an older firmware or by exploiting models that do
+not verify it. That is not something this project will do.
+
+### Deliverables, once the approach is chosen
+
+Provisional, and to be rewritten when it is:
+
+- Device discovery over USB and mounting, on Linux first, with the other
+  platforms named and not pretended.
+- A capability probe: read the model and generation, and say plainly which
+  requirements that device has and whether they are met.
+- `SysInfoExtended` and — where the device allows it — `HashInfo` handling, with
+  the "this device needs a HashInfo that we cannot generate; sync it once with
+  iTunes, or paste your serial number into ihash.marcan.st" case surfaced to the
+  user as what it is, and not as a crash.
+- Database read, then write: build the new `iTunesDB`/`iTunesCDB` from the
+  library, recompute the hash for the generation in hand, and write it back.
+- Track and playlist mapping, including artwork in the size the device asks for.
+- A dry run that reports what would change before anything is written, because
+  this is the one place in the application that writes to a device rather than a
+  file, and the blast radius of getting it wrong is a corrupted library on
+  hardware the user cannot easily fix.
+- Eject, and a refusal to write while a write is in flight.
+
+### Acceptance criteria, once the approach is chosen
+
+Not written yet, because acceptance criteria for an unknown approach would be
+theatre. Two are already fixed regardless of the approach:
+
+- A device whose generation this build cannot support safely is **refused with a
+  message naming the generation and the reason**, never written to speculatively.
+- Nothing in the interface offers to sync a device until a dry run has read that
+  device successfully.
+
+### What has to be decided before this stage can start
+
+1. `libgpod` FFI, pure Rust, or export-only — and if FFI, whether an LGPL
+   dependency is acceptable in a distributed binary, and how it is linked.
+2. Which generations are in scope. "iPod" as one word hides a matrix; a first
+   version that supports the un-hashed classics and refuses the rest honestly is
+   a legitimate answer, and a better one than claiming all of them.
+3. What happens to a user on a device that needs `HashInfo` and does not have
+   one. There is no good answer here, only several bad ones, and the choice
+   should be made deliberately rather than discovered in a bug report.
+
+---
+
 ## gPodder API reference
 
 What Stage 13 is written against. Two protocols live here and they are not the
@@ -207,7 +324,7 @@ same thing:
   episode state in step. This is what Stage 13 implements.
 - **The administrative API v1** (`/api/v1/…`) manages accounts, sync logins and
   API keys on a goPodder instance. A player has no business calling it, and
-  MusicCraft will not.
+  iCraftMusic will not.
 
 gPodder's own reference is the
 [gpodder.net API documentation](https://gpoddernet.readthedocs.io/en/latest/api/),
@@ -272,7 +389,7 @@ missing them.
 | 500    | Server error                                   | Retry with backoff, keeping the local changes pending |
 
 There is no rate limiting on the sync API, but the documentation asks that
-clients be considerate. MusicCraft syncs when the user asks it to, on a feed
+clients be considerate. iCraftMusic syncs when the user asks it to, on a feed
 refresh, and when it is about to close if a sync is outstanding — not on a timer.
 
 ### What is deliberately out of scope
@@ -297,9 +414,12 @@ refresh, and when it is about to close if a sync is outstanding — not on a tim
 | M8 — Generalisation    | 11     | One library and one player holding more than music        |
 | M9 — Film and TV       | 12     | Films and series indexed, browsed and played locally      |
 | M10 — Podcasts         | 13     | Subscriptions, downloads and playback, with gPodder sync  |
+| M11 — iPod (unknown)   | 14     | Apple iPod synchronization, once the approach is decided  |
 
 Stage 11 must land before either of the others; 12 and 13 do not depend on each
-other and can be taken in either order.
+other and can be taken in either order. Stage 14 depends on nothing and blocks
+nothing — it is off to one side, and its milestone has no shape until its three
+open questions are answered.
 
 ## Development rules
 
@@ -335,3 +455,12 @@ not there:
   case, and "last action wins" is only correct because the timestamps make it
   so. Any local merge rule that is not last-write-wins has to be argued for on
   its own merits.
+- **A device is not a file, and not a server.** The whole application so far
+  writes to files it owns and reads from a database it owns. Stage 14 writes to
+  what is effectively someone else's filesystem — one the device verifies and
+  will reject silently if it is wrong. That is a different class of operation
+  from anything else here, and it is why Stage 14's dry run is a deliverable
+  rather than a nicety.
+- **An Unknown stage does not get a milestone date.** The temptation, once a
+  stage has a number, is to schedule it. Stage 14 has a number so it can be
+  referred to; it does not have a plan, and the two are not the same thing.
