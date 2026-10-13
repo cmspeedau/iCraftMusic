@@ -26,7 +26,11 @@ use crate::ui::{empty_state, theme};
 /// Height of a track or artist row, in points.
 const ROW_HEIGHT: f32 = 24.0;
 /// Height of the table's column headings.
-const HEADER_HEIGHT: f32 = 22.0;
+///
+/// Shorter than a row: the heading is a line of 12pt text with nothing else on
+/// it, so it needs only the leading the font asks for. At a row's height it
+/// read as an empty row sitting above the table rather than as its heading.
+const HEADER_HEIGHT: f32 = 16.0;
 /// Padding between a column's edge and its text.
 const CELL_PADDING: f32 = 8.0;
 
