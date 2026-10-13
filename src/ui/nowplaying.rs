@@ -16,6 +16,12 @@
 //! title and state beside it, and the queue button at its right. The seek row
 //! runs under both.
 //!
+//! The Library's search field rides at the bar's right end. It used to sit on
+//! the Library's own heading, where the query filtered the page it was typed
+//! on; the bar is the one line that is on screen in every section, so the field
+//! and the query it holds are now reachable from all of them, and the heading
+//! line goes back to naming the section.
+//!
 //! Shuffle and repeat are not here. Both moved down to the status bar, where
 //! they sit with the controls that are about the session rather than about the
 //! track: on this bar each took a button's width out of the transport row to
@@ -23,11 +29,12 @@
 
 use egui::{
     Align, Button, Color32, CornerRadius, Layout, Panel, Pos2, Rect, RichText, Sense, Slider,
-    UiBuilder, Vec2,
+    TextEdit, UiBuilder, Vec2,
 };
 use std::path::Path;
 
 use crate::app::{MusicCraftApp, format_duration};
+use crate::ui::navigation::NavSection;
 use crate::ui::{queueview, theme};
 
 /// Side of the square cover drawn inside the centre box, in points.
@@ -116,6 +123,33 @@ const VOLUME_GLYPH_WIDTH: f32 = 16.0;
 /// controls rather than as the glyph it draws.
 const QUEUE_BUTTON_SIZE: f32 = 28.0;
 
+/// Length of the search field at the bar's right end, in points.
+///
+/// The width the query was typed into when the field lived on the Library's
+/// heading, so the same query reads the same way on the bar.
+const SEARCH_WIDTH: f32 = 220.0;
+
+/// Height of the search field, in points.
+const SEARCH_HEIGHT: f32 = 22.0;
+
+/// Room the Clear button takes, to the left of the field, in points.
+///
+/// The button's width is its text's; this is the room reserved for it so the
+/// field it belongs to stays against the bar's right edge whether or not a
+/// query is on.
+const SEARCH_CLEAR_WIDTH: f32 = 48.0;
+
+/// Narrowest the field is allowed to become, in points.
+///
+/// The centre box is 304 points wide and sits on the window's middle, so on the
+/// narrowest window the bar has room for (760 points) the field is squeezed to
+/// this side of the box rather than drawn over it.
+const SEARCH_MIN_WIDTH: f32 = 90.0;
+
+/// Points between the search field and what is beside it — the Clear button on
+/// its left, and the centre box on a window too narrow to hold both.
+const SEARCH_GAP: f32 = 8.0;
+
 /// Width of one of the seek row's two time labels, in points.
 ///
 /// Fixed, so the rail between them is centred in the box and stays put as the
@@ -151,9 +185,12 @@ pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
                 // The transport takes the bar's one row; the centre box is
                 // placed over the room that row leaves rather than taking a row
-                // of its own, and it draws the seek row inside itself.
+                // of its own, and it draws the seek row inside itself. The
+                // search field is placed at the bar's right end, off the same
+                // line, so the three are on one line across the bar.
                 transport_row(app, ui);
                 centre_box(app, ui);
+                search_row(app, ui);
             });
         });
 
@@ -242,6 +279,86 @@ fn volume_rect(row: Rect, pill: Rect) -> Rect {
 /// How wide the speaker and the slider are together, in points.
 fn volume_width() -> f32 {
     VOLUME_GLYPH_WIDTH + TRANSPORT_GAP + VOLUME_SLIDER_WIDTH
+}
+
+/// The Library's search field, at the bar's right end.
+///
+/// It sits on the same line as the transport and the box — placed by its own
+/// rectangle off the bar's middle, the way the volume is — rather than in a row
+/// of the bar's layout: the field's right edge is the bar's own inner edge,
+/// whatever the window is, and nothing else on the bar can move it.
+///
+/// The field is only drawn while the Library is the open section. The query
+/// filters the Library, so the bar only offers the field there; a query already
+/// typed stays in the application and is waiting in the field when the section
+/// is opened again.
+fn search_row(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    if app.section() != NavSection::Library {
+        return;
+    }
+
+    let field = search_rect(ui.max_rect(), centre_box_rect(ui.max_rect()));
+    let clear = Rect::from_min_size(
+        Pos2::new(field.left() - SEARCH_GAP - SEARCH_CLEAR_WIDTH, field.top()),
+        Vec2::new(SEARCH_CLEAR_WIDTH, field.height()),
+    );
+
+    ui.scope_builder(
+        UiBuilder::new()
+            .id_salt("playback_search")
+            .max_rect(field.union(clear)),
+        |ui| search_field(app, ui, field, clear),
+    );
+}
+
+/// Where the search field sits: its right edge at the bar's right-hand edge.
+///
+/// Trimmed to the room the centre box leaves on a window too narrow for both,
+/// so the field never reaches the pill; on every window wide enough for the
+/// 220 points the query is comfortably typed into, it keeps them.
+fn search_rect(bar: Rect, pill: Rect) -> Rect {
+    let right = bar.right();
+    let available = right - pill.right() - 2.0 * SEARCH_GAP - SEARCH_CLEAR_WIDTH;
+    let width = (right - bar.left() - SEARCH_GAP)
+        .min(available.max(SEARCH_MIN_WIDTH))
+        .min(SEARCH_WIDTH);
+
+    Rect::from_min_size(
+        Pos2::new(right - width, bar.center().y - SEARCH_HEIGHT / 2.0),
+        Vec2::new(width, SEARCH_HEIGHT),
+    )
+}
+
+/// The query field itself, and the way back out of a query.
+///
+/// Both are placed in rectangles of their own rather than run through a layout:
+/// the Clear button appears and disappears with the query, and the field must
+/// not move when it does. The field is filled from its rectangle — the caller
+/// reserved the button's room to the left of it — and that room is kept whether
+/// or not the button is drawn, so the field's two edges are the same whatever
+/// the query comes to.
+fn search_field(app: &mut MusicCraftApp, ui: &mut egui::Ui, field: Rect, clear: Rect) {
+    if app.browse().is_filtered()
+        && ui
+            .put(clear, Button::new("Clear"))
+            .on_hover_text("Show the whole library again")
+            .clicked()
+    {
+        app.browse_mut().set_query_text(String::new());
+    }
+
+    ui.put(
+        field,
+        // The field is filled with one of the bar's own control shades rather
+        // than the theme's text-edit fill: the theme's is near-black in the dark
+        // theme, which would put the bar's dark ink on a black tile. On the
+        // control shade the bar's ink reads at 6.8:1, and the field reads as one
+        // of the bar's controls resting on it.
+        TextEdit::singleline(app.browse_mut().query_text_mut())
+            .hint_text("Search…")
+            .background_color(theme::PLAYBACK_BAR_CONTROL),
+    )
+    .on_hover_text("Matches title, artist, album, genre and path");
 }
 
 /// The cream box on the window's centre: cover, track details, queue button,
@@ -1645,6 +1762,169 @@ mod tests {
         egui::__run_test_ui(|ui| super::bar(&mut app, ui));
 
         assert!(app.queue_open(), "the popover stays up until it is closed");
+    }
+
+    /// The Library's search field rides at the bar's right end: on the bar's own
+    /// line, inside the bar's height, and against the bar's right-hand edge —
+    /// to the right of the cream box rather than on the heading line in the
+    /// content area, which is where it used to be.
+    #[test]
+    fn the_search_field_sits_at_the_right_of_the_bar() {
+        let mut app = app();
+        let painted = paint_bar(&mut app);
+
+        // The bar's own inner right edge: its 16-point frame margin is what the
+        // field's trailing edge is placed against.
+        let field = painted
+            .ink("Search…")
+            .expect("the search field is on the bar");
+        let pill = painted
+            .rects_with(theme::CENTRE_BOX_FILL)
+            .into_iter()
+            .max_by(|a, b| a.area().total_cmp(&b.area()))
+            .expect("the centre box paints its own fill");
+        let background = painted
+            .rects
+            .iter()
+            .map(|(rect, _)| *rect)
+            .filter(|rect| (rect.width() - SEARCH_WIDTH).abs() < 1.0)
+            .max_by(|a, b| a.right().total_cmp(&b.right()))
+            .expect("the field paints its own background");
+
+        assert!(
+            (background.right() - (WINDOW_WIDTH - 16.0)).abs() <= 1.0,
+            "the field is not against the bar's right edge: {background:?}"
+        );
+        assert!(
+            (background.width() - SEARCH_WIDTH).abs() < 1.0,
+            "the field is not the width it is given: {background:?}"
+        );
+        assert_eq!(
+            painted
+                .rects
+                .iter()
+                .find(|(rect, _)| *rect == background)
+                .map(|(_, colour)| *colour),
+            Some(theme::PLAYBACK_BAR_CONTROL),
+            "the field is not filled as one of the bar's controls"
+        );
+        assert!(
+            background.left() > pill.right(),
+            "the field is not clear of the centre box: {background:?} vs {pill:?}"
+        );
+        assert!(
+            field.top() >= 0.0 && field.bottom() <= theme::PLAYBACK_BAR_HEIGHT,
+            "the field is not on the bar's own line: {field:?}"
+        );
+        assert!(
+            (background.center().y - pill.center().y).abs() <= 2.0,
+            "the field is not level with the box it sits beside: {background:?} vs {pill:?}"
+        );
+    }
+
+    #[test]
+    fn the_search_field_is_only_on_the_library() {
+        let mut app = app();
+        app.set_section(crate::ui::navigation::NavSection::Settings);
+
+        let painted = paint_bar(&mut app);
+
+        assert!(
+            painted.ink("Search…").is_none(),
+            "the bar offers a search field outside the Library"
+        );
+    }
+
+    /// A query puts a Clear button beside the field, and clicking it empties the
+    /// query: the way back out of a filter is the field that set it.
+    #[test]
+    fn a_query_puts_a_clear_button_beside_the_field() {
+        let mut app = app();
+        app.browse_mut().set_query_text("xtal");
+
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(WINDOW_WIDTH, 808.0));
+
+        let mut frame = |events: Vec<egui::Event>| {
+            let mut run = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ui| super::bar(&mut app, ui),
+            );
+            let mut painted = Painted::default();
+            for clipped in &run.shapes {
+                painted.collect(&clipped.shape);
+            }
+            run.textures_delta.clear();
+            painted
+        };
+
+        // One pass so egui learns the button's rectangle: a hit is decided
+        // against the previous frame.
+        let painted = frame(Vec::new());
+        let clear = painted
+            .rects
+            .iter()
+            .map(|(rect, _)| *rect)
+            .filter(|rect| (rect.width() - SEARCH_CLEAR_WIDTH).abs() < 1.0)
+            .max_by(|a, b| a.right().total_cmp(&b.right()))
+            .expect("the Clear button paints its own room");
+        let field = painted
+            .rects
+            .iter()
+            .map(|(rect, _)| *rect)
+            .filter(|rect| (rect.width() - SEARCH_WIDTH).abs() < 1.0)
+            .max_by(|a, b| a.right().total_cmp(&b.right()))
+            .expect("the field paints its own background");
+        let pill = painted
+            .rects_with(theme::CENTRE_BOX_FILL)
+            .into_iter()
+            .max_by(|a, b| a.area().total_cmp(&b.area()))
+            .expect("the centre box paints its own fill");
+
+        assert!(
+            clear.left() > pill.right() && clear.right() <= field.left(),
+            "the Clear button is not between the box and the field: \
+             {clear:?}, {field:?}, {pill:?}"
+        );
+
+        // The reserved room is what the field is set off from, so the button
+        // sits in it whether or not its label fills it — the way the field's
+        // trailing edge stays put.
+        let pos = clear.center();
+        assert!(
+            painted.ink("Clear").is_some(),
+            "the button does not draw its own label"
+        );
+        assert!(
+            painted
+                .rects
+                .iter()
+                .any(|(rect, colour)| *colour == theme::PLAYBACK_BAR_CONTROL && rect.contains(pos)),
+            "the button is not drawn as one of the bar's controls: {pos:?}"
+        );
+        frame(vec![egui::Event::PointerMoved(pos)]);
+        frame(vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        }]);
+        frame(vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }]);
+
+        assert!(
+            app.browse().query_text().is_empty() && !app.browse().is_filtered(),
+            "clicking Clear at {pos:?} left the query at {:?}",
+            app.browse().query_text()
+        );
     }
 
     fn app() -> MusicCraftApp {

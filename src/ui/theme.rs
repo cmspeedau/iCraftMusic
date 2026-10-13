@@ -335,6 +335,11 @@ pub fn apply_playback_bar_visuals(visuals: &mut Visuals) {
     ] {
         widget.bg_stroke.color = PLAYBACK_BAR_CONTROL_EDGE;
     }
+
+    // The search field's caret has to show on the control shade the field is
+    // filled with, the way its text does: egui's own caret is the theme's, which
+    // is near-white in the dark theme and would vanish on the bar.
+    visuals.text_cursor.stroke = Stroke::new(2.0, PLAYBACK_BAR_INK);
 }
 
 /// Points the playback bar's centre box leaves between its edge and its
@@ -569,6 +574,31 @@ mod tests {
                 contrast(PLAYBACK_BAR_INK, fill) >= 3.0,
                 "the bar's ink is too faint on the control fill {fill:?}: {:.2}",
                 contrast(PLAYBACK_BAR_INK, fill)
+            );
+        }
+    }
+
+    /// The search field is a control on the bar rather than a field on a page,
+    /// so it takes the bar's own palette: a fill of one of the bar's control
+    /// shades and, in the bar's ink, the query and the caret. The theme's
+    /// text-edit fill is near-black in the dark theme, which would put the bar's
+    /// dark ink on a black tile, and egui's own caret is the theme's, which
+    /// would vanish on the field's light fill.
+    #[test]
+    fn the_search_field_wears_the_playback_bars_own_controls() {
+        let mut visuals = Visuals::dark();
+        apply_playback_bar_visuals(&mut visuals);
+
+        assert_eq!(
+            visuals.text_cursor.stroke.color, PLAYBACK_BAR_INK,
+            "the caret would not show on the fill the field is drawn on"
+        );
+
+        for what in ["the query", "the caret"] {
+            assert!(
+                contrast(PLAYBACK_BAR_INK, PLAYBACK_BAR_CONTROL) >= 4.5,
+                "{what} is too faint on the field's fill: {:.2}",
+                contrast(PLAYBACK_BAR_INK, PLAYBACK_BAR_CONTROL)
             );
         }
     }

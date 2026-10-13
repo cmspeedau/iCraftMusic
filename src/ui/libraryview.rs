@@ -15,7 +15,7 @@
 
 use std::collections::BTreeSet;
 
-use egui::{Align2, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Sense, TextEdit, Vec2};
+use egui::{Align2, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Sense, Vec2};
 
 use crate::app::MusicCraftApp;
 use crate::library::browse::{AlbumCard, BrowseKind, ClickMode};
@@ -62,10 +62,6 @@ const CHARACTERS_PER_POINT: f32 = 1.0 / 6.6;
 const ALBUM_TILE: Vec2 = Vec2::new(148.0, 190.0);
 /// Height of the cover art inside a tile.
 const ALBUM_ART_HEIGHT: f32 = 132.0;
-
-/// Size of the search field drawn beside the Library heading.
-const SEARCH_WIDTH: f32 = 220.0;
-const SEARCH_HEIGHT: f32 = 22.0;
 
 /// What a click on a row asked for, applied once the frame is drawn.
 enum RowAction {
@@ -114,23 +110,6 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         None => error_state(app, ui),
         Some(_) => content(app, ui),
     }
-}
-
-/// The search field drawn beside the Library heading.
-///
-/// The caller lays it out right-to-left, so the Clear button is added first to
-/// land on the right of the field. The field is kept narrow on purpose; the
-/// hint lists what a query actually matches.
-pub fn search_field(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    if app.browse().is_filtered() && ui.small_button("Clear").clicked() {
-        app.browse_mut().set_query_text(String::new());
-    }
-
-    ui.add_sized(
-        [SEARCH_WIDTH, SEARCH_HEIGHT],
-        TextEdit::singleline(app.browse_mut().query_text_mut()).hint_text("Search…"),
-    )
-    .on_hover_text("Matches title, artist, album, genre and path");
 }
 
 /// What the selection can do, and whether a filter is hiding anything.

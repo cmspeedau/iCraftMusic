@@ -83,22 +83,15 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         let detail =
             shown.map_or_else(|| section.description().to_owned(), PlaylistSummary::totals);
 
-        // The Library is the one section with something to search, so its field
-        // rides on the heading line instead of taking a row of its own. The
-        // Playlists section puts the open playlist's buttons there instead.
+        // The heading is the section's name and, for an open playlist, the
+        // buttons that act on it. The Library's search field is not here: it
+        // rides at the right end of the playback bar, which is on screen in
+        // every section, and the heading line goes back to naming the section.
         ui.horizontal(|ui| {
             ui.label(RichText::new(heading).heading());
 
-            match app.section() {
-                NavSection::Library => {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        libraryview::search_field(app, ui);
-                    });
-                }
-                NavSection::Playlists => {
-                    playlistview::controls(app, ui);
-                }
-                NavSection::Settings => {}
+            if app.section() == NavSection::Playlists {
+                playlistview::controls(app, ui);
             }
         });
 
