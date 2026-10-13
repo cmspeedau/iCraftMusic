@@ -53,6 +53,38 @@ impl PlaylistSummary {
     pub fn display_name(&self) -> &str {
         self.name.trim()
     }
+
+    /// What the playlist's totals say when there is room to show them.
+    ///
+    /// `1 track — 1:01`, or `No tracks yet` when there is nothing in it. Both
+    /// the entry in the sidebar and the heading of the open playlist say it, so
+    /// it is phrased once here rather than in either view.
+    #[must_use]
+    pub fn totals(&self) -> String {
+        match self.duration {
+            Some(duration) => format!(
+                "{} — {}",
+                self.count_of_tracks(),
+                crate::app::format_duration(duration)
+            ),
+            None if self.is_empty() => "No tracks yet".to_owned(),
+            None => self.count_of_tracks(),
+        }
+    }
+
+    /// `1 track` / `3 tracks`, the phrasing the rest of the interface uses.
+    #[must_use]
+    fn count_of_tracks(&self) -> String {
+        format!(
+            "{} {}",
+            self.track_count,
+            if self.track_count == 1 {
+                "track"
+            } else {
+                "tracks"
+            }
+        )
+    }
 }
 
 /// A playlist together with its tracks, in play order.

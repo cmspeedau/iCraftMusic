@@ -20,6 +20,21 @@ pub const PLAYBACK_BAR_HEIGHT: f32 = 92.0;
 /// Height of a single sidebar entry, in points.
 pub const NAV_ITEM_HEIGHT: f32 = 28.0;
 
+/// Height of one playlist in the sidebar's list, in points.
+///
+/// A playlist name is the whole of what a list entry says, so it can be a
+/// little shorter than one of the browsing entries above it without crowding.
+pub const PLAYLIST_ITEM_HEIGHT: f32 = 24.0;
+
+/// How many playlists the sidebar lists before it starts scrolling, in points.
+///
+/// The list is inside the sidebar, which does not scroll: without a cap it
+/// would simply run out of the window at the bottom and take the rest of the
+/// sidebar with it. The room it takes has to leave the browsing entries above
+/// it alone and still fit the shortest window worth supporting, which is still
+/// deep enough for a long list the user scrolls in place.
+pub const PLAYLIST_LIST_MAX_HEIGHT: f32 = 260.0;
+
 /// Height of the status bar across the bottom of the window, in points.
 ///
 /// One line of text with the room to centre it vertically, plus the squares

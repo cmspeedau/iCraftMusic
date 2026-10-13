@@ -1,13 +1,22 @@
 //! Left-hand navigation sidebar and the list of top-level sections.
 //!
-//! Settings is deliberately absent: its entry is the gear at the right end of
-//! the status bar, so the sidebar holds only the places you browse, and the
-//! sections the app can be in stay a separate list from the ones shown here.
+//! The sidebar holds the places you browse, and under the "Playlists" heading
+//! it holds the playlists themselves: the list lives here, not in the Playlists
+//! section, because a playlist is a place you go rather than something one
+//! section owns. The gear at the right end of the status bar is the one entry
+//! that is not here — Settings is opened from there, so the sections the app
+//! can be in stay a separate list from the ones shown.
+//!
+//! Clicking a playlist opens the Playlists section on it. That is the one
+//! action here that is not just a section switch, so the list reports what was
+//! clicked and the section applies it, the same way its own rows do.
 
-use egui::{Button, Panel, RichText};
+use egui::{Button, Panel, RichText, ScrollArea};
 
 use crate::app::MusicCraftApp;
+use crate::library::PlaylistId;
 use crate::library::browse::BrowseKind;
+use crate::playlists::PlaylistSummary;
 
 use super::theme;
 
@@ -54,6 +63,10 @@ impl NavSection {
 
 /// Draw the sidebar and switch sections when an entry is clicked.
 pub fn sidebar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    // Which playlist a click in the list asked for, applied once the list is no
+    // longer being read — the app cannot be borrowed mutably while it is.
+    let mut open: Option<PlaylistId> = None;
+
     Panel::left("musiccraft_sidebar")
         .resizable(false)
         .exact_size(theme::SIDEBAR_WIDTH)
@@ -63,13 +76,19 @@ pub fn sidebar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             // take the sidebar's ink instead of the theme's foreground.
             ui.scope(|ui| {
                 theme::apply_sidebar_visuals(&mut ui.style_mut().visuals);
-                sidebar_items(app, ui);
+                sidebar_items(app, ui, &mut open);
             });
         });
+
+    if let Some(id) = open {
+        app.set_section(NavSection::Playlists);
+        app.open_playlist(id);
+    }
 }
 
-/// The sidebar's entries: the section list and the Library's pages.
-fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+/// The sidebar's entries: the section list, the Library's pages, and the
+/// playlists themselves.
+fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<PlaylistId>) {
     ui.add_space(2.0);
     ui.label(RichText::new("Browse").small().weak());
     ui.add_space(4.0);
@@ -84,6 +103,12 @@ fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         // where you are inside it as well as which section is open.
         if selected && section == NavSection::Library {
             browse_items(app, ui);
+        }
+
+        // The playlists hang off the Playlists entry the same way, and for the
+        // same reason: the list says where inside the section you could go.
+        if section == NavSection::Playlists {
+            playlist_items(app, ui, open);
         }
     }
 }
@@ -114,6 +139,48 @@ fn browse_items(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             }
         }
     });
+}
+
+/// The playlists, drawn indented under the Playlists sidebar entry.
+///
+/// A click on one reports the playlist through `open`; switching to the section
+/// and opening it happens once the sidebar has finished reading the app. The
+/// list is capped and scrolls in place — the sidebar itself does not scroll, so
+/// an uncapped list would run out of the window and take the rest of the
+/// sidebar with it.
+fn playlist_items(app: &MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<PlaylistId>) {
+    ui.indent("sidebar_playlists", |ui| {
+        if app.playlists().is_empty() {
+            ui.label(RichText::new("None yet").small().weak());
+            return;
+        }
+
+        ScrollArea::vertical()
+            .id_salt("sidebar_playlists_scroll")
+            .max_height(theme::PLAYLIST_LIST_MAX_HEIGHT)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for playlist in app.playlists() {
+                    if playlist_item(app, ui, playlist) {
+                        *open = Some(playlist.id);
+                    }
+                }
+            });
+    });
+}
+
+/// One playlist in the sidebar list. Returns `true` when it was clicked.
+///
+/// The open playlist carries the accent fill, the same as the selected entry of
+/// any other list, so the sidebar shows which one the section is showing.
+fn playlist_item(app: &MusicCraftApp, ui: &mut egui::Ui, playlist: &PlaylistSummary) -> bool {
+    let selected = app.selected_playlist() == Some(playlist.id);
+    let size = [ui.available_width(), theme::PLAYLIST_ITEM_HEIGHT];
+    let button = Button::selectable(selected, RichText::new(playlist.display_name()));
+
+    ui.add_sized(size, button)
+        .on_hover_text(playlist.totals())
+        .clicked()
 }
 
 #[cfg(test)]
@@ -178,6 +245,161 @@ mod tests {
         }
     }
 
+    /// Every string the sidebar paints, in one offscreen frame.
+    ///
+    /// The same trick the Library table uses: run the real view into an egui
+    /// context and read back the text it actually drew, so a list that is
+    /// composed but never painted cannot pass.
+    fn painted(app: &mut MusicCraftApp) -> Vec<String> {
+        let context = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 600.0));
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+
+        let mut output = context.run_ui(input, |ui| sidebar(app, ui));
+        let painted: Vec<String> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+
+        // Nothing here draws to a real screen, so the font atlas the first
+        // frame wants uploaded has no home and egui panics if it is dropped
+        // unconsumed; the text has been read out by now.
+        output.textures_delta.clear();
+
+        painted
+    }
+
+    #[test]
+    fn the_playlists_are_listed_under_their_heading() {
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &library_ids(&app));
+
+        let painted = painted(&mut app);
+
+        assert!(
+            painted.iter().any(|text| text == "Playlists"),
+            "the heading is missing: {painted:?}"
+        );
+        assert!(
+            painted.iter().any(|text| text == "Evening"),
+            "the playlist is not in the sidebar: {painted:?}"
+        );
+    }
+
+    #[test]
+    fn the_playlists_are_listed_whatever_section_is_open() {
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &library_ids(&app));
+
+        // The list is the point of putting it here: it is reachable without the
+        // Playlists section being the one on screen.
+        app.set_section(NavSection::Library);
+        let from_library = painted(&mut app);
+
+        app.set_section(NavSection::Playlists);
+        let from_playlists = painted(&mut app);
+
+        for (section, painted) in [("Library", from_library), ("Playlists", from_playlists)] {
+            assert!(
+                painted.iter().any(|text| text == "Evening"),
+                "no playlist in the sidebar while {section} is open: {painted:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_library_says_there_are_no_playlists_rather_than_going_quiet() {
+        let mut app = app();
+
+        let painted = painted(&mut app);
+
+        assert!(
+            painted.iter().any(|text| text == "None yet"),
+            "the sidebar says nothing about playlists: {painted:?}"
+        );
+    }
+
+    #[test]
+    fn clicking_a_playlist_opens_the_section_on_it() {
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &library_ids(&app));
+        let id = app.playlists().first().expect("a playlist").id;
+
+        // Start somewhere else, so the click is what moves the section.
+        app.set_section(NavSection::Library);
+        assert_eq!(app.selected_playlist(), None);
+
+        let context = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 600.0));
+        let mut input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+
+        // Frame 1: lay the sidebar out and find the playlist the way a pointer
+        // would, by the text it painted.
+        let first = context.run_ui(input.clone(), |ui| sidebar(&mut app, ui));
+        let name = painted_name(&first.shapes, "Evening").expect("the sidebar lists no playlist");
+        first.drop_without_applying_deltas();
+
+        // Frame 2: press and release on it.
+        input.events = vec![egui::Event::PointerMoved(name.center())];
+        input.events.push(egui::Event::PointerButton {
+            pos: name.center(),
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+        });
+        let down = context.run_ui(input.clone(), |ui| sidebar(&mut app, ui));
+        down.drop_without_applying_deltas();
+
+        input.events = vec![egui::Event::PointerButton {
+            pos: name.center(),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::default(),
+        }];
+        let up = context.run_ui(input, |ui| sidebar(&mut app, ui));
+        up.drop_without_applying_deltas();
+
+        assert_eq!(
+            app.section(),
+            NavSection::Playlists,
+            "clicking a playlist did not bring its section up"
+        );
+        assert_eq!(
+            app.selected_playlist(),
+            Some(id),
+            "the section opened without opening the playlist that was clicked"
+        );
+    }
+
+    /// The rectangle the text shape containing `needle` covers.
+    ///
+    /// A galley that is centred on its line is painted *from* its centre, so its
+    /// shape's position is the centre of the line rather than its top left.
+    fn painted_name(shapes: &[egui::epaint::ClippedShape], needle: &str) -> Option<egui::Rect> {
+        shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(text) if text.galley.text() == needle => {
+                let size = text.galley.size();
+                let min = match text.galley.job.halign {
+                    egui::Align::LEFT => text.pos,
+                    egui::Align::Center => egui::pos2(text.pos.x - size.x / 2.0, text.pos.y),
+                    egui::Align::RIGHT => egui::pos2(text.pos.x - size.x, text.pos.y),
+                };
+                Some(egui::Rect::from_min_size(min, size))
+            }
+            _ => None,
+        })
+    }
+
     /// An application with an in-memory library and no output device.
     fn app() -> MusicCraftApp {
         MusicCraftApp::with_playback(
@@ -188,5 +410,45 @@ mod tests {
             },
             Playback::with_engine(AudioEngine::without_device(), 1.0),
         )
+    }
+
+    /// Every library track's row identifier, as a menu would hand them over.
+    fn library_ids(app: &MusicCraftApp) -> Vec<crate::library::TrackId> {
+        app.browse()
+            .tracks()
+            .iter()
+            .filter_map(|track| track.id)
+            .collect()
+    }
+
+    /// An application with two indexed tracks and no playlists.
+    fn imported() -> MusicCraftApp {
+        use crate::library::{Library, Track, TrackId};
+
+        let library = Library::in_memory(std::env::temp_dir().join("musiccraft-sidebar-artwork"))
+            .expect("an in-memory library");
+        let mut app = MusicCraftApp::with_library(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error: None,
+            },
+            Playback::with_engine(AudioEngine::without_device(), 1.0),
+            library,
+        );
+
+        for (index, title) in ["Roygbiv", "Olson"].iter().enumerate() {
+            let mut track = Track::from_path(format!("/music/{title}.mp3"));
+            track.id = Some(TrackId(i64::try_from(index + 1).expect("small")));
+            track.title = (*title).to_owned();
+            app.library_mut()
+                .expect("a library")
+                .repository_mut()
+                .upsert_track(&track)
+                .expect("the track should be stored");
+        }
+
+        app.refresh().expect("the library should refresh");
+        app
     }
 }

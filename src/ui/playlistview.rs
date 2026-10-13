@@ -1,10 +1,15 @@
-//! The Playlists section: the list on the left, the open playlist on the right.
+//! The Playlists section: the open playlist, and what is in it.
 //!
 //! The whole section is drawn from what the last [`crate::app::MusicCraftApp::refresh`]
 //! loaded — the summaries and the open playlist's tracks — so nothing here
 //! queries the database. Actions are collected into a single [`Action`] and
 //! applied once the frame is drawn, because a click on a row cannot borrow the
 //! application mutably while the list it came from is still being read.
+//!
+//! Choosing a playlist is not done here. The list of them is in the sidebar,
+//! under the Playlists heading, where it is reachable without the section being
+//! open; what this section owns is the playlist you have chosen and the order
+//! of its tracks.
 //!
 //! Deleting a playlist asks first, through the same confirmation the library
 //! uses: what goes is the list and its order, never a file.
@@ -13,14 +18,11 @@ use egui::{Button, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Sense, V
 
 use crate::app::MusicCraftApp;
 use crate::library::{PlaylistId, Track, TrackId};
-use crate::playlists::{PlaylistEditKind, PlaylistSummary};
+use crate::playlists::PlaylistEditKind;
 
 use super::theme;
 
-/// Width of the playlist list column, in points.
-const LIST_WIDTH: f32 = 220.0;
-
-/// Height of one playlist or track row, in points.
+/// Height of one track row, in points.
 const ROW_HEIGHT: f32 = 34.0;
 
 /// Padding between a row's edge and its text.
@@ -29,8 +31,6 @@ const CELL_PADDING: f32 = 8.0;
 /// What a click in the section asked for, applied once the frame is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Action {
-    /// Show a playlist.
-    Open(PlaylistId),
     /// Ask to delete a playlist.
     Delete(PlaylistId),
     /// Start renaming a playlist.
@@ -49,7 +49,7 @@ enum Action {
     MoveLater(usize),
 }
 
-/// Draw the playlists pane.
+/// Draw the playlist pane: the open playlist, and what can be done with it.
 pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let mut action = None;
 
@@ -62,11 +62,7 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     toolbar(app, ui, &mut action);
     ui.add_space(8.0);
 
-    ui.horizontal_top(|ui| {
-        list_column(app, ui, &mut action);
-        ui.add_space(12.0);
-        detail_column(app, ui, &mut action);
-    });
+    detail_column(app, ui, &mut action);
 
     if let Some(action) = action {
         apply(app, action);
@@ -131,86 +127,21 @@ fn toolbar(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action>) 
     });
 }
 
-/// The left column: every playlist, by name and totals.
-fn list_column(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action>) {
-    ui.vertical(|ui| {
-        ui.set_width(LIST_WIDTH);
-
-        if app.playlists().is_empty() {
-            ui.label(RichText::new("No playlists yet").weak());
-            ui.add_space(4.0);
-            ui.label(
-                RichText::new(
-                    "Make one with the + in the status bar, then add tracks from the library \
-                     with the right-click menu.",
-                )
-                .small()
-                .weak(),
-            );
-            return;
-        }
-
-        for playlist in app.playlists() {
-            if playlist_row(app, ui, playlist) {
-                // A click on the row opens it, which is also a move within the
-                // section rather than an edit, so it needs no confirmation.
-                *action = Some(Action::Open(playlist.id));
-            }
-        }
-    });
-}
-
-/// One playlist in the list. Returns `true` when the row was clicked.
-fn playlist_row(app: &MusicCraftApp, ui: &mut egui::Ui, playlist: &PlaylistSummary) -> bool {
-    let selected = app.selected_playlist() == Some(playlist.id);
-    let size = [LIST_WIDTH, ROW_HEIGHT];
-
-    ui.scope(|ui| {
-        if selected {
-            // The open playlist is drawn on a light surface so it reads as the
-            // one being looked at even while the pointer is away from it.
-            ui.style_mut().visuals.selection.bg_fill = theme::ACCENT.gamma_multiply(0.25);
-        }
-
-        let button = Button::selectable(selected, RichText::new(playlist.display_name()));
-
-        ui.add_sized(size, button)
-            .on_hover_text(summary_hover(playlist))
-            .clicked()
-    })
-    .inner
-}
-
-/// What a playlist's totals say when the pointer rests on it.
-fn summary_hover(playlist: &PlaylistSummary) -> String {
-    match playlist.duration {
-        Some(duration) => format!(
-            "{} — {}",
-            count_of(playlist.track_count),
-            crate::app::format_duration(duration)
-        ),
-        None if playlist.is_empty() => "No tracks yet".to_owned(),
-        None => count_of(playlist.track_count),
-    }
-}
-
-/// "1 track" / "3 tracks", the phrasing the rest of the interface uses.
-fn count_of(count: usize) -> String {
-    format!("{} {}", count, if count == 1 { "track" } else { "tracks" })
-}
-
-/// The right column: the open playlist and what can be done to its order.
+/// The open playlist: its name and totals, and the tracks in play order.
 fn detail_column(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action>) {
     ui.vertical(|ui| {
         ui.set_min_width(ui.available_width());
 
         let Some(summary) = app.selected_playlist_summary() else {
-            ui.label(RichText::new("Choose a playlist, or make one, to see what is in it.").weak());
+            ui.label(
+                RichText::new("Choose a playlist from the sidebar, or make one with the + below.")
+                    .weak(),
+            );
             return;
         };
 
         ui.label(RichText::new(summary.display_name()).strong());
-        ui.label(RichText::new(summary_hover(summary)).small().weak());
+        ui.label(RichText::new(summary.totals()).small().weak());
         ui.add_space(8.0);
 
         if app.playlist_tracks().is_empty() {
@@ -332,9 +263,6 @@ fn position_controls(
 /// Carry out what a click asked for, now that no borrow of the section is live.
 fn apply(app: &mut MusicCraftApp, action: Action) {
     match action {
-        Action::Open(id) => {
-            app.open_playlist(id);
-        }
         Action::Delete(id) => app.ask_to_delete_playlist(id),
         Action::Rename(id) => app.start_playlist_edit(PlaylistEditKind::Rename(id)),
         Action::Duplicate(id) => app.start_playlist_edit(PlaylistEditKind::Duplicate(id)),
@@ -408,6 +336,7 @@ mod tests {
     use crate::audio::{AudioEngine, Playback};
     use crate::config::AppConfig;
     use crate::library::{Library, Track};
+    use crate::playlists::PlaylistSummary;
 
     #[test]
     fn drawing_the_section_is_harmless_with_nothing_in_it() {
@@ -559,8 +488,8 @@ mod tests {
             duration: Some(std::time::Duration::from_secs(61)),
         };
 
-        assert_eq!(summary_hover(&empty), "No tracks yet");
-        assert_eq!(summary_hover(&one), "1 track — 1:01");
+        assert_eq!(empty.totals(), "No tracks yet");
+        assert_eq!(one.totals(), "1 track — 1:01");
     }
 
     fn app() -> MusicCraftApp {

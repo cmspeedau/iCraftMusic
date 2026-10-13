@@ -182,7 +182,7 @@ src/
 ├── search/            # pure query, sort and filtering over library rows
 └── ui/
     ├── mod.rs         # shell composition
-    ├── navigation.rs  # sidebar sections
+    ├── navigation.rs  # sidebar sections and the playlist list
     ├── theme.rs       # light/dark theming
     ├── libraryview.rs # library view: tracks, albums, artists
     ├── editview.rs    # the metadata editor
@@ -190,7 +190,7 @@ src/
     ├── shortcuts.rs   # playback and navigation keys
     ├── nowplaying.rs  # playback bar
     ├── queueview.rs   # the queue popover
-    ├── playlistview.rs# the Playlists section
+    ├── playlistview.rs# the open playlist and its tracks
     ├── playlistedit.rs# the playlist name editor
     ├── settingsview.rs# settings view
     └── statusbar.rs   # the bar across the foot of the window
