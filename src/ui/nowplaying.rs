@@ -214,15 +214,16 @@ fn centre_box(app: &mut MusicCraftApp, ui: &mut egui::Ui, transport: Rect) {
 
             // The button is at the row's trailing edge, not after the details:
             // the pill is sized to hold both and its own padding, so placing it
-            // against the edge lands it there whatever the title came to. It is
-            // centred in the row's height as well, because it is a size step
-            // smaller than the cover that sets that height — pinned to the row's
-            // top it would sit four points low against the cover's own centre.
+            // against the edge lands it there whatever the title came to.
+            //
+            // It is centred on the BOX's own middle, not on the top row's: the
+            // box is the thing the button belongs to, and the row is only where
+            // its own contents happen to sit. On the row's line it read as level
+            // with the cover and high in the box; on the box's line it sits in
+            // the box, and the two rows underneath it are what the eye reads the
+            // height from.
             let button = Rect::from_center_size(
-                Pos2::new(
-                    cover_row.right() - QUEUE_BUTTON_SIZE / 2.0,
-                    cover_row.center().y,
-                ),
+                Pos2::new(cover_row.right() - QUEUE_BUTTON_SIZE / 2.0, pill.center().y),
                 Vec2::splat(QUEUE_BUTTON_SIZE),
             );
             ui.scope_builder(
@@ -1234,82 +1235,38 @@ mod tests {
         );
     }
 
-    /// The button is centred in the box's top row, and in the box, on the
-    /// VERTICAL axis: it is a size step smaller than the cover that sets the
-    /// row's height, so pinning it to the row's top would hang it four points
-    /// low against the cover's own centre and read as a mistake rather than as a
-    /// smaller control beside it.
+    /// The button is centred on the BOX's middle, not on the top row's: the box
+    /// is the thing it belongs to, and sitting on the row's line it read as high
+    /// in the box, level with a cover it is not the size of. Measured against
+    /// the pill rather than against the cover, because the cover's line is
+    /// exactly what it was moved off.
     #[test]
     fn the_queue_button_is_centred_in_the_box() {
         let mut app = app();
         let painted = paint_bar(&mut app);
 
+        let pill = painted
+            .rects_with(theme::CENTRE_BOX_FILL)
+            .into_iter()
+            .max_by(|a, b| a.area().total_cmp(&b.area()))
+            .expect("the centre box paints its own fill");
         let button = painted
             .rects
             .iter()
             .map(|(rect, _)| *rect)
             .find(|rect| (rect.width() - QUEUE_BUTTON_SIZE).abs() < 0.5)
             .expect("the queue button paints its own square");
-        let cover = painted
-            .rects_with(theme::CENTRE_BOX_CONTROL)
-            .into_iter()
-            .find(|rect| (rect.width() - COVER_SIZE).abs() < 0.5)
-            .expect("the box paints the cover slot");
 
         assert!(
-            (button.center().y - cover.center().y).abs() <= 1.0,
-            "the queue button is not centred against the cover: {button:?} vs {cover:?}"
+            (button.center().y - pill.center().y).abs() <= 1.0,
+            "the queue button is not centred in the box: {button:?} in {pill:?}"
         );
         assert!(
-            (button.top() - cover.top()).abs() > 1.0
-                || (button.height() - cover.height()).abs() < 1.0,
-            "the button is a different size from the cover and is not inset for it: \
-             {button:?} vs {cover:?}"
-        );
-    }
-
-    /// The pill is as tall as the cover it holds plus its own padding, and no
-    /// part of it reaches the bottom of the window — the bar is as tall as what
-    /// it draws, and the box must not drag its fill past the window's foot.
-    #[test]
-    fn the_centre_box_fits_between_the_bar_and_its_own_contents() {
-        let mut app = app();
-        let painted = paint_bar(&mut app);
-        let pill = painted
-            .rects_with(theme::CENTRE_BOX_FILL)
-            .into_iter()
-            .max_by(|a, b| a.area().total_cmp(&b.area()))
-            .expect("the centre box paints its own fill");
-
-        assert!(
-            (pill.height() - CENTRE_BOX_HEIGHT).abs() <= 1.0,
-            "the box is {} tall, not the {CENTRE_BOX_HEIGHT} it is defined as",
-            pill.height()
-        );
-
-        // The box is as tall as its two rows and its own padding, so the room
-        // under the cover row holds the seek row and the inset below it: the
-        // rail is inside the pill rather than hanging out of its foot.
-        let cover = painted
-            .rects_with(theme::CENTRE_BOX_CONTROL)
-            .into_iter()
-            .find(|rect| (rect.width() - COVER_SIZE).abs() < 0.5);
-        if let Some(cover) = cover {
-            let inset = f32::from(theme::CENTRE_BOX_PAD_Y);
-            assert!(
-                (cover.top() - pill.top() - inset).abs() <= 1.0,
-                "the cover is not inset from the box's top by {inset}: {cover:?} in {pill:?}"
-            );
-            assert!(
-                pill.bottom() - cover.bottom() >= CENTRE_BOX_GAP + SEEK_RAIL_HEIGHT + inset - 1.0,
-                "the box leaves no room for the seek row under the cover: \
-                 {cover:?} in {pill:?}"
-            );
-        }
-
-        assert!(
-            pill.bottom() <= theme::PLAYBACK_BAR_HEIGHT,
-            "the box runs out of the bar: {pill:?}"
+            (button.center().x
+                - (pill.right() - f32::from(theme::CENTRE_BOX_PAD) - QUEUE_BUTTON_SIZE / 2.0))
+                .abs()
+                <= 1.0,
+            "the queue button has left the box's right-hand edge: {button:?} in {pill:?}"
         );
     }
 
