@@ -33,7 +33,6 @@ pub mod theme;
 use egui::{CentralPanel, RichText, ScrollArea};
 
 use crate::app::MusicCraftApp;
-use crate::playlists::PlaylistSummary;
 
 use navigation::NavSection;
 
@@ -56,49 +55,44 @@ pub fn render(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     shortcuts::handle(app, ui);
 }
 
-/// Content area: heading for the active section plus its view.
+/// Content area: the open playlist's line, then the section's view.
+///
+/// Nothing here names the Library or its Pages: the sidebar's selected entry
+/// says which section is on screen, and the Library's own line says which of
+/// its three pages is showing, so a heading over the table was a third saying
+/// of the same thing. What is left is the one line the section cannot say for
+/// itself — an open playlist, its counts and the buttons that act on it.
+///
+/// The Library's search field is not here either: it rides at the right end of
+/// the playback bar, which is on screen in every section.
 fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     CentralPanel::default().show(ui, |ui| {
         ui.add_space(4.0);
 
-        // The Playlists section is about one playlist at a time, so it is named
-        // by the one that is open rather than by the section: "dddd" says which
-        // list you are looking at, where "Playlists" only says which page you
-        // are on. With nothing open there is no name to show and the section's
-        // own stands.
+        // Only the Playlists section takes the open playlist's name: a playlist
+        // left open in the sidebar must not come up over the Library. The two
+        // strings are taken off the app before the closure opens, so the
+        // buttons inside it can borrow the app in turn.
         let section = app.section();
         let open = app.selected_playlist_summary();
-
-        // Only the Playlists section takes the open playlist's name: a playlist
-        // left open in the sidebar must not rename the Library.
-        let shown = match (section, open) {
-            (NavSection::Playlists, Some(summary)) => Some(summary),
-            _ => None,
+        let (heading, counts) = match (section, open) {
+            (NavSection::Playlists, Some(summary)) => (
+                Some(summary.display_name().to_owned()),
+                Some(summary.totals()),
+            ),
+            _ => (None, None),
         };
 
-        let heading = shown.map_or_else(
-            || section.label().to_owned(),
-            |summary| summary.display_name().to_owned(),
-        );
-        let detail =
-            shown.map_or_else(|| section.description().to_owned(), PlaylistSummary::totals);
-
-        // The heading is the section's name and, for an open playlist, the
-        // buttons that act on it. The Library's search field is not here: it
-        // rides at the right end of the playback bar, which is on screen in
-        // every section, and the heading line goes back to naming the section.
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(heading).heading());
-
-            if app.section() == NavSection::Playlists {
+        if let Some(heading) = heading {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(heading).heading());
+                if let Some(counts) = counts {
+                    ui.label(RichText::new(counts).small().weak());
+                }
                 playlistview::controls(app, ui);
-            }
-        });
-
-        // One line under the heading, describing the section — or, when a
-        // playlist is open, its counts.
-        ui.label(RichText::new(detail).small().weak());
-        ui.add_space(10.0);
+            });
+            ui.add_space(10.0);
+        }
 
         ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -208,8 +202,13 @@ mod tests {
         );
     }
 
+    /// The Playlists section carries no heading of its own over its view.
+    ///
+    /// The sidebar's heading over the list is the name, and the section's
+    /// description went with the Library's when the headings over the content
+    /// area were dropped — with nothing open there is nothing on that line.
     #[test]
-    fn the_playlists_section_keeps_its_own_name_until_a_playlist_is_open() {
+    fn the_playlists_section_carries_no_heading_of_its_own() {
         let mut app = imported();
         app.set_section(NavSection::Playlists);
 
@@ -217,13 +216,13 @@ mod tests {
 
         assert!(
             painted.iter().any(|text| text == "Playlists"),
-            "the section is unnamed with nothing open: {painted:?}"
+            "the sidebar no longer names the section: {painted:?}"
         );
         assert!(
-            painted
+            !painted
                 .iter()
                 .any(|text| text == "Collections you have put together"),
-            "the section says nothing about itself: {painted:?}"
+            "the section's description is still painted over its view: {painted:?}"
         );
     }
 
@@ -246,7 +245,7 @@ mod tests {
             .into_iter()
             .find(|rect| rect.left() > 208.0)
             .expect("the heading");
-        let detail = named(&shapes, "1 track").expect("the count line");
+        let counts = named(&shapes, "1 track").expect("the count line");
         let play = named(&shapes, "Play").expect("the Play button");
 
         assert!(
@@ -257,9 +256,17 @@ mod tests {
             play.left() > heading.right(),
             "the buttons are not to the right of the heading: {play:?} vs {heading:?}"
         );
+
+        // The counts ride on the same line, between the name and the buttons:
+        // a line of their own under the heading would be the second row this
+        // test was written to rule out, one height down from it.
         assert!(
-            play.top() < detail.top(),
-            "the buttons are not above the count line: {play:?} vs {detail:?}"
+            counts.top() < heading.bottom() && counts.bottom() > heading.top(),
+            "the counts are not on the heading's line: {counts:?} vs {heading:?}"
+        );
+        assert!(
+            counts.left() > heading.right() && counts.right() < play.left(),
+            "the counts are not between the name and the buttons: {counts:?} vs {heading:?} / {play:?}"
         );
     }
 
@@ -319,37 +326,22 @@ mod tests {
     /// Nothing in the interface is set at egui's default "small" size: 9.0 is
     /// too small to read on a desktop, so the style raises it to 12.0 once,
     /// rather than each `.small()` call site overriding it.
+    ///
+    /// The playlist's counts are the one line left in the content area, so it
+    /// is the call site the check has to read a size off.
     #[test]
     fn no_small_text_is_left_at_egui_s_own_size() {
         let mut app = imported();
         app.add_tracks_to_playlist("Evening", &[TrackId(1)]);
-
-        // The Library's one-liner, the section's own description with no
-        // playlist open, and the playlist's counts with one open.
-        app.set_section(NavSection::Library);
-        let library = size_of(&frame(&mut app), "Your music, by artist, album and track")
-            .expect("the Library's description");
-
         app.set_section(NavSection::Playlists);
-        let section = size_of(&frame(&mut app), "Collections you have put together")
-            .expect("the section's description");
-
         app.open_playlist(app.playlists().first().expect("a playlist").id);
+
         let counts = size_of(&frame(&mut app), "1 track").expect("the counts line");
 
-        for (what, size) in [
-            ("the Library's description", library),
-            ("the section's description", section),
-            ("the playlist's counts", counts),
-        ] {
-            assert!(
-                size > 9.0,
-                "{what} is still at egui's own small size: {size}"
-            );
-        }
-
-        assert_eq!(library, section);
-        assert_eq!(section, counts);
+        assert!(
+            counts > 9.0,
+            "the playlist's counts are still at egui's own small size: {counts}"
+        );
     }
 
     /// The font size the line of text reading `needle` was set in.
