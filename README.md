@@ -1,6 +1,6 @@
 # MusicCraft
 
-![The MusicCraft library, grouped by album artist](docs/screenshot.png)
+![MusicCraft's Library, on the All Tracks page](docs/screenshot.png)
 
 A native desktop player inspired by [iTunes 11](#itunes-11-and-the-year-in-the-brief),
 written entirely in Rust: a local library, album artwork, playlists, a queue, a
@@ -95,6 +95,24 @@ Nothing else is a media file as far as MusicCraft is concerned.
 
 The roadmap for these is [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md), which also carries
 the gPodder API reference those stages are written against.
+
+### The three Library pages
+
+The Library browses the same rows three ways, and both of the pages below are
+one keystroke from the sidebar: `Ctrl/⌘ 1` for All Tracks, `Ctrl/⌘ 2` for
+Albums, `Ctrl/⌘ 3` for Artists.
+
+**All Tracks** — the whole library as one sortable, filterable table:
+
+![The Library's All Tracks table, sorted by title](docs/screenshot.png)
+
+**Albums** — one tile per album, with the cover the scanner cached, the artist
+and the track count:
+
+![The Library's Albums grid](docs/albums.png)
+
+**Artists** — the artist list, which narrows the Library to one name when a row
+is picked, the same way clicking an album tile does.
 
 ## Current functionality
 
@@ -268,7 +286,8 @@ Stage 9's job; what is here is the preparation for it.
 
 ```
 docs/
-└── screenshot.png     # the image at the head of this file
+├── screenshot.png     # the Library's All Tracks table
+└── albums.png         # the Library's Albums grid
 
 ROADMAP.md             # music: stages 0–10
 ROADMAP-MEDIA.md       # movies, TV shows and podcasts: stages 11–13
