@@ -214,9 +214,15 @@ fn centre_box(app: &mut MusicCraftApp, ui: &mut egui::Ui, transport: Rect) {
 
             // The button is at the row's trailing edge, not after the details:
             // the pill is sized to hold both and its own padding, so placing it
-            // against the edge lands it there whatever the title came to.
-            let button = Rect::from_min_size(
-                Pos2::new(cover_row.right() - QUEUE_BUTTON_SIZE, cover_row.top()),
+            // against the edge lands it there whatever the title came to. It is
+            // centred in the row's height as well, because it is a size step
+            // smaller than the cover that sets that height — pinned to the row's
+            // top it would sit four points low against the cover's own centre.
+            let button = Rect::from_center_size(
+                Pos2::new(
+                    cover_row.right() - QUEUE_BUTTON_SIZE / 2.0,
+                    cover_row.center().y,
+                ),
                 Vec2::splat(QUEUE_BUTTON_SIZE),
             );
             ui.scope_builder(
@@ -1225,6 +1231,40 @@ mod tests {
         assert!(
             pill.right() - burger.right() < f32::from(theme::CENTRE_BOX_PAD) + QUEUE_BUTTON_SIZE,
             "the queue button is not at the box's right-hand edge: {burger:?} vs {pill:?}"
+        );
+    }
+
+    /// The button is centred in the box's top row, and in the box, on the
+    /// VERTICAL axis: it is a size step smaller than the cover that sets the
+    /// row's height, so pinning it to the row's top would hang it four points
+    /// low against the cover's own centre and read as a mistake rather than as a
+    /// smaller control beside it.
+    #[test]
+    fn the_queue_button_is_centred_in_the_box() {
+        let mut app = app();
+        let painted = paint_bar(&mut app);
+
+        let button = painted
+            .rects
+            .iter()
+            .map(|(rect, _)| *rect)
+            .find(|rect| (rect.width() - QUEUE_BUTTON_SIZE).abs() < 0.5)
+            .expect("the queue button paints its own square");
+        let cover = painted
+            .rects_with(theme::CENTRE_BOX_CONTROL)
+            .into_iter()
+            .find(|rect| (rect.width() - COVER_SIZE).abs() < 0.5)
+            .expect("the box paints the cover slot");
+
+        assert!(
+            (button.center().y - cover.center().y).abs() <= 1.0,
+            "the queue button is not centred against the cover: {button:?} vs {cover:?}"
+        );
+        assert!(
+            (button.top() - cover.top()).abs() > 1.0
+                || (button.height() - cover.height()).abs() < 1.0,
+            "the button is a different size from the cover and is not inset for it: \
+             {button:?} vs {cover:?}"
         );
     }
 
