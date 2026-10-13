@@ -127,22 +127,22 @@ fn toolbar(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action>) 
     });
 }
 
-/// The open playlist: its name and totals, and the tracks in play order.
+/// The open playlist: the tracks in play order.
+///
+/// The playlist's name and totals are not repeated here: the section's heading
+/// is the open playlist's name and its subtitle is the totals, so a second copy
+/// directly under them said the same thing twice.
 fn detail_column(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action>) {
     ui.vertical(|ui| {
         ui.set_min_width(ui.available_width());
 
-        let Some(summary) = app.selected_playlist_summary() else {
+        if app.selected_playlist_summary().is_none() {
             ui.label(
                 RichText::new("Choose a playlist from the sidebar, or make one with the + below.")
                     .weak(),
             );
             return;
-        };
-
-        ui.label(RichText::new(summary.display_name()).strong());
-        ui.label(RichText::new(summary.totals()).small().weak());
-        ui.add_space(8.0);
+        }
 
         if app.playlist_tracks().is_empty() {
             ui.label(RichText::new("This playlist is empty.").weak());

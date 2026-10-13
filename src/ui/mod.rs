@@ -60,10 +60,27 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     CentralPanel::default().show(ui, |ui| {
         ui.add_space(4.0);
 
+        // The Playlists section is about one playlist at a time, so it is named
+        // by the one that is open rather than by the section: "dddd" says which
+        // list you are looking at, where "Playlists" only says which page you
+        // are on. With nothing open there is no name to show and the section's
+        // own stands.
+        let open = app.selected_playlist_summary();
+
+        let heading = match (app.section(), open.as_ref()) {
+            (NavSection::Playlists, Some(summary)) => summary.display_name().to_owned(),
+            (section, _) => section.label().to_owned(),
+        };
+
+        let detail = match (app.section(), open.as_ref()) {
+            (NavSection::Playlists, Some(summary)) => summary.totals(),
+            (section, _) => section.description().to_owned(),
+        };
+
         // The Library is the one section with something to search, so its field
         // rides on the heading line instead of taking a row of its own.
         ui.horizontal(|ui| {
-            ui.label(RichText::new(app.section().label()).heading());
+            ui.label(RichText::new(heading).heading());
 
             if app.section() == NavSection::Library {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -72,7 +89,7 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             }
         });
 
-        ui.label(RichText::new(app.section().description()).small().weak());
+        ui.label(RichText::new(detail).small().weak());
         ui.add_space(10.0);
 
         ScrollArea::vertical()
@@ -150,6 +167,56 @@ mod tests {
             "no editor is open: {painted:?}"
         );
         assert!(painted.iter().any(|text| text == "Library"));
+    }
+
+    #[test]
+    fn the_playlists_section_is_named_by_the_open_playlist_not_by_the_section() {
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &[TrackId(1)]);
+
+        app.set_section(NavSection::Playlists);
+        app.open_playlist(app.playlists().first().expect("a playlist").id);
+
+        let painted = shell(&mut app);
+
+        assert!(
+            painted.iter().any(|text| text == "Evening"),
+            "the heading does not name the open playlist: {painted:?}"
+        );
+        assert_eq!(
+            painted
+                .iter()
+                .filter(|text| text.as_str() == "Evening")
+                .count(),
+            2,
+            "the playlist's name should be the sidebar entry and the heading, and \
+             nothing else — a third copy is the label that used to sit in the body: {painted:?}"
+        );
+        assert!(
+            !painted
+                .iter()
+                .any(|text| text == "Collections you have put together"),
+            "the section's own description is still under the heading: {painted:?}"
+        );
+    }
+
+    #[test]
+    fn the_playlists_section_keeps_its_own_name_until_a_playlist_is_open() {
+        let mut app = imported();
+        app.set_section(NavSection::Playlists);
+
+        let painted = shell(&mut app);
+
+        assert!(
+            painted.iter().any(|text| text == "Playlists"),
+            "the section is unnamed with nothing open: {painted:?}"
+        );
+        assert!(
+            painted
+                .iter()
+                .any(|text| text == "Collections you have put together"),
+            "the section says nothing about itself: {painted:?}"
+        );
     }
 
     /// Every line of text a whole frame of the shell paints.
