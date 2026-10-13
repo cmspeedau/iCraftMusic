@@ -893,22 +893,38 @@ fn queue_button(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// drawn, so the queue can only be an overlay below it. Its ✕ writes the same
 /// flag the burger button reads, so the button's highlight stays truthful
 /// whichever way the popover was closed.
+///
+/// The strip across its top is the status bar's own gray. egui fills a window's
+/// title bar from the theme's "open" widget shade, which moves with the theme —
+/// pale on the light theme, near-black on the dark one — and the request is that
+/// this strip read as the bar at the foot of the window does, in every theme.
+/// The shade is set for this one call and put straight back afterwards, so no
+/// other widget that draws an open state (a combo box, a menu) changes with it.
 fn queue_popup(app: &mut MusicCraftApp, ui: &mut egui::Ui, bar: Rect) {
     if !app.queue_open() {
         return;
     }
 
     let mut open = true;
+
+    let ctx = ui.ctx().clone();
+    let previous = ctx.global_style();
+    ctx.global_style_mut(|style| {
+        style.visuals.widgets.open.weak_bg_fill = theme::STATUS_BAR_FILL;
+    });
+
     egui::Window::new("Queue")
         .fixed_pos(bar.left_bottom() + egui::vec2(16.0, 12.0))
         .default_size([420.0, 300.0])
         .resizable(true)
         .open(&mut open)
-        .show(ui.ctx(), |ui| {
+        .show(&ctx, |ui| {
             egui::ScrollArea::vertical()
                 .max_height(320.0)
                 .show(ui, |ui| queueview::show(app, ui));
         });
+
+    ctx.set_global_style(previous);
 
     if !open {
         app.close_queue();
@@ -2537,6 +2553,77 @@ mod tests {
         egui::__run_test_ui(|ui| super::bar(&mut app, ui));
 
         assert!(app.queue_open(), "the popover stays up until it is closed");
+    }
+
+    /// The queue popover's title strip is the status bar's own gray, in both
+    /// themes, so the overlay reads as the bar at the foot of the window rather
+    /// than as a second surface of its own.
+    ///
+    /// Read off the frame rather than off the closure: egui fills a window's
+    /// title bar from `widgets.open.weak_bg_fill`, so the assertion is that a
+    /// full-popup-width strip in that fill is on screen. A test of the constant
+    /// alone would pass while the strip kept egui's own shade.
+    #[test]
+    fn the_queue_popover_carries_the_status_bars_colour_across_its_top() {
+        for mode in [
+            crate::config::ThemeMode::Dark,
+            crate::config::ThemeMode::Light,
+        ] {
+            let mut app = app();
+            app.toggle_queue();
+
+            let ctx = egui::Context::default();
+            crate::ui::theme::apply(&ctx, mode);
+            let mut painted = Painted::default();
+
+            // Enough frames for the popup's fade-in to finish: a floating area
+            // has to measure itself before it paints, and egui multiplies the
+            // opacity while it fades, so a strip read off the first few frames
+            // is the right colour at a fraction of its alpha.
+            for _ in 0..40 {
+                let mut run = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1180.0, 808.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        super::queue_popup(
+                            &mut app,
+                            ui,
+                            egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(1180.0, theme::PLAYBACK_BAR_HEIGHT),
+                            ),
+                        );
+                    },
+                );
+                run.textures_delta.clear();
+                painted = Painted::default();
+                for clipped in &run.shapes {
+                    painted.collect(&clipped.shape);
+                }
+            }
+
+            let strips = painted.rects_with(theme::STATUS_BAR_FILL);
+            assert!(
+                !strips.is_empty(),
+                "{mode:?}: the popover painted no strip in the status bar's gray: {:?}",
+                painted.rects
+            );
+
+            // A strip, not a square: wide enough to be the popup's top and much
+            // shorter than it is wide. Anything taller is a surface, not the
+            // title bar.
+            assert!(
+                strips
+                    .iter()
+                    .any(|rect| rect.width() > 100.0 && rect.height() < rect.width() / 3.0),
+                "{mode:?}: none of the gray rectangles is a strip across the top: {strips:?}"
+            );
+        }
     }
 
     /// The Library's search field rides at the bar's right end: on the bar's own
