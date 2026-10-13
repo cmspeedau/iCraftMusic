@@ -158,10 +158,17 @@ fn cover(app: &mut MusicCraftApp, ui: &mut egui::Ui, artwork: Option<&Path>) {
     }
 }
 
-/// `Track 2 of 3 · Playing`, or how to get started when the queue is empty.
+/// `Track 2 of 3 · Playing`, or what the transport is when nothing is playing.
+///
+/// With no track on the bar there is no queue position to name, so the line is
+/// the transport's own state. It used to carry a sentence pointing at Settings,
+/// which read as a second title under "Nothing playing" rather than as the
+/// state of the transport, and said the same thing twice: the Library's own
+/// empty state is where a user is told what to do about it, and every section
+/// already spells out how to bring music in.
 fn subtitle(app: &MusicCraftApp) -> String {
     let Some(track) = app.now_playing() else {
-        return "Import a folder under Settings → Library management to begin.".to_owned();
+        return app.transport().label().to_owned();
     };
 
     let mut parts = Vec::new();
@@ -316,12 +323,24 @@ mod tests {
     use crate::config::AppConfig;
 
     #[test]
-    fn an_empty_queue_explains_how_to_start() {
+    fn an_empty_queue_says_nothing_but_the_transport_state() {
         let app = app();
 
-        assert!(subtitle(&app).contains("Library"), "{}", subtitle(&app));
         assert_eq!(app.transport(), TransportState::Unavailable);
         assert_eq!(app.now_playing(), None);
+        assert_eq!(
+            subtitle(&app),
+            "Not connected",
+            "the empty bar says more than what the transport is"
+        );
+
+        // The line the user asked to be rid of, in the exact form it was
+        // painted in: it is what `subtitle` used to return here.
+        assert!(
+            !subtitle(&app).contains("Import a folder"),
+            "the how-to-start sentence is back on the bar: {}",
+            subtitle(&app)
+        );
     }
 
     #[test]
