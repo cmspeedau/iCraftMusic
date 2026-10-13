@@ -138,6 +138,14 @@ const QUEUE_BUTTON_SIZE: f32 = 28.0;
 /// pages reads as part of the bar's own controls rather than as a second kind.
 const PAGE_BUTTON_SIZE: f32 = 28.0;
 
+/// Width of a page button's ring, in points.
+///
+/// The same on all three at the user's request, so the closed pages are framed
+/// like the open one and only the accent says which page you are on. It is also
+/// the width the Clear button's label is set off by, so the button's reserved
+/// room in `SEARCH_CLEAR_WIDTH` is not disturbed by it.
+const PAGE_BUTTON_EDGE: f32 = 2.0;
+
 /// The music note that stands for Tracks, on the Library's first page button.
 ///
 /// A note is what a track is; the request named it, and the bundled fonts carry
@@ -446,7 +454,7 @@ fn page_buttons_width() -> f32 {
 /// The fill is set on the button rather than left to the style, because
 /// `Button::fill` is what overrides the state's fill in every state — and
 /// `selected` cannot say which page is open the way it did before. On a white
-/// button the open page shows itself with the accent instead: an accent ring
+/// button the open page shows itself with the accent instead: the accent ring
 /// and an accent icon, against the grey ring and the bar's ink on the two that
 /// are closed. That is the same accent the sidebar used to fill the selected
 /// entry with, moved to the edge of a control that is no longer filled by the
@@ -461,15 +469,18 @@ fn page_buttons(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         let selected = app.browse().kind() == kind;
         let size = Vec2::splat(PAGE_BUTTON_SIZE);
 
+        // One weight for all three: the open page's mark is the accent ring and
+        // the accent icon, not a heavier edge, so the closed two sit in the same
+        // frame as the open one and the row reads as one set.
         let ink = if selected {
             theme::ACCENT
         } else {
             theme::PLAYBACK_BAR_INK
         };
         let edge = if selected {
-            Stroke::new(2.0, theme::ACCENT)
+            Stroke::new(PAGE_BUTTON_EDGE, theme::ACCENT)
         } else {
-            Stroke::new(1.0, theme::PLAYBACK_BAR_CONTROL_EDGE)
+            Stroke::new(PAGE_BUTTON_EDGE, theme::PLAYBACK_BAR_CONTROL_EDGE)
         };
 
         if ui

@@ -106,14 +106,18 @@ fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<P
     ui.label(RichText::new("Browse").small().weak());
     ui.add_space(4.0);
 
-    for section in NavSection::TOP {
-        let selected = app.section() == section;
-        if nav_item(ui, section, selected) {
-            app.set_section(section);
+    // Read once: a click below is about to change it, and the playlists are
+    // drawn from the section that was showing while this frame was composed.
+    let section = app.section();
+
+    for place in NavSection::TOP {
+        let selected = section == place;
+        if nav_item(ui, place, selected) {
+            app.set_section(place);
         }
     }
 
-    playlist_items(app, ui, open);
+    playlist_items(app, ui, open, section);
 }
 
 /// Draw a single sidebar entry, returning `true` when it was clicked.
@@ -133,7 +137,16 @@ fn nav_item(ui: &mut egui::Ui, section: NavSection, selected: bool) -> bool {
 /// list is capped and scrolls in place — the sidebar itself does not scroll, so
 /// an uncapped list would run out of the window and take the rest of the
 /// sidebar with it.
-fn playlist_items(app: &MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<PlaylistId>) {
+///
+/// The current section is passed in rather than read off the app, because the
+/// playlist the section has open keeps its highlight only while the section is
+/// the one showing: leaving it leaves the row resting like the others.
+fn playlist_items(
+    app: &MusicCraftApp,
+    ui: &mut egui::Ui,
+    open: &mut Option<PlaylistId>,
+    section: NavSection,
+) {
     ui.add_space(12.0);
     ui.label(RichText::new("Playlists").small().weak());
     ui.add_space(4.0);
@@ -149,7 +162,7 @@ fn playlist_items(app: &MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<Play
         .auto_shrink([false, true])
         .show(ui, |ui| {
             for playlist in app.playlists() {
-                if playlist_item(app, ui, playlist) {
+                if playlist_item(app, ui, playlist, section) {
                     *open = Some(playlist.id);
                 }
             }
@@ -160,8 +173,19 @@ fn playlist_items(app: &MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<Play
 ///
 /// The open playlist carries the accent fill, the same as the selected entry of
 /// any other list, so the sidebar shows which one the section is showing.
-fn playlist_item(app: &MusicCraftApp, ui: &mut egui::Ui, playlist: &PlaylistSummary) -> bool {
-    let selected = app.selected_playlist() == Some(playlist.id);
+///
+/// Only while the Playlists section is the one on screen. `selected_playlist`
+/// stays set when you leave the section — it is what reopens the playlist you
+/// were on when you come back — so highlighting on it alone leaves the playlist
+/// row filled at the same time as the Library entry, which reads as two places
+/// being open at once. The section is what says which of them is showing.
+fn playlist_item(
+    app: &MusicCraftApp,
+    ui: &mut egui::Ui,
+    playlist: &PlaylistSummary,
+    section: NavSection,
+) -> bool {
+    let selected = section == NavSection::Playlists && app.selected_playlist() == Some(playlist.id);
     let size = [ui.available_width(), theme::PLAYLIST_ITEM_HEIGHT];
     let button = Button::selectable(selected, RichText::new(playlist.display_name()));
 
@@ -438,6 +462,97 @@ mod tests {
             Some(id),
             "the section opened without opening the playlist that was clicked"
         );
+    }
+
+    /// Leaving the Playlists section takes the accent off the playlist row.
+    ///
+    /// `selected_playlist` deliberately survives leaving the section — it is what
+    /// reopens the playlist you were on — so if the row highlighted on that alone
+    /// the playlist and the Library entry were both filled at once, which reads
+    /// as two places being open. The section is what says which one is showing.
+    #[test]
+    fn leaving_the_playlists_takes_the_accent_off_its_row() {
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &library_ids(&app));
+        let id = app.playlists().first().expect("a playlist").id;
+
+        app.set_section(NavSection::Playlists);
+        app.open_playlist(id);
+        app.set_section(NavSection::Library);
+
+        // The state survives, which is the reason the highlight cannot key on it.
+        assert_eq!(
+            app.selected_playlist(),
+            Some(id),
+            "leaving the section should remember the playlist, not forget it"
+        );
+
+        let painted = highlighted_rows(&mut app, "Evening");
+        assert!(
+            painted.is_empty(),
+            "the playlist row is still accent-filled while the Library is open: {painted:?}"
+        );
+
+        // And back in its own section it fills again, so the fix is a guard on
+        // the section rather than the highlight being dropped altogether.
+        app.set_section(NavSection::Playlists);
+        let painted = highlighted_rows(&mut app, "Evening");
+        assert!(
+            !painted.is_empty(),
+            "the open playlist's row is not filled in its own section"
+        );
+    }
+
+    /// The highlight painted over the sidebar row whose text is `needle`, so
+    /// "is this row filled" is answered from the frame rather than from
+    /// `selected`, which is the thing under test.
+    ///
+    /// Keyed on "opaque and not the sidebar's own blue" rather than on a
+    /// particular colour: the sidebar's selected fill is the theme's own dark
+    /// teal, and pinning that constant here would make the test move with it.
+    fn highlighted_rows(app: &mut MusicCraftApp, needle: &str) -> Vec<egui::Rect> {
+        let context = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 600.0));
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+
+        let mut output = context.run_ui(input, |ui| sidebar(app, ui));
+
+        let row = output
+            .shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) if text.galley.text() == needle => {
+                    let size = text.galley.size();
+                    let min = match text.galley.job.halign {
+                        egui::Align::LEFT => text.pos,
+                        egui::Align::Center => egui::pos2(text.pos.x - size.x / 2.0, text.pos.y),
+                        egui::Align::RIGHT => egui::pos2(text.pos.x - size.x, text.pos.y),
+                    };
+                    Some(egui::Rect::from_min_size(min, size))
+                }
+                _ => None,
+            })
+            .expect("the row is painted");
+
+        let highlights = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(rect)
+                    if rect.fill.a() > 0 && rect.fill != theme::SIDEBAR_FILL =>
+                {
+                    Some(rect.rect)
+                }
+                _ => None,
+            })
+            .filter(|rect| rect.expand(2.0).intersects(row))
+            .collect();
+
+        output.textures_delta.clear();
+        highlights
     }
 
     /// The rectangle the text shape containing `needle` covers.
