@@ -1,17 +1,18 @@
 //! The status bar across the bottom of the window.
 //!
 //! One line saying how much music the library holds — songs, albums and artists
-//! — centred on a gray strip that spans the window, with a control in each
-//! corner: a `+` at the left that names a new playlist, and a gear at the right
-//! that opens Settings. The bar reports, and those are the two things it holds;
-//! what is playing is the transport's business at the top of the window, and
-//! what can be done to a selection is the library's.
+//! — centred on a gray strip that spans the window, with controls at its ends:
+//! at the left the `+` that names a new playlist and, beside it, the shuffle
+//! switch; at the right the gear that opens Settings. The bar reports, and those
+//! are what it holds; what is playing is the transport's business at the top of
+//! the window, and what can be done to a selection is the library's.
 //!
-//! Both arrived here the same way, leaving a section that had better things to
-//! do with its rows: Settings had a sidebar entry of its own, and making a
-//! playlist had a button across the top of the Playlists section, in the way of
-//! the list it was making. Neither is a section — you reach for them from
-//! anywhere — so they sit in the corners, out of the way of the music.
+//! Each arrived here the same way, leaving a section that had better things to
+//! do with its rows: Settings had a sidebar entry of its own; making a playlist
+//! had a button across the top of the Playlists section, in the way of the list
+//! it was making; and shuffle sat among the transport controls, where it took a
+//! button's width to say one bit. None is a section — you reach for them from
+//! anywhere — so they sit on the bar, out of the way of the music.
 
 use egui::{Button, Panel, Rect, RichText};
 
@@ -26,11 +27,16 @@ const GEAR_GLYPH: &str = "⚙";
 /// The `+` drawn at the left end of the bar, naming a new playlist.
 const PLUS_GLYPH: &str = "+";
 
-/// Which end of the bar a corner button belongs to.
+/// The shuffle glyph, crossed out by [`strike_out`] while shuffle is off.
+const SHUFFLE_GLYPH: &str = "🔀";
+
+/// Which end of the bar a button belongs to, and how far along that end it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum End {
-    /// The `+` that makes a playlist.
+    /// The `+` that makes a playlist, the first control at the left.
     Left,
+    /// The shuffle switch, immediately right of the `+`.
+    LeftBeside,
     /// The gear that opens Settings.
     Right,
 }
@@ -62,6 +68,7 @@ pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 // centred layout knows nothing about.
                 counts(app, ui);
                 new_playlist(app, ui);
+                shuffle(app, ui);
                 settings(app, ui);
             });
         });
@@ -93,7 +100,7 @@ fn counts(app: &MusicCraftApp, ui: &mut egui::Ui) {
 /// something you ask for, not somewhere you are.
 fn new_playlist(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let response = ui.put(
-        corner_rect(ui.max_rect(), End::Left),
+        rect_for(ui.max_rect(), End::Left),
         Button::new(RichText::new(PLUS_GLYPH).size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)),
     );
 
@@ -111,12 +118,12 @@ fn new_playlist(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// entries did — the gear is now the only place that shows where you are when
 /// you are there.
 ///
-/// Both glyphs are drawn at [`theme::STATUS_BAR_BUTTON_GLYPH_SIZE`] rather than
-/// at the bar's line size: each is the only thing in its corner to aim at, so
-/// each is drawn as tall as the bar has room for.
+/// Every glyph on the bar is drawn at [`theme::STATUS_BAR_BUTTON_GLYPH_SIZE`]
+/// rather than at the bar's line size: each is a control to aim at, so each is
+/// drawn as tall as the bar has room for.
 fn settings(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let response = ui.put(
-        corner_rect(ui.max_rect(), End::Right),
+        rect_for(ui.max_rect(), End::Right),
         Button::selectable(
             app.section() == NavSection::Settings,
             RichText::new(GEAR_GLYPH).size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE),
@@ -131,14 +138,86 @@ fn settings(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// Where a corner button sits on a bar filling `bar`: a square tucked into one
+/// The shuffle switch, at the left end beside the `+`.
+///
+/// It moved off the transport, where it took a button's width in the row of
+/// playback controls to say one bit, and onto the bar where it says the same
+/// bit at the size of the bar's own controls. It reads as the other two do:
+/// the glyph struck through while shuffle is off, plain while it is on, and
+/// carrying the bar's button highlight while it is on — the slash would be
+/// invisible on the accent fill.
+fn shuffle(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    let on = app.playback().shuffle();
+    let response = ui
+        .put(
+            rect_for(ui.max_rect(), End::LeftBeside),
+            Button::selectable(
+                on,
+                RichText::new(SHUFFLE_GLYPH).size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE),
+            ),
+        )
+        .on_hover_text(shuffle_hover(on));
+
+    if !on {
+        strike_out(ui, response.rect);
+    }
+
+    if response.clicked() {
+        app.toggle_shuffle();
+    }
+}
+
+/// What the shuffle switch says when it is pointed at.
+fn shuffle_hover(shuffle: bool) -> &'static str {
+    if shuffle {
+        "Shuffle: on"
+    } else {
+        "Shuffle: off"
+    }
+}
+
+/// Cross the shuffle glyph out.
+///
+/// Painted over the button rather than typed as a combining slash: none of the
+/// fonts egui bundles carry one, so a struck-through glyph would silently drop
+/// the stroke and read as plain shuffle.
+///
+/// The bar's ink is not the glyph's: the button is drawn with the bar's ink
+/// through [`theme::apply_status_bar_visuals`], but `ui.visuals().text_color()`
+/// is what the painter would use, and it is set to the *theme's* foreground —
+/// near-white in the dark theme, which would leave the slash invisible on the
+/// gray bar.
+fn strike_out(ui: &egui::Ui, rect: egui::Rect) {
+    let inset = egui::vec2(rect.height() * 0.30, rect.height() * 0.26);
+
+    ui.painter().line_segment(
+        [
+            rect.left_bottom() + egui::vec2(inset.x, -inset.y),
+            rect.right_top() + egui::vec2(-inset.x, inset.y),
+        ],
+        egui::Stroke::new(1.5, theme::STATUS_BAR_INK),
+    );
+}
+
+/// Where a bar button sits on a bar filling `bar`: a square tucked into one
 /// end, inset from it, and centred on the bar's own vertical centre.
-fn corner_rect(bar: Rect, end: End) -> Rect {
+///
+/// [`End::LeftBeside`] steps one button and one [`theme::STATUS_BAR_BUTTON_GAP`]
+/// further along, so the two at the left read as a pair with a hair of the bar
+/// between them.
+fn rect_for(bar: Rect, end: End) -> Rect {
     let side = theme::STATUS_BAR_BUTTON_SIZE;
     let top = bar.center().y - side / 2.0;
     let (left, right) = match end {
         End::Left => {
             let left = bar.left() + theme::STATUS_BAR_BUTTON_INSET;
+            (left, left + side)
+        }
+        End::LeftBeside => {
+            let left = bar.left()
+                + theme::STATUS_BAR_BUTTON_INSET
+                + theme::STATUS_BAR_BUTTON_SIZE
+                + theme::STATUS_BAR_BUTTON_GAP;
             (left, left + side)
         }
         End::Right => {
@@ -193,10 +272,159 @@ mod tests {
         );
     }
 
+    /// The bar is where the shuffle switch lives now, and the playback bar is
+    /// where it used to be and must no longer be: a real egui pass over each,
+    /// collecting what was painted, so the two cannot drift back together.
+    #[test]
+    fn the_shuffle_glyph_is_on_the_bar_and_no_longer_on_the_playback_bar() {
+        let mut app = app();
+
+        let on_bar = draw(&mut app, bar).glyphs;
+        assert!(
+            on_bar.contains(&SHUFFLE_GLYPH.to_owned()),
+            "the bar does not draw the shuffle glyph: {on_bar:?}"
+        );
+
+        let on_playback = draw(&mut app, crate::ui::nowplaying::bar).glyphs;
+        assert!(
+            !on_playback.contains(&SHUFFLE_GLYPH.to_owned()),
+            "the playback bar still draws the shuffle glyph: {on_playback:?}"
+        );
+    }
+
+    /// Clicking the shuffle switch turns shuffle on.
+    ///
+    /// A real click at the centre of the rectangle the glyph was painted into,
+    /// so it fails if the switch is drawn but cannot be reached. The first pass
+    /// is what a widget needs before egui will report a hit on it — the
+    /// rectangle is remembered from one frame to the next — so the click lands
+    /// on the second, on the same context.
+    #[test]
+    fn a_click_on_the_shuffle_switch_toggles_shuffle() {
+        let mut app = app();
+        assert!(!app.playback().shuffle(), "shuffle starts off");
+
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0));
+
+        let mut frame = |events: Vec<egui::Event>| {
+            let mut run = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ui| bar(&mut app, ui),
+            );
+            let mut drawn = Drawn::default();
+            for clipped in &run.shapes {
+                collect(&clipped.shape, &mut drawn);
+            }
+            run.textures_delta.clear();
+            drawn
+        };
+
+        // One pass to let egui learn the switch's rectangle: a hit is decided
+        // against the previous frame, so a click on the very first frame lands
+        // nowhere.
+        let drawn = frame(Vec::new());
+        let rect = drawn
+            .glyph_rect(SHUFFLE_GLYPH)
+            .expect("the shuffle switch was drawn");
+        let pos = rect.center();
+
+        // Press and release, as a mouse does — egui counts a click on the
+        // release, and needs the move that brought the pointer there.
+        frame(vec![egui::Event::PointerMoved(pos)]);
+        frame(vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        }]);
+        frame(vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }]);
+
+        assert!(
+            app.playback().shuffle(),
+            "clicking the switch at {pos:?} did not turn shuffle on"
+        );
+    }
+
+    /// What one pass over a bar painted.
+    #[derive(Default)]
+    struct Drawn {
+        glyphs: Vec<String>,
+        rects: Vec<(String, egui::Rect)>,
+    }
+
+    impl Drawn {
+        fn glyph_rect(&self, glyph: &str) -> Option<egui::Rect> {
+            self.rects
+                .iter()
+                .find(|(text, _)| text.contains(glyph))
+                .map(|(_, rect)| *rect)
+        }
+    }
+
+    /// Run a bar through a real egui pass and collect the glyphs it painted.
+    fn draw(
+        app: &mut MusicCraftApp,
+        mut draw: impl FnMut(&mut MusicCraftApp, &mut egui::Ui),
+    ) -> Drawn {
+        let ctx = egui::Context::default();
+        let mut run = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1180.0, 808.0),
+                )),
+                ..Default::default()
+            },
+            |ui| draw(app, ui),
+        );
+
+        let mut drawn = Drawn::default();
+        for clipped in &run.shapes {
+            collect(&clipped.shape, &mut drawn);
+        }
+
+        run.textures_delta.clear();
+        drawn
+    }
+
+    fn collect(shape: &egui::Shape, drawn: &mut Drawn) {
+        match shape {
+            egui::Shape::Text(text) => {
+                let glyphs = text.galley.text().to_owned();
+                let size = text.galley.size();
+                let min = match text.galley.job.halign {
+                    egui::Align::LEFT => text.pos,
+                    egui::Align::Center => egui::pos2(text.pos.x - size.x / 2.0, text.pos.y),
+                    egui::Align::RIGHT => egui::pos2(text.pos.x - size.x, text.pos.y),
+                };
+                drawn
+                    .rects
+                    .push((glyphs.clone(), egui::Rect::from_min_size(min, size)));
+                drawn.glyphs.push(glyphs);
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect(shape, drawn);
+                }
+            }
+            _ => {}
+        }
+    }
+
     #[test]
     fn the_gear_sits_in_the_right_corner_of_the_bar() {
         let bar = Rect::from_min_max(egui::pos2(0.0, 970.0), egui::pos2(1180.0, 1000.0));
-        let gear = corner_rect(bar, End::Right);
+        let gear = rect_for(bar, End::Right);
 
         assert_eq!(
             bar.right() - gear.right(),
@@ -222,8 +450,8 @@ mod tests {
     #[test]
     fn the_plus_sits_in_the_left_corner_of_the_bar() {
         let bar = Rect::from_min_max(egui::pos2(0.0, 970.0), egui::pos2(1180.0, 1000.0));
-        let plus = corner_rect(bar, End::Left);
-        let gear = corner_rect(bar, End::Right);
+        let plus = rect_for(bar, End::Left);
+        let gear = rect_for(bar, End::Right);
 
         assert_eq!(
             plus.left() - bar.left(),
@@ -252,6 +480,75 @@ mod tests {
         assert!(
             plus.right() < gear.left(),
             "the corners do not meet: {plus:?} overlaps {gear:?}"
+        );
+    }
+
+    /// The shuffle switch sits immediately right of the `+`, the same size,
+    /// with the requested two points of bar showing between them.
+    #[test]
+    fn the_shuffle_switch_sits_beside_the_plus_with_a_two_point_gap() {
+        let bar = Rect::from_min_max(egui::pos2(0.0, 970.0), egui::pos2(1180.0, 1000.0));
+        let plus = rect_for(bar, End::Left);
+        let shuffle = rect_for(bar, End::LeftBeside);
+
+        // Two points, spelled out: the request was for this gap, so the test
+        // has to fail if the constant is changed rather than follow it.
+        assert_eq!(
+            shuffle.left() - plus.right(),
+            2.0,
+            "the gap between the + and the shuffle is not two points: \
+             {plus:?} vs {shuffle:?}"
+        );
+        assert_eq!(
+            theme::STATUS_BAR_BUTTON_GAP,
+            2.0,
+            "the gap constant no longer says two points"
+        );
+        assert_eq!(
+            shuffle.size(),
+            plus.size(),
+            "the shuffle is a different size from the +: {shuffle:?} vs {plus:?}"
+        );
+        assert_eq!(
+            shuffle.center().y,
+            plus.center().y,
+            "the two are not on the same line: {shuffle:?} vs {plus:?}"
+        );
+        assert!(
+            bar.contains_rect(shuffle),
+            "the shuffle is off the bar: {shuffle:?} is not inside {bar:?}"
+        );
+        assert!(
+            shuffle.right() < rect_for(bar, End::Right).left(),
+            "the shuffle runs into the gear at the other end"
+        );
+    }
+
+    /// The shuffle switch is drawn with the bar's own ink, so it reads on the
+    /// bar's gray in either theme — not with the theme's foreground, which is
+    /// near-white in the dark theme.
+    #[test]
+    fn the_shuffle_switch_is_inked_like_the_bar_and_not_like_the_theme() {
+        let mut visuals = egui::Visuals::dark();
+        theme::apply_status_bar_visuals(&mut visuals);
+
+        assert_eq!(
+            visuals.widgets.inactive.fg_stroke.color,
+            theme::STATUS_BAR_INK,
+            "the shuffle glyph takes the bar's ink"
+        );
+        assert_eq!(
+            visuals.widgets.noninteractive.fg_stroke.color,
+            theme::STATUS_BAR_INK,
+            "and so does the line it sits on"
+        );
+
+        // The hover fill is the bar's own gray, not the theme's near-black.
+        assert_eq!(visuals.widgets.hovered.bg_fill, theme::STATUS_BAR_HOVER);
+        assert_ne!(
+            visuals.widgets.hovered.bg_fill,
+            egui::Visuals::dark().widgets.hovered.bg_fill,
+            "a hover on the bar took the dark theme's fill"
         );
     }
 

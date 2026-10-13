@@ -74,6 +74,13 @@ pub const STATUS_BAR_BUTTON_GLYPH_SIZE: f32 = 22.0;
 /// Gap between a corner button and its end of the status bar, in points.
 pub const STATUS_BAR_BUTTON_INSET: f32 = 3.0;
 
+/// Gap between two buttons sharing one end of the status bar, in points.
+///
+/// The left end holds two — the `+` that names a playlist and the shuffle
+/// switch — which read as separate controls rather than as one wide button
+/// because of this hair of the bar showing between them.
+pub const STATUS_BAR_BUTTON_GAP: f32 = 2.0;
+
 /// Fill of a status bar corner button while the pointer is over it, or held
 /// down.
 ///

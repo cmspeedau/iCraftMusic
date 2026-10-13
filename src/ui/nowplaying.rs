@@ -65,7 +65,7 @@ fn rows(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         summary(app, ui);
 
         // Laid out right to left so the reading order stays
-        // queue · shuffle · previous · play · next · repeat, volume last.
+        // previous · play · next · repeat, with volume last.
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             volume(app, ui);
             ui.add_space(18.0);
@@ -168,7 +168,11 @@ fn subtitle(app: &MusicCraftApp) -> String {
     parts.join(" · ")
 }
 
-/// Shuffle, previous, play/pause, next and repeat, in that on-screen order.
+/// Previous, play/pause, next and repeat, in that on-screen order.
+///
+/// Shuffle is not here: it took a button's width in this row to say one bit,
+/// and it moved to the status bar, where it sits with the other controls that
+/// are about the application rather than about the track.
 fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let has_current = app.playback().current().is_some();
     let size = [38.0, 28.0];
@@ -209,8 +213,6 @@ fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     {
         app.previous_track();
     }
-
-    shuffle_button(app, ui);
 }
 
 /// The repeat button's text, e.g. `Repeat: All`.
@@ -218,61 +220,7 @@ fn repeat_label(app: &MusicCraftApp) -> String {
     format!("Repeat: {}", app.playback().repeat().label())
 }
 
-/// The shuffle button's glyph. Struck through by [`strike_out`] while shuffle
-/// is off.
-const SHUFFLE_GLYPH: &str = "🔀";
-
-/// The shuffle button: 🔀 while shuffle is on, struck through while it is off.
-///
-/// An icon rather than the word, because it sits in a row of glyph buttons —
-/// and the slash is what makes it read as "no shuffle" rather than as an icon
-/// that has merely gone grey.
-fn shuffle_button(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    let shuffle = app.playback().shuffle();
-    let response = ui
-        .add(Button::selectable(
-            shuffle,
-            RichText::new(SHUFFLE_GLYPH).small(),
-        ))
-        .on_hover_text(shuffle_hover(shuffle));
-
-    if !shuffle {
-        strike_out(ui, response.rect);
-    }
-
-    if response.clicked() {
-        app.toggle_shuffle();
-    }
-}
-
-/// What the shuffle button says when it is pointed at. The word lives here
-/// because the button itself no longer carries it.
-fn shuffle_hover(shuffle: bool) -> &'static str {
-    if shuffle {
-        "Shuffle: on"
-    } else {
-        "Shuffle: off"
-    }
-}
-
-/// Cross the shuffle glyph out.
-///
-/// Painted over the button rather than typed as a combining slash: none of the
-/// fonts egui bundles carry one, so a struck-through glyph would silently drop
-/// the stroke and read as plain shuffle.
-fn strike_out(ui: &egui::Ui, rect: egui::Rect) {
-    let inset = egui::vec2(rect.height() * 0.30, rect.height() * 0.26);
-
-    ui.painter().line_segment(
-        [
-            rect.left_bottom() + egui::vec2(inset.x, -inset.y),
-            rect.right_top() + egui::vec2(-inset.x, inset.y),
-        ],
-        egui::Stroke::new(1.5, ui.visuals().text_color()),
-    );
-}
-
-/// The burger button that opens the queue, just left of Shuffle.
+/// The burger button that opens the queue, at the right of the transport row.
 fn queue_button(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let queued = app.playback().queue().len();
 
@@ -787,90 +735,6 @@ mod tests {
         egui::__run_test_ui(|ui| super::bar(&mut app, ui));
 
         assert!(app.queue_open(), "the popover stays up until it is closed");
-    }
-
-    #[test]
-    fn the_shuffle_button_carries_the_icon_and_not_the_word() {
-        assert_eq!(super::SHUFFLE_GLYPH, "🔀");
-        assert_eq!(super::shuffle_hover(true), "Shuffle: on");
-        assert_eq!(super::shuffle_hover(false), "Shuffle: off");
-    }
-
-    #[test]
-    fn drawing_the_shuffle_button_either_way_is_harmless() {
-        let mut app = app();
-
-        for _ in 0..2 {
-            egui::__run_test_ui(|ui| super::shuffle_button(&mut app, ui));
-            app.toggle_shuffle();
-        }
-
-        assert!(
-            !app.playback().shuffle(),
-            "drawing is not clicking, on or off"
-        );
-    }
-
-    #[test]
-    fn the_shuffle_glyph_is_struck_out_while_shuffle_is_off() {
-        let mut app = app();
-
-        let drawn = draw_shuffle(&mut app);
-        assert!(drawn.shows(SHUFFLE), "the icon is drawn: {:?}", drawn.text);
-        assert_eq!(drawn.lines.len(), 1, "and crossed out while shuffle is off");
-
-        app.toggle_shuffle();
-        let drawn = draw_shuffle(&mut app);
-        assert!(drawn.shows(SHUFFLE), "the icon is still drawn");
-        assert!(drawn.lines.is_empty(), "with no slash once shuffle is on");
-    }
-
-    /// The glyph the button is expected to draw, spelled out rather than read
-    /// from `super::SHUFFLE_GLYPH` so a change to the icon has to be meant.
-    const SHUFFLE: &str = "🔀";
-
-    /// Run the button through a real egui pass and collect what it painted.
-    fn draw_shuffle(app: &mut MusicCraftApp) -> Drawn {
-        let ctx = egui::Context::default();
-        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            super::shuffle_button(app, ui)
-        });
-
-        let mut drawn = Drawn::default();
-        for clipped in &output.shapes {
-            drawn.collect(&clipped.shape);
-        }
-
-        // `FullOutput` insists its texture deltas are dealt with before it is
-        // dropped; a test has no renderer to apply them to.
-        output.textures_delta.clear();
-        drawn
-    }
-
-    /// The text and line segments a frame produced.
-    #[derive(Default)]
-    struct Drawn {
-        text: Vec<String>,
-        lines: Vec<[egui::Pos2; 2]>,
-    }
-
-    impl Drawn {
-        fn collect(&mut self, shape: &egui::Shape) {
-            match shape {
-                egui::Shape::Text(text) => self.text.push(text.galley.text().to_owned()),
-                egui::Shape::LineSegment { points, .. } => self.lines.push(*points),
-                egui::Shape::Vec(shapes) => {
-                    for shape in shapes {
-                        self.collect(shape);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        fn shows(&self, glyph: &str) -> bool {
-            self.text.iter().any(|text| text.contains(glyph))
-        }
     }
 
     fn app() -> MusicCraftApp {
