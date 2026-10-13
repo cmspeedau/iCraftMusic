@@ -132,6 +132,16 @@ const VOLUME_GLYPH_WIDTH: f32 = 16.0;
 /// controls rather than as the glyph it draws.
 const QUEUE_BUTTON_SIZE: f32 = 28.0;
 
+/// Size the queue's burger glyph is drawn at, in points.
+///
+/// Set here rather than taken from a text style because the burger is a narrow
+/// glyph: at the bar's Button size (13) it inked about 11×9 points, and at the
+/// smaller size it was drawn at before that, 8×7 — a speck beside the
+/// transport's glyphs. Its button is 28 across and the burger is thin, so there
+/// is room to draw it well larger than the line it sits in; this is the size
+/// that fills the button without the glyph touching its edges.
+const QUEUE_GLYPH_SIZE: f32 = 20.0;
+
 /// Room a page button is given, in points.
 ///
 /// Square, and the size the transport's buttons are drawn at, so the row of
@@ -858,6 +868,9 @@ fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 }
 
 /// The burger button at the right of the centre box, which opens the queue.
+///
+/// The glyph is drawn at its own size rather than at a text style's: see
+/// `QUEUE_GLYPH_SIZE` for why the burger gets a size of its own.
 fn queue_button(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let queued = app.playback().queue().len();
     let open = app.queue_open();
@@ -865,7 +878,7 @@ fn queue_button(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     if ui
         .add_sized(
             Vec2::splat(QUEUE_BUTTON_SIZE),
-            Button::selectable(open, RichText::new(QUEUE_GLYPH).small()),
+            Button::selectable(open, RichText::new(QUEUE_GLYPH).size(QUEUE_GLYPH_SIZE)),
         )
         .on_hover_text(format!("Queue ({queued})"))
         .clicked()
@@ -2411,6 +2424,43 @@ mod tests {
                 .abs()
                 <= 1.0,
             "the queue button has left the box's right-hand edge: {button:?} in {pill:?}"
+        );
+    }
+
+    /// The queue icon is painted at the size of the glyphs it sits among,
+    /// rather than left to `.small()`.
+    ///
+    /// Asserted on what the BAR painted and not on a font looked up by name: a
+    /// test that lays the glyph out at a size of its own choosing measures the
+    /// font rather than the button, and went on passing with the button put back
+    /// the way it was. This reads the text the widget actually emitted, so it
+    /// fails when the button's own size changes.
+    #[test]
+    fn the_queue_icon_is_as_big_as_the_glyphs_beside_it() {
+        let mut app = app();
+        let painted = paint_bar(&mut app);
+
+        let queue = painted.ink(QUEUE_GLYPH).expect("the queue button");
+        let play = painted
+            .ink("\u{25B6}")
+            .expect("the transport draws its play glyph");
+
+        // The transport's glyphs are the ones the queue icon sits level with.
+        assert!(
+            queue.height() >= play.height() - 1.0,
+            "the queue icon is shorter than the transport's: {queue:?} against {play:?}"
+        );
+
+        // And it still fits the square that caps it.
+        let button = painted
+            .rects
+            .iter()
+            .map(|(rect, _)| *rect)
+            .find(|rect| (rect.width() - QUEUE_BUTTON_SIZE).abs() < 0.5)
+            .expect("the queue button paints its own square");
+        assert!(
+            button.contains_rect(queue),
+            "the queue icon has outgrown its button: {queue:?} in {button:?}"
         );
     }
 
