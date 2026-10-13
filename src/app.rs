@@ -16,8 +16,9 @@ use std::time::Duration;
 
 use eframe::CreationContext;
 
-use crate::audio::{Playback, PlaybackEvent, QueueItem, RepeatMode};
+use crate::audio::{AudioDevice, Playback, PlaybackEvent, QueueItem, RepeatMode};
 use crate::config::{AppConfig, ThemeMode};
+use crate::diagnostics::{self, Diagnostics};
 use crate::error::{AppError, Result};
 use crate::library::browse::LibraryBrowse;
 use crate::library::edit::{Outcome, field_errors};
@@ -123,6 +124,8 @@ pub struct MusicCraftApp {
     /// The database and the watched folders, or `None` when the database could
     /// not be opened — playback still works in that case.
     library: Option<Library>,
+    /// The database file the library was opened from, for the diagnostics.
+    database_path: Option<PathBuf>,
     /// Why the library is missing or the last refresh failed, ready to show.
     library_error: Option<String>,
     /// What the Library view is showing: the rows, the query and the selection.
@@ -144,6 +147,16 @@ pub struct MusicCraftApp {
     editor: Option<TrackEditor>,
     /// A destructive library action waiting for the user to agree to it.
     pending: Option<Confirmation>,
+    /// The output devices the system offered when the list was last read.
+    ///
+    /// Kept between frames because enumerating devices asks the audio backend,
+    /// which is not something to do on every frame: the settings screen reads
+    /// this list, and the button beside it reads it again.
+    output_devices: Option<Vec<AudioDevice>>,
+    /// Why the last settings action failed, ready to show.
+    settings_error: Option<String>,
+    /// What the last library-database check said, ready to show.
+    integrity: Option<String>,
     /// The theme currently installed into `egui`, so it is only re-applied when
     /// the preference actually changes.
     applied_theme: Option<ThemeMode>,
@@ -156,7 +169,11 @@ impl MusicCraftApp {
     /// first is what was indexed last time rather than an empty list.
     pub fn new(_creation_context: &CreationContext<'_>, startup: Startup) -> Self {
         let volume = startup.config.volume;
-        let mut app = Self::with_playback(startup, Playback::start(volume));
+        let device = startup.config.output_device.clone();
+        let mut app = Self::with_playback(
+            startup,
+            Playback::start_with_device(volume, device.as_deref()),
+        );
         app.open_library_from_disk();
 
         app
@@ -205,6 +222,7 @@ impl MusicCraftApp {
             queue_open: false,
             playback,
             library,
+            database_path: None,
             library_error,
             browse: LibraryBrowse::new(),
             scan: None,
@@ -215,6 +233,9 @@ impl MusicCraftApp {
             folder_input: String::new(),
             editor: None,
             pending: None,
+            output_devices: None,
+            settings_error: None,
+            integrity: None,
             applied_theme: None,
         };
 
@@ -491,6 +512,7 @@ impl MusicCraftApp {
             Ok(mut library) => {
                 library.set_folders(folders);
                 self.library = Some(library);
+                self.database_path = Some(database_path.to_path_buf());
                 self.library_error = None;
 
                 if let Err(error) = self.refresh() {
@@ -499,6 +521,7 @@ impl MusicCraftApp {
             }
             Err(error) => {
                 self.library = None;
+                self.database_path = Some(database_path.to_path_buf());
                 self.library_error =
                     Some(format!("the music library could not be opened: {error}"));
             }
@@ -629,6 +652,28 @@ impl MusicCraftApp {
         self.start_scan();
 
         added
+    }
+
+    /// Stop watching `folder`, returning whether it was being watched.
+    ///
+    /// The tracks it contributed stay in the library and their files stay on
+    /// disk: this changes what is scanned, not what is indexed. The settings
+    /// file is written at the end of the frame, so the folder stays gone after
+    /// a restart.
+    pub fn remove_library_folder(&mut self, folder: &Path) -> bool {
+        let removed = self.config.remove_library_folder(folder);
+        if !removed {
+            return false;
+        }
+
+        self.config_dirty = true;
+        if let Some(library) = self.library.as_mut() {
+            library.set_folders(self.config.library_folders.clone());
+        }
+
+        tracing::info!("stopped watching {}", folder.display());
+
+        true
     }
 
     /// Scan the watched folders, unless a scan is already running.
@@ -1272,6 +1317,147 @@ impl MusicCraftApp {
     /// Hide the settings failure banner.
     pub fn dismiss_config_error(&mut self) {
         self.config_error = None;
+    }
+
+    /// The output device the user chose, or `None` for the system default.
+    #[must_use]
+    pub fn chosen_output_device(&self) -> Option<&str> {
+        self.config.output_device.as_deref()
+    }
+
+    /// The output devices the system offers.
+    ///
+    /// Read once and remembered: asking the audio backend is a system call per
+    /// device, and a settings screen is drawn many times a second.
+    pub fn output_devices(&mut self) -> &[AudioDevice] {
+        if self.output_devices.is_none() {
+            self.output_devices = Some(crate::audio::available_devices());
+        }
+
+        self.output_devices.as_deref().unwrap_or_default()
+    }
+
+    /// Read the output devices again, for a device plugged in since startup.
+    pub fn rescan_output_devices(&mut self) {
+        self.output_devices = None;
+        self.settings_error = None;
+    }
+
+    /// Play through `device`, remembering the choice; `None` means the default.
+    ///
+    /// The setting is only stored once the switch has actually worked, so a
+    /// device that cannot be opened does not become the preference the next run
+    /// tries to honour. The failure is kept in [`MusicCraftApp::settings_error`]
+    /// for the settings screen to show.
+    ///
+    /// Returns whether the player is now on the requested device.
+    pub fn set_output_device(&mut self, device: Option<String>) -> bool {
+        match self.playback.switch_output(device.as_deref()) {
+            Ok(()) => {
+                tracing::info!(
+                    "playing through {}",
+                    device.as_deref().unwrap_or("the default output device")
+                );
+                if self.config.output_device != device {
+                    self.config.output_device = device;
+                    self.config_dirty = true;
+                }
+                self.settings_error = None;
+                true
+            }
+            Err(error) => {
+                tracing::warn!("the output device could not be opened: {error}");
+                self.settings_error = Some(error.to_string());
+                false
+            }
+        }
+    }
+
+    /// Why the last settings action failed, ready to show.
+    #[must_use]
+    pub fn settings_error(&self) -> Option<&str> {
+        self.settings_error.as_deref()
+    }
+
+    /// Hide the settings failure.
+    pub fn dismiss_settings_error(&mut self) {
+        self.settings_error = None;
+    }
+
+    /// Everything the Diagnostics screen reports about this installation.
+    #[must_use]
+    pub fn diagnostics(&self) -> Diagnostics {
+        let browse = &self.browse;
+
+        Diagnostics {
+            app_name: crate::APP_NAME.to_owned(),
+            version: crate::APP_VERSION.to_owned(),
+            config_path: self.config_path.clone(),
+            data_directory: AppConfig::data_directory().ok(),
+            database_path: self.database_path.clone(),
+            log_path: crate::logging::default_log_path(),
+            schema_version: self
+                .library
+                .as_ref()
+                .and_then(|library| library.schema_version().ok()),
+            tracks: browse.track_count(),
+            albums: browse.album_count(),
+            artists: browse.artist_count(),
+            playlists: self.playlist_count(),
+            missing: browse.missing_count(),
+            folders: self.config.library_folders.len(),
+            output: self.playback.output_description(),
+            output_id: self.playback.output_id().map(str::to_owned),
+            library_error: self.library_error.clone(),
+            config_error: self.config_error.clone(),
+        }
+    }
+
+    /// How many playlists the database holds.
+    ///
+    /// Read straight from the library rather than kept in memory: the
+    /// Diagnostics screen is the only caller, and it is not worth caching a
+    /// number that is asked for once in a while.
+    fn playlist_count(&self) -> usize {
+        self.library
+            .as_ref()
+            .and_then(|library| library.repository().playlist_count().ok())
+            .unwrap_or(0)
+    }
+
+    /// Ask SQLite whether the library database is sound, and remember the
+    /// answer for the Diagnostics screen.
+    ///
+    /// The check reads the whole file, so it runs once per press rather than
+    /// per frame. Nothing is repaired: a damaged database is reported with the
+    /// way out — the recovery steps live in the message.
+    pub fn check_library_integrity(&mut self) {
+        let database = self.database_path.clone();
+
+        let result = match self.library.as_ref() {
+            Some(library) => library.check_integrity(),
+            None => Err(AppError::NoConfigDir),
+        };
+
+        let okay = result.as_ref().is_ok_and(|report| report.is_ok());
+        if okay {
+            tracing::info!("the library database passed its integrity check");
+        } else {
+            tracing::warn!("the library database reported a problem: {result:?}");
+        }
+
+        self.integrity = Some(diagnostics::integrity_message(&result, database.as_ref()));
+    }
+
+    /// What the last database check said, ready to show.
+    #[must_use]
+    pub fn library_integrity(&self) -> Option<&str> {
+        self.integrity.as_deref()
+    }
+
+    /// Hide the last database check's report.
+    pub fn dismiss_integrity(&mut self) {
+        self.integrity = None;
     }
 
     /// Write the settings back to disk when something changed.
@@ -2032,6 +2218,206 @@ mod tests {
         app.browse_mut()
             .selection_mut()
             .apply(&visible, id, crate::library::ClickMode::Replace);
+    }
+
+    #[test]
+    fn the_output_device_is_only_remembered_once_it_has_opened() {
+        let mut app = app();
+
+        let switched = app.set_output_device(Some("nonexistent-host:gone".to_owned()));
+
+        assert!(!switched, "that device is not on this machine");
+        assert_eq!(
+            app.chosen_output_device(),
+            None,
+            "a device that could not be opened must not become the preference"
+        );
+        let error = app.settings_error().expect("the failure is reported");
+        assert!(error.contains("nonexistent-host:gone"), "{error}");
+
+        // Reading the device list again is what a user does after plugging
+        // something in, and it clears the report.
+        app.rescan_output_devices();
+        assert!(app.settings_error().is_none());
+    }
+
+    #[test]
+    fn a_refused_output_device_change_dirts_nothing() {
+        let mut app = app();
+
+        // Nothing to switch to on a device-less player, so the failure path is
+        // what is exercised: the flag must stay put, because a settings write
+        // that lies about what happened is worse than no write at all.
+        let switched = app.set_output_device(Some("nonexistent-host:gone".to_owned()));
+
+        assert!(!switched);
+        assert!(!app.config_dirty, "a refused change dirties nothing");
+    }
+
+    #[test]
+    fn forgetting_a_watched_folder_leaves_the_music_alone() {
+        let folder = crate::fixtures::scratch("forget-folder");
+        std::fs::write(folder.join("Roygbiv.wav"), crate::fixtures::silent_wav(32))
+            .expect("a file to index");
+        let mut app = imported();
+        let before = app.browse().track_count();
+
+        assert!(app.add_library_folder(&folder));
+        assert_eq!(app.library_folders().len(), 1);
+
+        assert!(app.remove_library_folder(&folder));
+
+        assert!(app.library_folders().is_empty(), "it is no longer watched");
+        assert_eq!(
+            app.browse().track_count(),
+            before,
+            "the tracks it contributed stay in the library"
+        );
+        assert!(
+            folder.join("Roygbiv.wav").is_file(),
+            "…and their files stay on disk"
+        );
+        assert!(
+            !app.remove_library_folder(&folder),
+            "forgetting it twice changes nothing"
+        );
+    }
+
+    #[test]
+    fn a_rescan_of_the_same_folder_does_not_duplicate_its_tracks() {
+        let folder = crate::fixtures::scratch("app-rescan");
+        std::fs::write(folder.join("Roygbiv.mp3"), b"").expect("a file to index");
+        std::fs::write(folder.join("Xtal.flac"), b"").expect("another file to index");
+
+        let mut app = app();
+        assert!(app.add_library_folder(&folder));
+        run_the_scan(&mut app);
+        assert_eq!(app.browse().track_count(), 2);
+
+        // The same folders, scanned again: a rescan is about what changed, not
+        // about adding everything a second time.
+        app.start_scan();
+        run_the_scan(&mut app);
+
+        assert_eq!(app.browse().track_count(), 2);
+        let report = app.last_import().expect("the scan reported").to_owned();
+        assert!(report.contains("Indexed 2 tracks"), "{report}");
+        assert!(report.contains("0 new"), "{report}");
+
+        std::fs::remove_dir_all(&folder).ok();
+    }
+
+    #[test]
+    fn playing_a_queue_walks_to_the_end_and_stops_there() {
+        let mut app = imported();
+        let tracks: Vec<Track> = app.browse().tracks().to_vec();
+        assert_eq!(app.play_tracks(&tracks, 0), 2);
+
+        assert_eq!(
+            app.playback().current().map(QueueItem::title),
+            Some("Track 1")
+        );
+
+        app.next_track();
+        assert_eq!(
+            app.playback().current().map(QueueItem::title),
+            Some("Track 2")
+        );
+
+        // Past the end there is nothing to play, and the last track stays
+        // visible rather than the bar going blank.
+        app.next_track();
+        assert_eq!(
+            app.playback().current().map(QueueItem::title),
+            Some("Track 2")
+        );
+        assert_eq!(
+            app.transport(),
+            TransportState::Unavailable,
+            "no device here"
+        );
+
+        app.previous_track();
+        assert_eq!(
+            app.playback().current().map(QueueItem::title),
+            Some("Track 1"),
+            "and stepping back works from the end"
+        );
+    }
+
+    #[test]
+    fn the_diagnostics_point_at_the_library_that_was_actually_opened() {
+        let directory = crate::fixtures::scratch("diagnostics");
+        let database = directory.join(crate::database::DATABASE_FILE);
+        let mut app = app();
+
+        app.open_library(&database, directory.join("artwork"), Vec::new());
+
+        let diagnostics = app.diagnostics();
+        assert_eq!(
+            diagnostics.database_path.as_deref(),
+            Some(database.as_path())
+        );
+        assert_eq!(
+            diagnostics.schema_version,
+            Some(crate::database::SCHEMA_VERSION),
+            "the version is read from the file, not assumed from the build"
+        );
+        assert_eq!(diagnostics.tracks, 0);
+        assert!(diagnostics.config_error.is_none());
+
+        std::fs::remove_dir_all(&directory).ok();
+    }
+
+    #[test]
+    fn checking_the_library_reports_a_sound_database() {
+        let mut app = imported();
+
+        app.check_library_integrity();
+
+        let message = app.library_integrity().expect("the check answered");
+        assert!(message.contains("sound"), "{message}");
+        assert!(
+            message.contains("library.sqlite") || app.diagnostics().database_path.is_none(),
+            "an in-memory library has no file to name: {message}"
+        );
+
+        app.dismiss_integrity();
+        assert!(app.library_integrity().is_none());
+    }
+
+    #[test]
+    fn a_check_with_no_library_at_all_says_so_rather_than_doing_nothing() {
+        let mut app = MusicCraftApp::from_parts(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error: None,
+            },
+            Playback::with_engine(AudioEngine::without_device(), 1.0),
+            None,
+            Some("the library could not be opened".to_owned()),
+        );
+
+        app.check_library_integrity();
+
+        let message = app.library_integrity().expect("the check answered");
+        assert!(message.contains("could not be checked"), "{message}");
+    }
+
+    /// Drive a running scan to completion, polling as the frame loop does.
+    ///
+    /// The deadline is what keeps a scan that never finishes from hanging the
+    /// test suite: it fails, with the reason, rather than running forever.
+    fn run_the_scan(app: &mut MusicCraftApp) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.is_scanning() {
+            app.poll_library();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the scan never finished"
+            );
+        }
     }
 
     /// Build an application around a library, with no output device.

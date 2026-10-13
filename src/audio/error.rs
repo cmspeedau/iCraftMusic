@@ -34,6 +34,18 @@ pub enum AudioError {
     #[error("playback is unavailable because no audio output device could be opened")]
     OutputUnavailable,
 
+    /// The output device the user chose is not on this machine any more.
+    ///
+    /// A device that was saved as a preference can go away — unplugged
+    /// headphones, a USB interface that is not connected today — and the honest
+    /// answer is to say which one went rather than to play through something
+    /// else without telling anybody.
+    #[error("the audio output device `{device}` is no longer available")]
+    DeviceNotFound {
+        /// The device that was asked for.
+        device: String,
+    },
+
     /// Playback was requested but the queue holds no track.
     #[error("there is nothing to play because the queue is empty")]
     EmptyQueue,
@@ -87,7 +99,10 @@ impl AudioError {
     #[must_use]
     pub fn path(&self) -> Option<&Path> {
         match self {
-            Self::OutputDevice { .. } | Self::OutputUnavailable | Self::EmptyQueue => None,
+            Self::OutputDevice { .. }
+            | Self::OutputUnavailable
+            | Self::DeviceNotFound { .. }
+            | Self::EmptyQueue => None,
             Self::Open { path, .. }
             | Self::UnsupportedFormat { path }
             | Self::Decode { path, .. }

@@ -22,7 +22,7 @@ mod player;
 mod queue;
 
 pub use error::AudioError;
-pub use output::Output;
+pub use output::{AudioDevice, Output, available_devices};
 pub use playback::{Playback, PlaybackEvent};
 pub use player::AudioEngine;
 pub use queue::{PlayQueue, QueueItem, RepeatMode};

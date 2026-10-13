@@ -769,10 +769,13 @@ fn artists_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
     let mut action: Option<GroupAction> = None;
 
+    // Virtualised like the track table: only the rows on screen are drawn, so
+    // an artist list of any size costs the same per frame.
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
-        .show(ui, |ui| {
-            for artist in &artists {
+        .show_rows(ui, ROW_HEIGHT, artists.len(), |ui, range| {
+            for index in range {
+                let artist = &artists[index];
                 let (rect, response) = ui.allocate_exact_size(
                     Vec2::new(ui.available_width(), ROW_HEIGHT),
                     Sense::click(),

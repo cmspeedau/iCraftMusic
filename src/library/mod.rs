@@ -28,7 +28,7 @@ pub use track::{Album, Artist, PlaylistId, Track, TrackFields, TrackId, display_
 
 use std::path::{Path, PathBuf};
 
-use crate::database::LibraryRepository;
+use crate::database::{IntegrityReport, LibraryRepository};
 use crate::error::Result;
 
 /// A scanned folder set together with the database it is stored in.
@@ -180,6 +180,31 @@ impl Library {
     /// query fails.
     pub fn track_count(&self) -> Result<usize> {
         self.repository.track_count()
+    }
+
+    /// Ask SQLite whether the library database is internally consistent.
+    ///
+    /// The library is read-only through this: nothing is repaired, and a
+    /// damaged file is reported so the user can decide what to do with it. The
+    /// README's recovery steps are written against this answer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::Database`](crate::error::AppError::Database) when the
+    /// check cannot run at all, which is itself the answer for a file that is
+    /// not a database.
+    pub fn check_integrity(&self) -> Result<IntegrityReport> {
+        self.repository.check_integrity()
+    }
+
+    /// The schema version the open database is at.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::Database`](crate::error::AppError::Database) when the
+    /// version cannot be read.
+    pub fn schema_version(&self) -> Result<i64> {
+        self.repository.schema_version()
     }
 }
 

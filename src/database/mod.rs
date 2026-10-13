@@ -9,7 +9,7 @@ pub mod repository;
 pub mod schema;
 
 pub use repository::{LibraryRepository, UpsertOutcome, UpsertSummary};
-pub use schema::{Migration, SCHEMA_VERSION, migrations};
+pub use schema::{IntegrityReport, Migration, SCHEMA_VERSION, migrations};
 
 use std::path::Path;
 

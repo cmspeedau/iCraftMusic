@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MusicCraft's icon: a record on a shell-blue field, in the application's own
+  accent. Plain SVG so a packager can render whatever sizes the theme asks for
+  (`for size in 16 32 48 64 128 256; do rsvg-convert -w $size -h $size ...`).
+
+  The application does not draw this itself yet — the window has no icon of its
+  own until the release stage gives it one — so this file exists for the desktop
+  entry to point at.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="48" ry="48" fill="#d6e9fa"/>
+  <circle cx="128" cy="128" r="84" fill="#12161c"/>
+  <circle cx="128" cy="128" r="58" fill="none" stroke="#2a3138" stroke-width="4"/>
+  <circle cx="128" cy="128" r="40" fill="none" stroke="#2a3138" stroke-width="4"/>
+  <circle cx="128" cy="128" r="30" fill="#0a84ff"/>
+  <circle cx="128" cy="128" r="7" fill="#d6e9fa"/>
+</svg>

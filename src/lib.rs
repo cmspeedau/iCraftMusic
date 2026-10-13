@@ -13,6 +13,7 @@ pub mod app;
 pub mod audio;
 pub mod config;
 pub mod database;
+pub mod diagnostics;
 pub mod error;
 #[cfg(test)]
 pub(crate) mod fixtures;

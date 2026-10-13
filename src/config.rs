@@ -58,6 +58,13 @@ pub struct AppConfig {
     /// The list is persisted from Stage 0 onwards, but folder scanning is
     /// implemented in Stage 3.
     pub library_folders: Vec<PathBuf>,
+    /// The output device to play through, as the audio backend identifies it.
+    ///
+    /// `None` means "whatever the desktop calls its default", which is what a
+    /// user who never opened Settings expects and what follows their system
+    /// settings. A stored identifier is only honoured when that device is still
+    /// on the machine.
+    pub output_device: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -66,6 +73,7 @@ impl Default for AppConfig {
             theme: ThemeMode::default(),
             volume: DEFAULT_VOLUME,
             library_folders: Vec::new(),
+            output_device: None,
         }
     }
 }
@@ -161,6 +169,18 @@ impl AppConfig {
         self.library_folders.push(folder);
         true
     }
+
+    /// Stop watching `folder`, returning whether it was being watched.
+    ///
+    /// Only the watching stops: the tracks it contributed stay indexed until
+    /// the user forgets them, and their files are untouched. A folder removed
+    /// by mistake is put back by choosing it again.
+    pub fn remove_library_folder(&mut self, folder: &Path) -> bool {
+        let before = self.library_folders.len();
+        self.library_folders.retain(|watched| watched != folder);
+
+        self.library_folders.len() != before
+    }
 }
 
 #[cfg(test)]
@@ -212,6 +232,7 @@ mod tests {
             theme: ThemeMode::Light,
             volume: 0.35,
             library_folders: vec![PathBuf::from("/home/example/Music")],
+            output_device: Some("alsa:default".to_owned()),
         };
 
         config.save(&path).expect("save succeeds");
@@ -286,6 +307,51 @@ mod tests {
         assert!(
             !config.add_library_folder(""),
             "an empty path is not a folder"
+        );
+    }
+
+    #[test]
+    fn a_watched_folder_can_be_dropped_again() {
+        let mut config = AppConfig::default();
+        config.add_library_folder("/music");
+        config.add_library_folder("/other");
+
+        assert!(config.remove_library_folder(Path::new("/music")));
+        assert_eq!(config.library_folders, vec![PathBuf::from("/other")]);
+
+        assert!(
+            !config.remove_library_folder(Path::new("/music")),
+            "removing what is not there changes nothing"
+        );
+        assert_eq!(config.library_folders.len(), 1);
+    }
+
+    #[test]
+    fn the_chosen_output_device_survives_a_round_trip() {
+        let path = temp_path("device");
+        let config = AppConfig {
+            output_device: Some("alsa:hdmi".to_owned()),
+            ..AppConfig::default()
+        };
+
+        config.save(&path).expect("save succeeds");
+        let loaded = AppConfig::load(&path).expect("load succeeds");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(loaded, config);
+        assert_eq!(loaded.output_device.as_deref(), Some("alsa:hdmi"));
+    }
+
+    #[test]
+    fn settings_written_before_the_device_was_chosen_keep_the_default_output() {
+        // An older config.toml has no such key at all.
+        let path = PathBuf::from("config.toml");
+        let config = AppConfig::from_toml(&path, "theme = \"light\"\nvolume = 0.5\n")
+            .expect("a file without the key still parses");
+
+        assert_eq!(
+            config.output_device, None,
+            "no stored device means the system default"
         );
     }
 }

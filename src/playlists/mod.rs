@@ -945,4 +945,57 @@ mod tests {
 
         assert_eq!(names, vec!["Evening".to_owned()]);
     }
+
+    /// A playlist survives being closed and reopened, which is the one thing
+    /// about playlists a user notices: they are still there tomorrow.
+    ///
+    /// The repository is a real file rather than an in-memory database, because
+    /// an in-memory one is thrown away with its connection and would make this
+    /// pass without proving anything.
+    #[test]
+    fn playlists_and_their_tracks_survive_a_restart() {
+        let directory = crate::fixtures::scratch("playlist-restart");
+        let database = directory.join("library.sqlite");
+
+        let track_id = {
+            let mut repository = LibraryRepository::open(&database).expect("open the library");
+            let mut track = Track::from_path("/music/Roygbiv.mp3");
+            track.title = "Roygbiv".to_owned();
+            repository.upsert_track(&track).expect("store the track");
+            let stored = repository
+                .track_by_path("/music/Roygbiv.mp3")
+                .expect("lookup")
+                .expect("stored");
+            let id = stored.id.expect("identifier");
+
+            let mut playlists = Playlists::new(&mut repository);
+            let evening = playlists.create("Evening").expect("create");
+            playlists.add_track(evening, id).expect("add");
+
+            id
+        };
+
+        // Everything is reopened the way a second run of the application does.
+        let mut repository = LibraryRepository::open(&database).expect("reopen the library");
+        let playlists = Playlists::new(&mut repository);
+
+        let names: Vec<String> = playlists
+            .list()
+            .expect("list")
+            .into_iter()
+            .map(|summary| summary.name)
+            .collect();
+        assert_eq!(names, vec!["Evening".to_owned()]);
+
+        let evening = playlists
+            .find("Evening")
+            .expect("find")
+            .expect("the playlist is still there");
+        let tracks = playlists.tracks(evening).expect("tracks");
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].id, Some(track_id), "the same row is still in it");
+        assert_eq!(tracks[0].title, "Roygbiv");
+
+        std::fs::remove_dir_all(&directory).ok();
+    }
 }

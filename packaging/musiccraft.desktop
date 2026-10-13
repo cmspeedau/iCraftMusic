@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=MusicCraft
+GenericName=Music Player
+Comment=Play and organise a local music library
+Exec=musiccraft %F
+TryExec=musiccraft
+Icon=musiccraft
+Terminal=false
+Categories=AudioVideo;Audio;Player;GTK;
+Keywords=music;player;library;audio;mp3;flac;
+StartupNotify=true
+# Matches the `with_app_id("musiccraft")` the window is created with, so the
+# task manager ties the window to this entry instead of showing a second icon.
+StartupWMClass=musiccraft
+MimeType=audio/mpeg;audio/flac;audio/x-wav;audio/ogg;audio/mp4;

@@ -32,7 +32,7 @@ pub struct Playback {
 }
 
 impl Playback {
-    /// Opens the default output device and prepares an empty queue.
+    /// Opens the output device and prepares an empty queue.
     ///
     /// A device that cannot be opened is not fatal: the player keeps working
     /// with no sound, records why, and reports it through
@@ -41,14 +41,64 @@ impl Playback {
     /// card needs.
     #[must_use]
     pub fn start(volume: f32) -> Self {
-        match AudioEngine::open() {
+        Self::start_with_device(volume, None)
+    }
+
+    /// Opens `device` — or the system's default when `None` — and prepares an
+    /// empty queue.
+    ///
+    /// A device the user chose that is no longer on the machine does not leave
+    /// the player silent: the default device is opened instead, and the fact
+    /// that the choice was not honoured is recorded as the failure the
+    /// playback bar reports. The alternative — refusing to open anything
+    /// because a pair of headphones is unplugged — would look like a broken
+    /// player.
+    #[must_use]
+    pub fn start_with_device(volume: f32, device: Option<&str>) -> Self {
+        match AudioEngine::open_device(device) {
             Ok(engine) => Self::with_engine(engine, volume),
-            Err(error) => {
-                let mut playback = Self::with_engine(AudioEngine::without_device(), volume);
-                playback.error = Some(error);
+            Err(chosen) => {
+                let mut playback = match AudioEngine::open() {
+                    Ok(engine) => Self::with_engine(engine, volume),
+                    Err(_) => Self::with_engine(AudioEngine::without_device(), volume),
+                };
+                playback.error = Some(chosen);
                 playback
             }
         }
+    }
+
+    /// Play through a different output device, keeping the queue.
+    ///
+    /// An empty `device` means the system's default. Whatever was playing is
+    /// loaded into the new device so the music carries on rather than stopping,
+    /// and the old device is left in place when the new one cannot be opened —
+    /// a wrong choice must not cost the user their playback.
+    ///
+    /// # Errors
+    ///
+    /// Returns the failure that stopped the switch, having changed nothing.
+    pub fn switch_output(&mut self, device: Option<&str>) -> Result<(), AudioError> {
+        let mut engine = AudioEngine::open_device(device)?;
+        engine.set_volume(self.engine.volume());
+
+        // Reload after the swap: the old device's player is torn down with its
+        // stream, so the track has to be handed to the new one to keep playing.
+        let resume = self
+            .engine
+            .is_playing()
+            .then(|| self.queue.current().map(|item| item.path().to_path_buf()))
+            .flatten();
+
+        self.engine = engine;
+
+        if let Some(path) = resume
+            && let Err(error) = self.engine.load(&path)
+        {
+            self.error = Some(error);
+        }
+
+        Ok(())
     }
 
     /// Builds a player around an engine that is already open.
@@ -79,6 +129,12 @@ impl Playback {
     #[must_use]
     pub fn output_description(&self) -> Option<String> {
         self.engine.output_description()
+    }
+
+    /// The identifier of the device the player is playing through.
+    #[must_use]
+    pub fn output_id(&self) -> Option<&str> {
+        self.engine.output_id()
     }
 
     /// The most recent failure, if the interface has not dismissed it.
@@ -601,5 +657,45 @@ mod tests {
         playback.play_index(7);
 
         assert_eq!(playback.current().map(QueueItem::title), Some("a"));
+    }
+
+    #[test]
+    fn a_chosen_device_that_has_gone_leaves_a_working_player_behind() {
+        // The stored preference is for an interface that is not plugged in.
+        let mut playback = Playback::start_with_device(1.0, Some("nonexistent-host:gone"));
+
+        assert!(
+            matches!(playback.error(), Some(AudioError::DeviceNotFound { .. })),
+            "the user is told which device went: {:?}",
+            playback.error()
+        );
+
+        // …and the player still holds a queue: the library, the settings and
+        // the transport are worth having even when a preference went stale.
+        playback.enqueue([PathBuf::from("/music/a.mp3")]);
+        assert_eq!(
+            playback.queue().len(),
+            1,
+            "the queue must survive a device preference that cannot be honoured"
+        );
+    }
+
+    #[test]
+    fn switching_to_a_device_that_is_not_there_changes_nothing() {
+        let mut playback = silent(&["/music/a.mp3", "/music/b.mp3"]);
+        let before = playback.current().map(|item| item.title().to_owned());
+
+        let refused = playback.switch_output(Some("nonexistent-host:gone"));
+
+        assert!(matches!(refused, Err(AudioError::DeviceNotFound { .. })));
+        assert_eq!(
+            playback.current().map(|item| item.title().to_owned()),
+            before
+        );
+        assert_eq!(playback.queue().len(), 2);
+        assert!(
+            playback.error().is_none(),
+            "a refused switch is reported to the caller, not left on the bar"
+        );
     }
 }

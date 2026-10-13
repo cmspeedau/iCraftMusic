@@ -6,11 +6,49 @@
 //! leaves visible, how a click with a modifier changes the selection — can be
 //! tested without opening a window.
 
+use std::cell::OnceCell;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use crate::library::track::{Album, Artist, Track, TrackId};
-use crate::search::{Query, Sort, SortKey, filter_artists, filter_tracks};
+use crate::search::{Query, Sort, SortKey, compare_tracks, filter_artists, matches_track};
+
+// How many times the visible order has been derived, for the tests.
+//
+// The derivation is memoised, and "it is memoised" is exactly the sort of claim
+// that rots silently: nothing about the output changes when the cache stops
+// working, only how long a frame takes on a large library. Counting the
+// derivations turns that into something a test can assert.
+#[cfg(test)]
+thread_local! {
+    static DERIVED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Note that the visible order was derived from scratch.
+#[cfg(test)]
+fn note_derivation() {
+    DERIVED.with(|count| count.set(count.get() + 1));
+}
+
+/// How many times the visible order has been derived on this thread.
+///
+/// Per-thread, so one test never sees another's count even though the tests
+/// run in parallel.
+#[cfg(test)]
+fn derivations() -> usize {
+    DERIVED.with(std::cell::Cell::get)
+}
+
+/// Forget the derivations counted so far, for a test that is about to measure
+/// how many its own actions cause.
+#[cfg(test)]
+fn forget_derivations() {
+    DERIVED.with(|count| count.set(0));
+}
+
+/// A no-op outside the tests, so the derivation path reads the same either way.
+#[cfg(not(test))]
+fn note_derivation() {}
 
 /// Which page of the Library is open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -116,10 +154,18 @@ impl Selection {
     ///
     /// A rescan or a new query removes rows; selecting tracks that are gone
     /// would leave "play the selection" with nothing to play.
+    ///
+    /// The visible rows are collected into a set first: a library can be large
+    /// and the selection can be the whole of it, and testing every selected
+    /// identifier against the list would be quadratic in a library of tens of
+    /// thousands of tracks — which is a scan-and-select-all away from a frame
+    /// that takes seconds.
     pub fn retain(&mut self, visible: &[TrackId]) {
-        self.ids.retain(|id| visible.contains(id));
+        let present: BTreeSet<TrackId> = visible.iter().copied().collect();
 
-        if self.anchor.is_some_and(|anchor| !visible.contains(&anchor)) {
+        self.ids.retain(|id| present.contains(id));
+
+        if self.anchor.is_some_and(|anchor| !present.contains(&anchor)) {
             self.anchor = None;
         }
     }
@@ -190,6 +236,16 @@ fn album_artwork(album: &Album, tracks: &[Track]) -> Option<PathBuf> {
         .find_map(|track| track.artwork_path.clone())
 }
 
+/// The rows the table draws, and the order it draws them in.
+///
+/// Held as positions into [`LibraryBrowse::tracks`] rather than as references,
+/// so the cache can live inside the value it describes.
+#[derive(Debug, Default)]
+struct Visible {
+    /// Positions into the track list, in the order the rows are drawn.
+    order: Vec<usize>,
+}
+
 /// Everything the Library view needs to draw itself.
 #[derive(Debug, Default)]
 pub struct LibraryBrowse {
@@ -202,6 +258,17 @@ pub struct LibraryBrowse {
     tracks: Vec<Track>,
     albums: Vec<AlbumCard>,
     artists: Vec<Artist>,
+    /// The filtered, ordered track list for the current query, sort and
+    /// filters, derived on first use and thrown away whenever one of those
+    /// changes.
+    ///
+    /// The view asks for the visible rows several times per frame — the status
+    /// line counts them, the heading reports them, the table draws them — and
+    /// deriving them is a filter *and* a sort of the whole library. On a
+    /// collection of tens of thousands of tracks that is the difference between
+    /// a frame and a stutter, so it is done once per change instead of once per
+    /// question.
+    visible: OnceCell<Visible>,
 }
 
 impl LibraryBrowse {
@@ -232,12 +299,18 @@ impl LibraryBrowse {
     }
 
     /// The search field's text, for the view to edit.
+    ///
+    /// Typing goes through here, so this is where a half-typed query starts
+    /// hiding rows: the field's text is edited in place by `egui`, and the
+    /// visible list is derived from it on the next frame.
     pub fn query_text_mut(&mut self) -> &mut String {
+        self.invalidate();
         &mut self.query_text
     }
 
     /// Replace the search text.
     pub fn set_query_text(&mut self, text: impl Into<String>) {
+        self.invalidate();
         self.query_text = text.into();
     }
 
@@ -255,11 +328,13 @@ impl LibraryBrowse {
 
     /// Order the track table by `sort`.
     pub fn set_sort(&mut self, sort: Sort) {
+        self.invalidate();
         self.sort = sort;
     }
 
     /// Sort by `key`, flipping the direction when it is already the active one.
     pub fn toggle_sort(&mut self, key: SortKey) {
+        self.invalidate();
         self.sort = self.sort.clicked(key);
     }
 
@@ -279,6 +354,8 @@ impl LibraryBrowse {
     /// Album cards are derived here rather than by the database because the
     /// cover art a card shows depends on the tracks, not on the album row.
     pub fn replace(&mut self, tracks: Vec<Track>, albums: Vec<Album>, artists: Vec<Artist>) {
+        self.invalidate();
+
         self.albums = albums
             .into_iter()
             .map(|album| AlbumCard {
@@ -334,16 +411,58 @@ impl LibraryBrowse {
     ///
     /// The query hides rows by their text; the missing-files switch hides them
     /// by whether their file is still there. Both are applied to the in-memory
-    /// rows, so neither ever reaches the database.
+    /// rows, so neither ever reaches the database, and the result is derived
+    /// once per change rather than once per call.
     #[must_use]
     pub fn visible_tracks(&self) -> Vec<&Track> {
-        let mut matched = filter_tracks(&self.tracks, &self.query(), self.sort);
+        self.visible_order()
+            .iter()
+            .map(|index| &self.tracks[*index])
+            .collect()
+    }
+
+    /// The positions of the visible rows within the whole track list.
+    fn visible_order(&self) -> &[usize] {
+        &self
+            .visible
+            .get_or_init(|| {
+                note_derivation();
+                Visible {
+                    order: self.derive(),
+                }
+            })
+            .order
+    }
+
+    /// Filter and sort the whole library, producing the rows the table shows.
+    fn derive(&self) -> Vec<usize> {
+        let query = self.query();
+
+        let mut order: Vec<usize> = self
+            .tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, track)| matches_track(track, &query))
+            .map(|(index, _)| index)
+            .collect();
 
         if self.missing_only {
-            matched.retain(|track| track.missing);
+            order.retain(|index| self.tracks[*index].missing);
         }
 
-        matched
+        let sort = self.sort;
+        order
+            .sort_by(|left, right| compare_tracks(&self.tracks[*left], &self.tracks[*right], sort));
+
+        order
+    }
+
+    /// Throw away the derived rows.
+    ///
+    /// Called by everything that changes which rows are visible or in what
+    /// order — the query, the sort, the missing-files filter and a refresh.
+    fn invalidate(&mut self) {
+        self.visible = OnceCell::new();
     }
 
     /// The albums the grid should draw, filtered by name.
@@ -372,9 +491,9 @@ impl LibraryBrowse {
     /// out; in practice every track read from the database has one.
     #[must_use]
     pub fn visible_track_ids(&self) -> Vec<TrackId> {
-        self.visible_tracks()
-            .into_iter()
-            .filter_map(|track| track.id)
+        self.visible_order()
+            .iter()
+            .filter_map(|index| self.tracks[*index].id)
             .collect()
     }
 
@@ -407,11 +526,13 @@ impl LibraryBrowse {
 
     /// Show only the tracks whose files have vanished, or show them all again.
     pub fn set_missing_only(&mut self, missing_only: bool) {
+        self.invalidate();
         self.missing_only = missing_only;
     }
 
     /// Turn the missing-files filter on or off, returning the new state.
     pub fn toggle_missing_only(&mut self) -> bool {
+        self.invalidate();
         self.missing_only = !self.missing_only;
         self.missing_only
     }
@@ -864,5 +985,125 @@ mod tests {
         assert_eq!(browse.album_count(), 1);
         assert_eq!(browse.artist_count(), 1);
         assert_eq!(browse.visible_tracks().len(), 1);
+    }
+
+    #[test]
+    fn the_visible_rows_are_derived_once_per_change_not_once_per_question() {
+        let mut browse = LibraryBrowse::new();
+        browse.replace(
+            (1..=20)
+                .map(|index| track(index, &format!("Track {index}"), None, None))
+                .collect(),
+            vec![],
+            vec![],
+        );
+
+        // `replace` derives the rows once, to check what is still selected.
+        forget_derivations();
+
+        // A frame asks several times: the status line counts the rows, the
+        // heading reports them, the table draws them and the selection is read
+        // back. All of them describe the same derived list, and none of them
+        // filters and sorts the library again.
+        for _ in 0..5 {
+            assert_eq!(browse.visible_tracks().len(), 20);
+            assert_eq!(browse.visible_track_ids().len(), 20);
+        }
+        assert_eq!(
+            derivations(),
+            0,
+            "twenty questions about one unchanged library must not re-derive anything"
+        );
+
+        browse.set_query_text("track 1");
+        assert_eq!(browse.visible_tracks().len(), 11);
+        assert_eq!(derivations(), 1, "a new query re-derives the rows");
+
+        browse.toggle_sort(SortKey::Title);
+        let _ = browse.visible_tracks();
+        assert_eq!(derivations(), 2, "a new sort re-derives the rows");
+
+        browse.toggle_missing_only();
+        let _ = browse.visible_tracks();
+        assert_eq!(derivations(), 3, "a new filter re-derives the rows");
+
+        browse.toggle_missing_only();
+        let _ = browse.visible_tracks();
+        assert_eq!(derivations(), 4, "…in both directions");
+    }
+
+    #[test]
+    fn a_derived_list_survives_the_question_that_follows_it() {
+        let mut browse = LibraryBrowse::new();
+        browse.replace(
+            vec![
+                track(1, "Xtal", Some("Aphex Twin"), None),
+                track(2, "Roygbiv", Some("Boards of Canada"), None),
+            ],
+            vec![],
+            vec![],
+        );
+
+        let first: Vec<String> = browse
+            .visible_tracks()
+            .into_iter()
+            .map(|track| track.title.clone())
+            .collect();
+        let second: Vec<String> = browse
+            .visible_tracks()
+            .into_iter()
+            .map(|track| track.title.clone())
+            .collect();
+
+        assert_eq!(first, second, "a cached list must not go stale or reorder");
+    }
+
+    /// A library the size a serious collection reaches, so a quadratic step
+    /// shows up as a test that does not finish rather than one that fails.
+    #[test]
+    fn a_large_library_is_filtered_sorted_and_reselected_promptly() {
+        const TRACKS: usize = 20_000;
+
+        let mut browse = LibraryBrowse::new();
+        browse.replace(
+            (0..TRACKS)
+                .map(|index| {
+                    track(
+                        index as i64,
+                        &format!("Track {index:05}"),
+                        Some(&format!("Artist {:04}", index % 500)),
+                        Some(&format!("Album {:04}", index % 2000)),
+                    )
+                })
+                .collect(),
+            vec![],
+            vec![],
+        );
+
+        let started = std::time::Instant::now();
+
+        // Every row selected, then a refresh: the selection is re-checked
+        // against the whole library, which is the step that has to stay linear
+        // rather than compare every selection against every row.
+        let visible = browse.visible_track_ids();
+        assert_eq!(visible.len(), TRACKS);
+        browse
+            .selection_mut()
+            .apply(&visible, visible[0], ClickMode::Replace);
+        browse.selection_mut().ids.extend(visible.iter().copied());
+        assert_eq!(browse.selection().len(), TRACKS);
+
+        browse.set_query_text("album 0042");
+        assert!(!browse.visible_tracks().is_empty());
+        browse.set_query_text("");
+        assert_eq!(browse.visible_tracks().len(), TRACKS);
+        assert_eq!(browse.selection().len(), TRACKS, "nothing went anywhere");
+
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(5),
+            "{} tracks took {elapsed:?} to filter, sort, select and refresh",
+            TRACKS
+        );
     }
 }

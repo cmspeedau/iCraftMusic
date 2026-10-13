@@ -38,7 +38,25 @@ impl AudioEngine {
     /// A failure to open a device is not fatal: the engine keeps working with
     /// no sound so the rest of the application stays usable.
     pub fn open() -> Result<Self, AudioError> {
-        let output = Output::open()?;
+        Self::open_device(None)
+    }
+
+    /// Opens `device`, or the system's default when `None` is given.
+    ///
+    /// The identifier is one of [`crate::audio::available_devices`]'s; the
+    /// settings screen stores exactly that, so the device a user picked is the
+    /// device they get.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::DeviceNotFound`] when the named device is not on
+    /// this machine, and [`AudioError::OutputDevice`] when it cannot be opened.
+    pub fn open_device(device: Option<&str>) -> Result<Self, AudioError> {
+        let output = match device {
+            Some(id) => Output::open_device(id)?,
+            None => Output::open()?,
+        };
+
         let engine = Self {
             output: Some(output),
             volume: 1.0,
@@ -70,6 +88,24 @@ impl AudioEngine {
     #[must_use]
     pub fn output_description(&self) -> Option<String> {
         self.output.as_ref().map(Output::description)
+    }
+
+    /// The identifier of the device the engine is playing through.
+    #[must_use]
+    pub fn output_id(&self) -> Option<&str> {
+        self.output.as_ref().and_then(Output::id)
+    }
+
+    /// The sample rate the open device negotiated, in hertz.
+    #[must_use]
+    pub fn output_sample_rate(&self) -> Option<u32> {
+        self.output.as_ref().map(Output::sample_rate)
+    }
+
+    /// The number of output channels the open device negotiated.
+    #[must_use]
+    pub fn output_channels(&self) -> Option<u16> {
+        self.output.as_ref().map(Output::channel_count)
     }
 
     /// Loads `path` and starts playing it, replacing whatever played before.

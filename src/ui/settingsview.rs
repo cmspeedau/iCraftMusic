@@ -5,6 +5,12 @@
 //! the frame. The shortcuts are listed rather than configured: the keys are a
 //! fixed part of the interface, and the list is here so a user can find them
 //! without hunting through the menus.
+//!
+//! The last pane is the one for when something is wrong: Diagnostics reports
+//! what this copy is, where it keeps everything and what the audio side is
+//! playing through, and offers the one check the application can run on its own
+//! library. It reads rather than writes — the only action there is asking
+//! SQLite to check itself, and even that changes nothing.
 
 use egui::{Key, RichText, Slider, TextEdit, Vec2};
 
@@ -41,6 +47,11 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.add_space(12.0);
     ui.separator();
     ui.add_space(12.0);
+    diagnostics(app, ui);
+
+    ui.add_space(12.0);
+    ui.separator();
+    ui.add_space(12.0);
     about(app, ui);
 }
 
@@ -73,7 +84,7 @@ fn appearance(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     });
 }
 
-/// Playback preferences. Stage 1 only persists the value.
+/// Playback preferences: how loud, and through what.
 fn playback(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.label(RichText::new("Playback").strong());
     ui.add_space(6.0);
@@ -90,7 +101,118 @@ fn playback(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             .small()
             .weak(),
     );
+
+    ui.add_space(10.0);
+    output_device(app, ui);
 }
+
+/// Which device the music comes out of, and what it came out at.
+///
+/// The choice is stored by identifier and honoured on the next run, so a user
+/// whose desktop default is the wrong one does not have to fix it twice. The
+/// list is only read when this pane is drawn and when the user asks for it
+/// again, because enumerating devices asks the audio backend.
+fn output_device(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    ui.label(RichText::new("Output device").small().weak());
+    ui.add_space(4.0);
+
+    // The devices are copied out of the application before the combo box is
+    // built: choosing one calls back into the application, which cannot happen
+    // while its own device list is borrowed.
+    let devices = app.output_devices().to_vec();
+    let chosen = app.chosen_output_device().map(str::to_owned);
+    let mut requested: Option<Option<String>> = None;
+
+    ui.horizontal(|ui| {
+        let selected = chosen
+            .as_ref()
+            .and_then(|id| {
+                devices
+                    .iter()
+                    .find(|device| &device.id == id)
+                    .map(|device| device.name.clone())
+            })
+            .unwrap_or_else(|| match &chosen {
+                // A stored device that is not in the list: say so rather than
+                // silently showing the default, which would look like the
+                // preference had been forgotten.
+                Some(id) => format!("{id} (not available)"),
+                None => DEFAULT_OUTPUT_LABEL.to_owned(),
+            });
+
+        egui::ComboBox::from_id_salt("musiccraft_output_device")
+            .selected_text(RichText::new(selected).small())
+            .width(DEVICE_PICKER_WIDTH)
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(chosen.is_none(), DEFAULT_OUTPUT_LABEL)
+                    .on_hover_text("Follow the desktop's own output setting")
+                    .clicked()
+                {
+                    requested = Some(None);
+                }
+
+                for device in &devices {
+                    let label = if device.is_default {
+                        format!("{} (system default)", device.name)
+                    } else {
+                        device.name.clone()
+                    };
+
+                    if ui
+                        .selectable_label(chosen.as_deref() == Some(&device.id), label)
+                        .on_hover_text(&device.id)
+                        .clicked()
+                    {
+                        requested = Some(Some(device.id.clone()));
+                    }
+                }
+            });
+
+        if ui
+            .small_button("Rescan")
+            .on_hover_text("Read the list of output devices again")
+            .clicked()
+        {
+            app.rescan_output_devices();
+        }
+    });
+
+    if let Some(device) = requested {
+        app.set_output_device(device);
+    }
+
+    ui.add_space(4.0);
+    match app.playback().output_description() {
+        Some(description) => ui.label(
+            RichText::new(format!("Playing through {description}."))
+                .small()
+                .weak(),
+        ),
+        None => ui.label(
+            RichText::new("No output device is open; the library and the queue still work.")
+                .small()
+                .color(theme::WARNING),
+        ),
+    };
+
+    if let Some(error) = app.settings_error().map(str::to_owned) {
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("!").strong().color(theme::WARNING));
+            ui.label(RichText::new(error).small());
+            if ui.small_button("Dismiss").clicked() {
+                app.dismiss_settings_error();
+            }
+        });
+    }
+}
+
+/// What the device picker says when the system default is chosen.
+const DEFAULT_OUTPUT_LABEL: &str = "System default";
+
+/// Width of the device picker, in points.
+const DEVICE_PICKER_WIDTH: f32 = 260.0;
 
 /// The keys the player answers to.
 ///
@@ -288,13 +410,93 @@ fn library_management(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         ui.label(RichText::new("No folders are watched yet.").small().weak());
     } else {
         ui.label(RichText::new("Watched folders").small().weak());
-        for folder in app.library_folders() {
+
+        // Copied out before the buttons are drawn: forgetting a folder edits
+        // the list the loop is walking.
+        for folder in app.library_folders().to_vec() {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(folder.display().to_string())
+                        .small()
+                        .monospace(),
+                );
+
+                if ui
+                    .small_button("Forget")
+                    .on_hover_text(
+                        "Stop scanning this folder. The tracks it contributed stay in the \
+                         library and their files stay on disk.",
+                    )
+                    .clicked()
+                {
+                    app.remove_library_folder(&folder);
+                }
+            });
+        }
+    }
+}
+
+/// Where the application keeps everything, and whether the database is sound.
+///
+/// This is the "something is wrong and I do not know what" pane: what the user
+/// reads out when asking for help, and the one check the application can run on
+/// its own library.
+fn diagnostics(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    ui.label(RichText::new("Diagnostics").strong());
+    ui.label(
+        RichText::new(
+            "What this copy of MusicCraft is, and where it keeps your library, your settings \
+             and its log.",
+        )
+        .small()
+        .weak(),
+    );
+    ui.add_space(6.0);
+
+    egui::Grid::new("musiccraft_diagnostics")
+        .num_columns(2)
+        .spacing([18.0, 4.0])
+        .show(ui, |ui| {
+            for (label, value) in app.diagnostics().lines() {
+                ui.label(RichText::new(label).small().weak());
+                ui.label(RichText::new(value).small().monospace());
+                ui.end_row();
+            }
+        });
+
+    ui.add_space(8.0);
+
+    ui.horizontal(|ui| {
+        if ui
+            .button("Check the library database")
+            .on_hover_text(
+                "Reads every page of the database and reports anything wrong with it. \
+                 Nothing is changed.",
+            )
+            .clicked()
+        {
+            app.check_library_integrity();
+        }
+
+        if let Some(folder) = app.diagnostics().data_directory.as_ref() {
             ui.label(
-                RichText::new(folder.display().to_string())
+                RichText::new(format!("Data: {}", folder.display()))
                     .small()
+                    .weak()
                     .monospace(),
             );
         }
+    });
+
+    if let Some(message) = app.library_integrity().map(str::to_owned) {
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("!").strong().color(theme::WARNING));
+            ui.label(RichText::new(message).small());
+            if ui.small_button("Dismiss").clicked() {
+                app.dismiss_integrity();
+            }
+        });
     }
 }
 
@@ -510,6 +712,100 @@ mod tests {
             painted.iter().any(|text| text == "About"),
             "the pane should be labelled"
         );
+    }
+
+    #[test]
+    fn the_diagnostics_pane_reports_where_everything_lives() {
+        let mut app = app(None);
+        let painted = everything(&mut app);
+
+        for label in [
+            "Diagnostics",
+            "Application",
+            "Check the library database",
+            "Audio output",
+            "Indexed",
+        ] {
+            assert!(
+                painted.iter().any(|text| text == label),
+                "{label} is not on the pane: {painted:?}"
+            );
+        }
+
+        assert!(
+            painted
+                .iter()
+                .any(|text| text == &format!("{} {}", crate::APP_NAME, crate::APP_VERSION)),
+            "the snapshot should name the build: {painted:?}"
+        );
+    }
+
+    #[test]
+    fn drawing_the_diagnostics_pane_does_not_run_the_check() {
+        // The check reads the whole database, so it answers a press, never a
+        // repaint — and a pane that ran it every frame would make Settings the
+        // slowest screen in the application.
+        let mut app = app(None);
+
+        let _ = everything(&mut app);
+
+        assert!(
+            app.library_integrity().is_none(),
+            "no check was asked for: {:?}",
+            app.library_integrity()
+        );
+    }
+
+    #[test]
+    fn a_check_the_user_asked_for_is_reported_on_the_pane() {
+        let mut app = app(None);
+        app.check_library_integrity();
+
+        let painted = everything(&mut app);
+
+        let message = app.library_integrity().expect("the check said something");
+        assert!(
+            painted.iter().any(|text| text.contains(message)),
+            "the answer is not on the pane: {painted:?}"
+        );
+    }
+
+    #[test]
+    fn a_watched_folder_can_be_forgotten_from_the_pane() {
+        let mut app = app(None);
+        let folder = std::env::temp_dir().join("musiccraft-settings-forget");
+        std::fs::create_dir_all(&folder).expect("a folder to watch");
+        assert!(app.add_library_folder(&folder));
+
+        let painted = everything(&mut app);
+        assert!(
+            painted.iter().any(|text| text == "Forget"),
+            "the folder has no way to be dropped: {painted:?}"
+        );
+
+        // Drawing the button is not pressing it.
+        assert_eq!(
+            app.library_folders().len(),
+            1,
+            "the folder is forgotten on a click, not on a repaint"
+        );
+    }
+
+    /// Every line of text the whole Settings pane paints.
+    ///
+    /// The pane is drawn through the shell so the section is set the way the
+    /// window sets it, and the existing `painted` helper collects the text. The
+    /// window is drawn tall on purpose: the pane is longer than any real window
+    /// and the part below the fold never reaches the painter, so a short screen
+    /// would only test the sections that happen to come first.
+    fn everything(app: &mut MusicCraftApp) -> Vec<String> {
+        app.set_section(crate::ui::navigation::NavSection::Settings);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 2400.0));
+
+        painted(app, screen)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect()
     }
 
     /// An application with a player that has no output device.

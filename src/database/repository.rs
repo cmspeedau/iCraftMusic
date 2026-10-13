@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
-use crate::database::schema;
+use crate::database::schema::{self, IntegrityReport};
 use crate::error::{AppError, Result};
 use crate::library::track::{Album, Artist, PlaylistId, Track, TrackFields, TrackId};
 
@@ -257,6 +257,32 @@ impl LibraryRepository {
             .map_err(AppError::database)?;
 
         Ok(usize::try_from(count).unwrap_or(usize::MAX))
+    }
+
+    /// Ask SQLite whether the library database is internally consistent.
+    ///
+    /// This is the recovery half of the repository: it is what the user runs
+    /// from Settings → Diagnostics when the library misbehaves, and it is
+    /// deliberately not run on every start, because it reads the whole file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::Database`] when the check cannot run at all.
+    pub fn check_integrity(&self) -> Result<IntegrityReport> {
+        schema::integrity_check(&self.connection)
+    }
+
+    /// The schema version the open database is actually at.
+    ///
+    /// Read from the file rather than taken from [`SCHEMA_VERSION`], because
+    /// the point of the diagnostics is to say what this database is, not what
+    /// this build expects.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::Database`] when the version row cannot be read.
+    pub fn schema_version(&self) -> Result<i64> {
+        schema::current_version(&self.connection)
     }
 
     /// Every album, with its track count and total playing time.

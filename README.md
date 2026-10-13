@@ -17,7 +17,8 @@ authority on what each stage delivers and on what is still missing.
 | 4     | Functional Music Library UI       | Complete |
 | 5     | Playlists and Queue Management    | Complete |
 | 6     | Metadata Editing and Library Polish | Complete |
-| 7+    | See ROADMAP.md                    | Planned  |
+| 7     | Settings, Reliability, Performance | Complete |
+| 8+    | See ROADMAP.md                    | Planned  |
 
 Known limitations: the Playlists section is still a placeholder — the queue
 (`☰` in the playback bar) is the only way to arrange what plays, and playlists
@@ -25,8 +26,10 @@ are not yet creatable from the interface. A scan indexes `mp3`, `flac`, `wav`,
 `ogg`, `m4a`, `mp4` and `aac` files; music in any other format is counted and
 named after a scan but cannot be played or tagged. Editing a track's details in
 the library keeps them there until the file changes or the tags are written into
-the file itself. These are deliberate and tracked in the roadmap, not presented
-as finished features.
+the file itself. A scan can be stopped but is not resumed after the application
+exits. There is no installer or release artifact yet; packaging is prepared
+under `packaging/` (see below), not finished. These are deliberate and tracked
+in the roadmap, not presented as finished features.
 
 ## Prerequisites
 
@@ -81,6 +84,81 @@ User settings are stored as TOML in the platform configuration directory
 falls back to defaults rather than failing; save errors are surfaced in the top
 bar instead of crashing.
 
+What is stored: the theme, the volume, the folders the library watches, and the
+output device MusicCraft plays through (`output_device`, omitted entirely when
+the system default is wanted). Changing any of them writes the file at the end
+of the frame.
+
+The library database, the cached cover art and the log live in the platform's
+data directory, apart from the settings:
+
+| Path (Linux)                                        | What it is                     |
+| --------------------------------------------------- | ------------------------------ |
+| `~/.config/musiccraft/config.toml`                   | preferences                    |
+| `~/.local/share/musiccraft/library.sqlite`           | the indexed library            |
+| `~/.local/share/musiccraft/logs/musiccraft.log`      | this run's log (and the one before it) |
+
+Settings → Diagnostics shows the exact paths on your machine, the schema version
+of the database, the counts, the audio stream in use, and a button that checks
+the database. Set `RUST_LOG=musiccraft=debug` to make the log talkative.
+
+## Library data and recovery
+
+The database is a cache of what the files on disk say: removing a row never
+deletes a file, and a rescan rebuilds what is missing. Nothing in the
+application damages your music.
+
+If the library misbehaves, Settings → Diagnostics → **Check the library
+database** runs SQLite's own `PRAGMA integrity_check` and reports what it found
+without changing anything. To rebuild from scratch:
+
+```sh
+# 1. Stop MusicCraft, then move the database aside (the cover-art cache and the
+#    music files are untouched).
+mv ~/.local/share/musiccraft/library.sqlite* /tmp/library-broken/
+
+# 2. Start MusicCraft and press Rescan under Settings → Library management.
+#    Every watched folder is indexed again from the files themselves.
+```
+
+Upgrading the schema never happens silently on top of your only copy: before a
+migration rewrites a database written by an older build, MusicCraft writes a
+consistent copy beside it with SQLite's `VACUUM INTO`:
+
+```
+library.sqlite.pre-v2.bak
+```
+
+If an upgrade goes wrong, that file is the library as the previous version left
+it — move it back to `library.sqlite` and start the older build.
+
+## Packaging
+
+A release build and what a package needs:
+
+```sh
+cargo build --release
+# → target/release/musiccraft
+
+install -Dm755 target/release/musiccraft ~/.local/bin/musiccraft
+install -Dm644 packaging/musiccraft.desktop \
+    ~/.local/share/applications/musiccraft.desktop
+install -Dm644 packaging/musiccraft.svg \
+    ~/.local/share/icons/hicolor/scalable/apps/musiccraft.svg
+update-desktop-database ~/.local/share/applications  # optional, for MimeType
+```
+
+`packaging/` holds the parts a distribution package would install:
+
+- `musiccraft.desktop` — the desktop entry (name, categories, MIME types, and
+  the `StartupWMClass` that ties the window to its launcher icon).
+- `musiccraft.svg` — the icon, in plain SVG so a packager can rasterise whatever
+  sizes the icon theme asks for.
+
+The release profile in `Cargo.toml` builds one stripped binary with link-time
+optimisation. There is no installer, and no artifact is published yet — that is
+Stage 9's job; what is here is the preparation for it.
+
 ## Project layout
 
 ```
@@ -89,8 +167,9 @@ src/
 ├── lib.rs             # library root
 ├── app.rs             # application state and eframe glue
 ├── config.rs          # settings model and persistence
+├── diagnostics.rs     # what the installation looks like, and the integrity report
 ├── error.rs           # typed errors (thiserror) and Result alias
-├── logging.rs         # tracing subscriber setup
+├── logging.rs         # tracing subscriber: stderr and a rotated log file
 ├── audio/             # output device, queue, transport
 ├── library/           # models, scanning, tag reading and writing, browse state
 ├── database/          # SQLite schema and repository
