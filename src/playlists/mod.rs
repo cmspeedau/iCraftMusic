@@ -170,7 +170,7 @@ impl<'a> Playlists<'a> {
             .prepare(
                 "SELECT t.id, t.path, t.title, t.artist, t.album, t.album_artist, t.genre, \
                         t.track_number, t.disc_number, t.duration_ms, t.artwork_path, \
-                        t.size_bytes, t.modified_at, t.missing, t.tags_dirty \
+                        t.size_bytes, t.modified_at, t.missing, t.tags_dirty, t.play_count \
                  FROM playlist_tracks m JOIN tracks t ON t.id = m.track_id \
                  WHERE m.playlist_id = ?1 \
                  ORDER BY m.position",

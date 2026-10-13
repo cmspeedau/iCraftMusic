@@ -29,6 +29,12 @@ pub struct Playback {
     queue: PlayQueue,
     /// The last failure, kept until the interface shows or dismisses it.
     error: Option<AudioError>,
+    /// Tracks the player has been directed at since the last drain.
+    ///
+    /// The audio side cannot reach the library — it holds no database handle —
+    /// so a start is recorded here and the application collects it on the next
+    /// frame, the same way the interface collects a finished track.
+    started: Vec<PathBuf>,
 }
 
 impl Playback {
@@ -108,9 +114,20 @@ impl Playback {
             engine,
             queue: PlayQueue::new(),
             error: None,
+            started: Vec::new(),
         };
         playback.engine.set_volume(volume);
         playback
+    }
+
+    /// The tracks that have been started since this was last called.
+    ///
+    /// Counting a play is the library's job and the library lives behind the
+    /// application, so the player only remembers which tracks it was pointed
+    /// at; the application takes them from here once a frame and records them.
+    /// Draining rather than reading keeps a track from being counted twice.
+    pub fn take_started(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.started)
     }
 
     /// The track list and its transport rules.
@@ -389,7 +406,13 @@ impl Playback {
         };
         let path = item.path().to_path_buf();
         match self.engine.load(&path) {
-            Ok(_) => self.error = None,
+            Ok(_) => {
+                self.error = None;
+                // Pointing the player at a track is what "a play" means, and
+                // every path that starts one — a click, a skip, the next track
+                // after a finished one — comes through here.
+                self.started.push(path);
+            }
             Err(error) => self.error = Some(error),
         }
     }

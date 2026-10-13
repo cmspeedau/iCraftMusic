@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{AppError, Result};
 
 /// The schema version this build writes.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// One step of the schema's history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +47,11 @@ pub fn migrations() -> &'static [Migration] {
             version: 3,
             description: "a track can be edited without its file being rewritten",
             sql: SQL_V3,
+        },
+        Migration {
+            version: 4,
+            description: "a track remembers how many times it has been played",
+            sql: SQL_V4,
         },
     ]
 }
@@ -102,6 +107,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS playlists_name_idx ON playlists (name COLLATE 
 
 const SQL_V3: &str = "
 ALTER TABLE tracks ADD COLUMN tags_dirty INTEGER NOT NULL DEFAULT 0;
+";
+
+const SQL_V4: &str = "
+ALTER TABLE tracks ADD COLUMN play_count INTEGER NOT NULL DEFAULT 0;
 ";
 
 /// What `PRAGMA integrity_check` said about a database.
@@ -359,6 +368,75 @@ mod tests {
 
         assert_eq!(versions, sorted);
         assert_eq!(versions.last().copied(), Some(SCHEMA_VERSION));
+    }
+
+    #[test]
+    fn every_track_column_the_code_reads_exists_after_migrating() {
+        // `TRACK_COLUMNS` names the columns the mappers read by position, and a
+        // migration that forgot one would otherwise show up as a runtime query
+        // failure rather than as a failing build.
+        let mut connection = Connection::open_in_memory().expect("in-memory database");
+        apply(&mut connection).expect("migrations run");
+
+        let statement = connection
+            .prepare("SELECT * FROM tracks")
+            .expect("prepare the row");
+        let names: Vec<String> = statement
+            .column_names()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+
+        for column in ["tags_dirty", "play_count"] {
+            assert!(
+                names.iter().any(|name| name == column),
+                "the migrated table has no {column} column: {names:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_database_from_first_release_gains_a_zero_play_count() {
+        // Migration 4 adds the column, so existing rows must come out at zero
+        // rather than at a missing-column error.
+        let directory = scratch("migrate-play-count");
+        let path = directory.join("library.sqlite");
+
+        {
+            let connection = Connection::open(&path).expect("open");
+            connection.execute_batch(SQL_V1).expect("first schema");
+            connection.execute_batch(SQL_V2).expect("second schema");
+            connection.execute_batch(SQL_V3).expect("third schema");
+            connection
+                .execute_batch(
+                    "CREATE TABLE IF NOT EXISTS schema_version (
+                         version    INTEGER PRIMARY KEY,
+                         applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+                     );",
+                )
+                .expect("version table");
+            connection
+                .execute("INSERT INTO schema_version (version) VALUES (3)", [])
+                .expect("record the old version");
+            connection
+                .execute(
+                    "INSERT INTO tracks (path, title) VALUES ('/music/a.mp3', 'Roygbiv')",
+                    [],
+                )
+                .expect("track");
+        }
+
+        let mut connection = Connection::open(&path).expect("reopen");
+        apply(&mut connection).expect("migrations run");
+
+        let (title, plays): (String, i64) = connection
+            .query_row("SELECT title, play_count FROM tracks", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("the row survived the migration");
+
+        assert_eq!(title, "Roygbiv");
+        assert_eq!(plays, 0, "an unplayed track starts at zero");
     }
 
     #[test]

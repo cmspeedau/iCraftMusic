@@ -182,6 +182,21 @@ impl Library {
         self.repository.track_count()
     }
 
+    /// Record that a track has been started, and give back its new count.
+    ///
+    /// Play counts are a library fact rather than a file fact, so they are kept
+    /// here and never written into a tag. `None` means the track has no row —
+    /// one opened from the command line rather than indexed — which is a
+    /// normal thing and not a failure.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::Database`](crate::error::AppError::Database) when the
+    /// update fails.
+    pub fn record_play(&self, id: TrackId) -> Result<Option<u64>> {
+        self.repository.record_play(id)
+    }
+
     /// Ask SQLite whether the library database is internally consistent.
     ///
     /// The library is read-only through this: nothing is repaired, and a

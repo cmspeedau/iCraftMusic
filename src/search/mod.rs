@@ -35,16 +35,19 @@ pub enum SortKey {
     TrackNumber,
     /// Full path to the file.
     Path,
+    /// How many times the track has been played.
+    PlayCount,
 }
 
 impl SortKey {
     /// Every key, in the order the track table shows its columns.
-    pub const ALL: [SortKey; 5] = [
+    pub const ALL: [SortKey; 6] = [
         Self::Title,
         Self::Artist,
         Self::Album,
         Self::Genre,
         Self::Duration,
+        Self::PlayCount,
     ];
 
     /// Column heading for this key.
@@ -58,6 +61,7 @@ impl SortKey {
             Self::Duration => "Duration",
             Self::TrackNumber => "Track",
             Self::Path => "Path",
+            Self::PlayCount => "Plays",
         }
     }
 }
@@ -307,6 +311,7 @@ pub fn compare_tracks(left: &Track, right: &Track, sort: Sort) -> Ordering {
             Some(&left.path.to_string_lossy()),
             Some(&right.path.to_string_lossy()),
         ),
+        SortKey::PlayCount => left.play_count.cmp(&right.play_count),
     };
 
     let ordered = primary
@@ -371,6 +376,33 @@ mod tests {
         track.artist = artist.map(str::to_owned);
         track.album = album.map(str::to_owned);
         track
+    }
+
+    #[test]
+    fn the_most_played_tracks_can_be_put_first_or_last() {
+        let mut rarely = track("Olson", None, None);
+        rarely.play_count = 2;
+        let mut often = track("Xtal", None, None);
+        often.play_count = 40;
+
+        let descending = Sort::new(SortKey::PlayCount, SortDirection::Descending);
+        assert_eq!(
+            compare_tracks(&rarely, &often, descending),
+            Ordering::Greater,
+            "the track played fewer times comes second when sorting by plays, high to low"
+        );
+
+        let ascending = Sort::new(SortKey::PlayCount, SortDirection::Ascending);
+        assert_eq!(compare_tracks(&rarely, &often, ascending), Ordering::Less);
+    }
+
+    #[test]
+    fn every_column_heading_names_a_field_that_exists() {
+        // A key added without a label would render an empty heading, and the
+        // table would look like it had lost a column.
+        for key in SortKey::ALL {
+            assert!(!key.label().is_empty(), "{key:?} has no heading");
+        }
     }
 
     #[test]

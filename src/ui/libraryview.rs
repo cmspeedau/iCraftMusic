@@ -34,6 +34,12 @@ const CELL_PADDING: f32 = 8.0;
 const INDEX_WIDTH: f32 = 38.0;
 /// Width of the duration column.
 const DURATION_WIDTH: f32 = 64.0;
+/// Width of the play-count column.
+///
+/// Wide enough for a four-digit count and the heading beside it; a number
+/// longer than that is rare enough to be worth truncating rather than spending
+/// the artist's width on it.
+const PLAYS_WIDTH: f32 = 56.0;
 
 /// Width of the artist, album and genre columns when they fit.
 const ARTIST_WIDTH: f32 = 150.0;
@@ -641,8 +647,9 @@ fn track_row(
             track
                 .duration
                 .map_or_else(|| "--:--".to_owned(), crate::app::format_duration),
-            small,
+            small.clone(),
         ),
+        (Column::Plays, track.play_count.to_string(), small),
     ] {
         if columns.width_of(column) < 1.0 {
             continue;
@@ -948,6 +955,7 @@ struct Columns {
     album: f32,
     genre: f32,
     duration: f32,
+    plays: f32,
 }
 
 /// One column of the track table.
@@ -959,6 +967,7 @@ enum Column {
     Album,
     Genre,
     Duration,
+    Plays,
 }
 
 /// The column a sortable heading belongs to.
@@ -969,6 +978,7 @@ fn column_of(key: SortKey) -> Option<Column> {
         SortKey::Album => Some(Column::Album),
         SortKey::Genre => Some(Column::Genre),
         SortKey::Duration => Some(Column::Duration),
+        SortKey::PlayCount => Some(Column::Plays),
         // The table has no track-number or path column; those keys are still
         // available to the sort itself, just not through a heading.
         SortKey::TrackNumber | SortKey::Path => None,
@@ -978,9 +988,9 @@ fn column_of(key: SortKey) -> Option<Column> {
 impl Columns {
     /// Lay the table out for a window this wide.
     ///
-    /// The number and duration columns are always shown; artist, album and
-    /// genre are dropped from the right as the window narrows, and the title
-    /// takes whatever is left so a long name is still readable.
+    /// The number, duration and play count columns are always shown; artist,
+    /// album and genre are dropped from the right as the window narrows, and
+    /// the title takes whatever is left so a long name is still readable.
     fn for_width(width: f32) -> Self {
         let artist = if width >= ARTIST_MIN_WIDTH {
             ARTIST_WIDTH
@@ -998,7 +1008,7 @@ impl Columns {
             0.0
         };
 
-        let fixed = INDEX_WIDTH + artist + album + genre + DURATION_WIDTH;
+        let fixed = INDEX_WIDTH + artist + album + genre + DURATION_WIDTH + PLAYS_WIDTH;
         let title = (width - fixed - CELL_PADDING).max(TITLE_MIN_WIDTH);
 
         Self {
@@ -1008,6 +1018,7 @@ impl Columns {
             album,
             genre,
             duration: DURATION_WIDTH,
+            plays: PLAYS_WIDTH,
         }
     }
 
@@ -1020,6 +1031,7 @@ impl Columns {
             Column::Album => self.album,
             Column::Genre => self.genre,
             Column::Duration => self.duration,
+            Column::Plays => self.plays,
         }
     }
 
@@ -1037,6 +1049,9 @@ impl Columns {
             Column::Album => self.index + self.title + self.artist,
             Column::Genre => self.index + self.title + self.artist + self.album,
             Column::Duration => self.index + self.title + self.artist + self.album + self.genre,
+            Column::Plays => {
+                self.index + self.title + self.artist + self.album + self.genre + self.duration
+            }
         }
     }
 
@@ -1314,5 +1329,100 @@ mod tests {
         track.album = Some(album.to_owned());
 
         track
+    }
+
+    /// Every string the Library table paints, in one offscreen frame.
+    ///
+    /// The table draws its rows by hand rather than laying out widgets, so a
+    /// column that is added but never painted looks correct in a layout test
+    /// and is invisible in the window. Running the real view into an egui
+    /// context and collecting the text shapes is what closes that gap: this is
+    /// the same code the window calls, read back as what it drew.
+    fn painted_text(app: &mut MusicCraftApp) -> Vec<String> {
+        let context = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 600.0));
+
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+
+        let mut output = context.run_ui(input, |ui| {
+            super::show(app, ui);
+        });
+
+        let painted: Vec<String> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+
+        // Nothing is drawing to a real screen here, so the font atlas the first
+        // frame wants uploaded has no home; egui panics if it is dropped
+        // unconsumed, and the text has already been read out by now.
+        output.textures_delta.clear();
+
+        painted
+    }
+
+    #[test]
+    fn the_table_paints_a_play_count_beside_each_track() {
+        let mut app = imported();
+        let id = app.browse().tracks()[0].id.expect("a row");
+
+        // Seven, because the row-number column already paints a bare "1" and a
+        // count of one would make this pass without the column existing at all.
+        for _ in 0..7 {
+            app.library_mut()
+                .expect("a library")
+                .record_play(id)
+                .expect("a play");
+        }
+        app.refresh().expect("refresh");
+
+        let painted = painted_text(&mut app);
+
+        assert!(
+            painted.iter().any(|text| text == "Plays"),
+            "the heading should be painted: {painted:?}"
+        );
+        assert!(
+            painted.iter().any(|text| text == "7"),
+            "the count should be painted beside its row: {painted:?}"
+        );
+    }
+
+    #[test]
+    fn the_play_count_column_paints_nothing_that_was_not_drawn_before() {
+        // The other half of the assertion above: a library nothing has been
+        // played from must show a zero, not the heading and a stray number.
+        let mut app = imported();
+
+        let painted = painted_text(&mut app);
+
+        assert!(painted.iter().any(|text| text == "0"));
+        assert_eq!(
+            painted.iter().filter(|text| *text == "0").count(),
+            2,
+            "one zero per row: {painted:?}"
+        );
+    }
+
+    #[test]
+    fn the_play_count_column_is_never_dropped_as_the_window_narrows() {
+        // Artist, album and genre give way to the title; the play count is one
+        // of the columns that always stays, like the duration.
+        for width in [400.0, 500.0, 760.0, 1000.0, 1600.0] {
+            let columns = Columns::for_width(width);
+
+            assert!(
+                columns.width_of(Column::Plays) > 0.0,
+                "the play count was dropped at {width} points wide"
+            );
+            assert!(columns.width_of(Column::Duration) > 0.0);
+        }
     }
 }

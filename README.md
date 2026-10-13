@@ -29,6 +29,13 @@ exits. There is no installer or release artifact yet; packaging is prepared
 under `packaging/` (see below), not finished. These are deliberate and tracked
 in the roadmap, not presented as finished features.
 
+The All Tracks table has a **Plays** column: how many times each track has been
+started. It is counted by the library, not by the file — nothing in an audio tag
+carries it, so a rescan does not reset it — and the heading sorts by it like any
+other column (low to high first, click again for most-played first). A file
+played without being indexed (the play field, or the command line) has no row to
+count against and silently counts nothing.
+
 ## Prerequisites
 
 - Stable Rust toolchain (install via [rustup](https://rustup.rs)).

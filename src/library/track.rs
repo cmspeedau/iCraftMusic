@@ -95,6 +95,12 @@ pub struct Track {
     /// this edit yet": a rescan leaves an edited row alone as long as the file
     /// itself is unchanged, and writing the tags to the file clears the flag.
     pub tags_dirty: bool,
+    /// How many times playback has started on this track.
+    ///
+    /// Counted by the library, not by the file: nothing in an audio tag holds
+    /// it, so it is the one field a scan never overwrites. It is a plain count
+    /// and grows by one each time a track is started.
+    pub play_count: u64,
 }
 
 impl Track {
@@ -122,6 +128,7 @@ impl Track {
             modified_at: None,
             missing: false,
             tags_dirty: false,
+            play_count: 0,
         }
     }
 

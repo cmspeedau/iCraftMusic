@@ -21,7 +21,8 @@ use crate::library::track::{Album, Artist, PlaylistId, Track, TrackFields, Track
 
 /// The columns of a `tracks` row, in the order [`row_to_track`] expects.
 const TRACK_COLUMNS: &str = "id, path, title, artist, album, album_artist, genre, track_number, \
-     disc_number, duration_ms, artwork_path, size_bytes, modified_at, missing, tags_dirty";
+     disc_number, duration_ms, artwork_path, size_bytes, modified_at, missing, tags_dirty, \
+     play_count";
 
 /// What storing a track did to the database.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,6 +258,43 @@ impl LibraryRepository {
             .map_err(AppError::database)?;
 
         Ok(usize::try_from(count).unwrap_or(usize::MAX))
+    }
+
+    /// Record that a track has just been started, and return its new count.
+    ///
+    /// The count lives only in the library: no audio tag carries it, so a
+    /// rescan cannot undo it, and the increment is a single `UPDATE` rather
+    /// than a read-modify-write so two starts can never lose one another's
+    /// work.
+    ///
+    /// Returns the count after the increment, or `None` when no row has that
+    /// identifier — a track played from the command line has no row to count
+    /// against, and starting it is not an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::Database`] when the update fails.
+    pub fn record_play(&self, id: TrackId) -> Result<Option<u64>> {
+        let changed = self
+            .connection
+            .execute(
+                "UPDATE tracks SET play_count = play_count + 1 WHERE id = ?1",
+                params![id.get()],
+            )
+            .map_err(AppError::database)?;
+
+        if changed == 0 {
+            return Ok(None);
+        }
+
+        self.connection
+            .query_row(
+                "SELECT play_count FROM tracks WHERE id = ?1",
+                params![id.get()],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|count| Some(count.try_into().unwrap_or_default()))
+            .map_err(AppError::database)
     }
 
     /// Ask SQLite whether the library database is internally consistent.
@@ -657,6 +695,7 @@ pub(crate) fn row_to_track(row: &Row<'_>) -> rusqlite::Result<Track> {
         modified_at: row.get(12)?,
         missing: row.get::<_, i64>(13)? != 0,
         tags_dirty: row.get::<_, i64>(14)? != 0,
+        play_count: row.get::<_, i64>(15)?.try_into().unwrap_or_default(),
     })
 }
 
@@ -1288,6 +1327,76 @@ mod tests {
             schema::current_version(repository.connection()).expect("version"),
             schema::SCHEMA_VERSION
         );
+    }
+
+    #[test]
+    fn a_track_starts_with_no_plays_and_counts_each_one() {
+        let repository = repository();
+        let id = store(&repository, "/music/a.mp3");
+
+        assert_eq!(
+            repository
+                .track_by_id(id)
+                .expect("lookup")
+                .expect("row")
+                .play_count,
+            0,
+            "a track that has never been played reads zero"
+        );
+
+        assert_eq!(repository.record_play(id).expect("first play"), Some(1));
+        assert_eq!(repository.record_play(id).expect("second play"), Some(2));
+        assert_eq!(
+            repository
+                .track_by_id(id)
+                .expect("lookup")
+                .expect("row")
+                .play_count,
+            2
+        );
+    }
+
+    #[test]
+    fn a_play_count_survives_a_rescan_of_the_file() {
+        // The count is the library's own, not the file's, so re-reading the
+        // tags must not reset it — that is the whole reason it is a column and
+        // not something written into a tag.
+        let mut repository = repository();
+        repository
+            .upsert_track(&tagged("/music/a.mp3"))
+            .expect("upsert");
+        let id = stored_id(&repository, "/music/a.mp3");
+        repository.record_play(id).expect("play");
+        repository.record_play(id).expect("play");
+
+        let mut changed = tagged("/music/a.mp3");
+        changed.title = "Olson".to_owned();
+        changed.size_bytes = Some(9999);
+        changed.modified_at = Some(1_700_000_999);
+        repository.upsert_track(&changed).expect("rescan");
+
+        let stored = repository.track_by_id(id).expect("lookup").expect("row");
+        assert_eq!(stored.title, "Olson", "the file won, as it should");
+        assert_eq!(stored.play_count, 2, "but the count is not the file's");
+    }
+
+    #[test]
+    fn counting_a_play_for_a_row_that_does_not_exist_reports_nothing() {
+        let repository = repository();
+
+        assert_eq!(repository.record_play(TrackId(404)).expect("play"), None);
+    }
+
+    /// Store a bare row at `path` and give back its identifier.
+    fn store(repository: &LibraryRepository, path: &str) -> TrackId {
+        repository
+            .connection()
+            .execute(
+                "INSERT INTO tracks (path, title) VALUES (?1, 'A track')",
+                params![path],
+            )
+            .expect("insert");
+        stored_id(repository, path)
     }
 
     #[test]

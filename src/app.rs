@@ -807,9 +807,66 @@ impl MusicCraftApp {
     /// Let the player notice that a track ended, and advance if it did.
     ///
     /// The engine cannot call back into the interface, so this runs once per
-    /// frame from [`eframe::App::ui`].
+    /// frame from [`eframe::App::ui`]. It is also where a track that has just
+    /// been started gets counted, because the player records the start and can
+    /// reach no database itself.
     pub fn poll_playback(&mut self) -> Option<PlaybackEvent> {
-        self.playback.poll()
+        let event = self.playback.poll();
+        let started = self.playback.take_started();
+
+        if !started.is_empty() {
+            self.record_plays(&started);
+        }
+
+        event
+    }
+
+    /// Count one play for each of `paths`, for the rows that exist.
+    ///
+    /// A path with no row — a file opened from the command line, or one whose
+    /// track was removed from the library — is skipped rather than reported:
+    /// playing an un-indexed file is a normal thing to do and has no count to
+    /// belong to. Returns how many rows were counted.
+    ///
+    /// The library is re-read afterwards so the Plays column shows the new
+    /// number in the same frame the track started, which is the whole point of
+    /// showing it beside the row.
+    pub fn record_plays(&mut self, paths: &[PathBuf]) -> usize {
+        let Some(library) = self.library.as_ref() else {
+            return 0;
+        };
+
+        let mut counted = 0;
+
+        for path in paths {
+            let Some(id) = self
+                .browse
+                .tracks()
+                .iter()
+                .find(|track| track.path.as_path() == path.as_path())
+                .and_then(|track| track.id)
+            else {
+                continue;
+            };
+
+            match library.record_play(id) {
+                Ok(Some(_)) => counted += 1,
+                Ok(None) => {}
+                Err(error) => {
+                    // A play count is not worth interrupting playback over: the
+                    // track is playing, and the count is the thing that failed.
+                    tracing::warn!("could not count a play for {id}: {error}");
+                }
+            }
+        }
+
+        if counted > 0
+            && let Err(error) = self.refresh()
+        {
+            self.library_error = Some(error.to_string());
+        }
+
+        counted
     }
 
     /// The failure the player wants the user to see, ready to display.
@@ -3043,6 +3100,104 @@ mod tests {
             },
             library,
         )
+    }
+
+    #[test]
+    fn playing_a_track_counts_the_play_and_shows_it_on_the_row() {
+        let mut app = imported();
+        let path = PathBuf::from("/music/1.wav");
+        assert_eq!(
+            app.browse().tracks()[0].play_count,
+            0,
+            "nothing has been played yet"
+        );
+
+        assert_eq!(
+            app.record_plays(std::slice::from_ref(&path)),
+            1,
+            "the row that exists is counted"
+        );
+
+        let counted = app
+            .browse()
+            .tracks()
+            .iter()
+            .find(|track| track.path == path)
+            .expect("the row");
+        assert_eq!(counted.play_count, 1);
+    }
+
+    #[test]
+    fn playing_a_file_the_library_does_not_index_counts_nothing() {
+        // The play field and the command line both play files that were never
+        // scanned; there is no row for the count to belong to, and that is not
+        // an error.
+        let mut app = imported();
+
+        assert_eq!(app.record_plays(&[PathBuf::from("/music/absent.wav")]), 0);
+        assert!(app.library_error().is_none(), "and nothing is reported");
+    }
+
+    #[test]
+    fn each_play_adds_one_to_the_same_row() {
+        let mut app = imported();
+        let path = PathBuf::from("/music/2.wav");
+
+        app.record_plays(std::slice::from_ref(&path));
+        app.record_plays(std::slice::from_ref(&path));
+
+        let counted = app
+            .browse()
+            .tracks()
+            .iter()
+            .find(|track| track.path == path)
+            .expect("the row");
+        assert_eq!(counted.play_count, 2, "the count accumulates");
+    }
+
+    #[test]
+    fn a_play_count_survives_the_application_being_restarted() {
+        // The count is in the database, so a fresh application over the same
+        // file reads it back — the point of counting in the library rather than
+        // in memory.
+        let directory = std::env::temp_dir().join("musiccraft-app-play-count");
+        std::fs::remove_dir_all(&directory).ok();
+        std::fs::create_dir_all(&directory).expect("the scratch directory");
+        let database = directory.join("library.sqlite");
+        let path = PathBuf::from("/music/1.wav");
+
+        {
+            let library = crate::library::Library::open(&database, directory.join("artwork"))
+                .expect("a library");
+            let mut app = resolve(
+                Startup {
+                    config: AppConfig::default(),
+                    config_path: None,
+                    error: None,
+                },
+                library,
+            );
+            let mut track = Track::from_path(&path);
+            track.id = Some(TrackId(1));
+            track.title = "Track 1".to_owned();
+            app.library_mut()
+                .expect("a library")
+                .repository_mut()
+                .upsert_track(&track)
+                .expect("stored");
+            app.refresh().expect("refresh");
+
+            assert_eq!(app.record_plays(std::slice::from_ref(&path)), 1);
+        }
+
+        let library = crate::library::Library::open(&database, directory.join("artwork"))
+            .expect("the same library");
+        let track = library
+            .repository()
+            .track_by_path(&path)
+            .expect("lookup")
+            .expect("stored");
+        assert_eq!(track.play_count, 1, "the count outlived the first app");
     }
 
     #[test]

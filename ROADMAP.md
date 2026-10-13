@@ -140,7 +140,7 @@ Acceptance criteria
     Artwork and missing metadata have sensible fallbacks.
     Sorting and selection behave consistently.
 
-Status: Complete. The Library section browses the indexed music as an All Tracks table, an album grid with cover art, and an artist list. The table sorts by any of its columns, filters as the search box is typed, supports click, ctrl-click and shift-click selection, double-click to play, and a context menu for playing, queueing and removing rows; removal only ever forgets the database row, and a later scan puts it back. Cover art is decoded once per album into an egui texture and re-decoded when the cache is full, with the album's initial standing in when a file has no artwork or it cannot be read. Empty, filtered-to-nothing, scanning and library-unavailable states each say what happened and what to do next. Search and sorting run over the in-memory rows the database last returned, so typing never touches the database and cannot block a frame; the metadata editing, playlist and settings work they set up is Stage 5 and Stage 6.
+Status: Complete. The Library section browses the indexed music as an All Tracks table, an album grid with cover art, and an artist list. The table sorts by any of its columns, filters as the search box is typed, supports click, ctrl-click and shift-click selection, double-click to play, and a context menu for playing, queueing and removing rows; removal only ever forgets the database row, and a later scan puts it back. Cover art is decoded once per album into an egui texture and re-decoded when the cache is full, with the album's initial standing in when a file has no artwork or it cannot be read. Empty, filtered-to-nothing, scanning and library-unavailable states each say what happened and what to do next. Search and sorting run over the in-memory rows the database last returned, so typing never touches the database and cannot block a frame; the metadata editing, playlist and settings work they set up is Stage 5 and Stage 6. Each row also carries a **Plays** column — how many times that track has been started — and a heading to sort by it, so the most-played tracks can be put at the top. The count is the library's own and not the file's: nothing in an audio tag holds it, so a rescan cannot wipe it, and playing a file the library never indexed counts nothing rather than failing.
 
 Stage 5 — Playlists and Queue Management
 
@@ -277,7 +277,8 @@ Possible additions:
     Lyrics display and synchronized lyrics.
     Equalizer and audio effects.
     Gapless playback and crossfade.
-    Ratings, play counts, and listening history.
+    Ratings and listening history (play counts are counted already — see the
+    Status section below).
     Playlist import and export.
     External media-key integration.
     Additional audio formats and decoder backends.
