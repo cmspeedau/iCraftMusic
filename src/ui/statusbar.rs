@@ -292,6 +292,28 @@ mod tests {
         );
     }
 
+    /// The `+` is painted in the bar's own gray, not in a tile of its own.
+    ///
+    /// Measured off a real frame, in the fill it lands on the screen — and the
+    /// frame this helper runs is the dark theme, whose inactive button fill is
+    /// `#3C3C3C`, so matching the bar here is a real measurement rather than a
+    /// coincidence of the two palettes.
+    #[test]
+    fn the_plus_sits_directly_on_the_bars_gray() {
+        let mut app = app();
+        let drawn = draw(&mut app, bar);
+
+        let fill = drawn
+            .glyph_fill(PLUS_GLYPH)
+            .expect("the + was drawn on the bar");
+
+        assert_eq!(
+            fill,
+            theme::STATUS_BAR_FILL,
+            "the + is not painted in the bar's own fill: got {fill:?}"
+        );
+    }
+
     /// Clicking the shuffle switch turns shuffle on.
     ///
     /// A real click at the centre of the rectangle the glyph was painted into,
@@ -360,6 +382,7 @@ mod tests {
     struct Drawn {
         glyphs: Vec<String>,
         rects: Vec<(String, egui::Rect)>,
+        fills: Vec<(egui::Rect, egui::Color32)>,
     }
 
     impl Drawn {
@@ -368,6 +391,19 @@ mod tests {
                 .iter()
                 .find(|(text, _)| text.contains(glyph))
                 .map(|(_, rect)| *rect)
+        }
+
+        /// The fill the given glyph is drawn on: the smallest painted
+        /// rectangle covering its ink, which is the widget's own background
+        /// rather than the panel behind the whole bar.
+        fn glyph_fill(&self, glyph: &str) -> Option<egui::Color32> {
+            let ink = self.glyph_rect(glyph)?;
+
+            self.fills
+                .iter()
+                .filter(|(rect, _)| rect.contains_rect(ink))
+                .min_by(|a, b| a.0.area().total_cmp(&b.0.area()))
+                .map(|(_, fill)| *fill)
         }
     }
 
@@ -399,6 +435,7 @@ mod tests {
 
     fn collect(shape: &egui::Shape, drawn: &mut Drawn) {
         match shape {
+            egui::Shape::Rect(rect) => drawn.fills.push((rect.rect, rect.fill)),
             egui::Shape::Text(text) => {
                 let glyphs = text.galley.text().to_owned();
                 let size = text.galley.size();

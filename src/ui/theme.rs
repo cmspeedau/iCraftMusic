@@ -309,6 +309,15 @@ pub fn status_bar_frame() -> Frame {
     Frame::new().fill(STATUS_BAR_FILL)
 }
 
+/// The status bar's ink, and the fill a button on the bar rests in.
+///
+/// A resting button takes the bar's own fill, so the `+` reads as the bar
+/// rather than as a pale tile sitting on it: the bar is a surface, and a
+/// control only shows itself when the pointer is over it or its state is on.
+/// Only the hover and the selected fills step away, and there only as far as
+/// [`STATUS_BAR_HOVER`] and the accent.
+pub const STATUS_BAR_BUTTON_FILL: Color32 = STATUS_BAR_FILL;
+
 /// Point a style at the status bar's own palette.
 ///
 /// Call this inside a `Ui::scope` around the bar's body. Like the sidebar and
@@ -317,9 +326,17 @@ pub fn status_bar_frame() -> Frame {
 pub fn apply_status_bar_visuals(visuals: &mut Visuals) {
     ink_surface(visuals, STATUS_BAR_INK, STATUS_BAR_INK_MUTED);
 
-    // The gear is the bar's only control, so it needs a hover frame of its own:
-    // the themes' hover fill is near-black in the dark theme, which would put
-    // the bar's dark ink on a dark square.
+    // A button on the bar is painted with `weak_bg_fill`, so in any theme it
+    // rests in a fill of its own -- the light theme's `#E6E6E6` on the bar's
+    // gray `#B0B2B6`, a pale tile that is visible at rest and that shifts when
+    // the theme changes. It takes the bar's fill instead, and shows itself only
+    // where it has something to say: under the pointer, or while it is on.
+    visuals.widgets.inactive.weak_bg_fill = STATUS_BAR_BUTTON_FILL;
+    visuals.widgets.noninteractive.weak_bg_fill = STATUS_BAR_BUTTON_FILL;
+
+    // The hover fill is the bar's own step-darker shade rather than the themes':
+    // theirs is near-black in the dark theme, which would put the bar's dark ink
+    // on a dark square.
     for widget in [&mut visuals.widgets.hovered, &mut visuals.widgets.active] {
         widget.bg_fill = STATUS_BAR_HOVER;
         widget.weak_bg_fill = STATUS_BAR_HOVER;
@@ -546,6 +563,50 @@ mod tests {
         assert!(
             contrast(STATUS_BAR_INK, STATUS_BAR_HOVER) >= 4.5,
             "the bar's ink is too faint on {STATUS_BAR_HOVER:?}"
+        );
+    }
+
+    /// A bar button at rest is the bar: the `+` is the bar's own gray, not a
+    /// tile sitting on it in whatever fill the active theme happens to give an
+    /// inactive button.
+    #[test]
+    fn a_button_on_the_bar_rests_in_the_bars_own_fill_in_both_themes() {
+        for theme in [Visuals::light(), Visuals::dark()] {
+            let stock = theme.widgets.inactive.weak_bg_fill;
+
+            let mut visuals = theme;
+            apply_status_bar_visuals(&mut visuals);
+
+            assert_eq!(
+                visuals.widgets.inactive.weak_bg_fill, STATUS_BAR_FILL,
+                "a resting bar button is painted in the bar's own fill"
+            );
+            assert_eq!(
+                visuals.widgets.noninteractive.weak_bg_fill, STATUS_BAR_FILL,
+                "and so is one egui draws as non-interactive"
+            );
+            assert_ne!(
+                visuals.widgets.inactive.weak_bg_fill, stock,
+                "the button is still taking the theme's own resting fill"
+            );
+        }
+
+        // The ink has to stay readable on that fill, or the glyph vanishes into
+        // the bar it was just made to match.
+        assert!(
+            contrast(STATUS_BAR_INK, STATUS_BAR_BUTTON_FILL) >= 4.5,
+            "the bar's ink is too faint on its own fill"
+        );
+
+        // The hover still has to show: matching at rest must not have matched
+        // the hover too, or pointing at the control does nothing.
+        assert_ne!(
+            STATUS_BAR_HOVER, STATUS_BAR_BUTTON_FILL,
+            "the hover was flattened into the resting fill"
+        );
+        assert!(
+            contrast(STATUS_BAR_HOVER, STATUS_BAR_BUTTON_FILL) > 1.2,
+            "a hovered bar button must still show against its resting fill"
         );
     }
 
