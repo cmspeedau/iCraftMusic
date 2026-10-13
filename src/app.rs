@@ -179,19 +179,30 @@ impl MusicCraftApp {
         app
     }
 
-    /// Build the application around an existing [`Playback`].
+    /// Build the application around an existing [`Playback`] and no library.
     ///
     /// Tests pass a player whose device could not be opened, so the transport
-    /// can be exercised on machines without a sound card, and get a library
-    /// that lives in memory rather than in the user's data directory.
+    /// can be exercised on machines without a sound card.
+    ///
+    /// No library is invented here. Encoding a scratch database in this
+    /// constructor meant the application opened two libraries at startup — an
+    /// in-memory one whose migrations were logged as though the user's own
+    /// library were being upgraded, and then the real one — so a start-up log
+    /// said the schema had been migrated to 3 while the file had been at 3 all
+    /// along. Callers that want a library use
+    /// [`MusicCraftApp::with_library`]; the real application calls
+    /// [`MusicCraftApp::open_library_from_disk`].
     pub fn with_playback(startup: Startup, playback: Playback) -> Self {
-        let artwork_directory =
-            std::env::temp_dir().join(crate::library::artwork::ARTWORK_DIRECTORY);
+        Self::with_library_later(startup, playback)
+    }
 
-        match Library::in_memory(artwork_directory) {
-            Ok(library) => Self::with_library(startup, playback, library),
-            Err(error) => Self::from_parts(startup, playback, None, Some(error.to_string())),
-        }
+    /// Assemble an application whose library is chosen by the caller later.
+    ///
+    /// Kept separate from [`MusicCraftApp::with_playback`] so the "no library"
+    /// case is explicit at the call site rather than a side effect of passing a
+    /// player.
+    fn with_library_later(startup: Startup, playback: Playback) -> Self {
+        Self::from_parts(startup, playback, None, None)
     }
 
     /// Build the application around a library the caller controls.
@@ -1826,15 +1837,44 @@ mod tests {
     }
 
     #[test]
+    fn an_application_built_without_a_library_has_none_invented_for_it() {
+        // A constructor that silently supplies an in-memory database makes the
+        // application open two libraries at startup: the scratch one, whose
+        // migrations are then logged as though the user's own file had been
+        // upgraded, and the real one. No library being there is the honest
+        // state of an application that has not opened one yet — and it is what
+        // keeps `with_playback` from being a way to "have a library" by
+        // accident.
+        let app = app();
+
+        assert!(
+            app.library().is_none(),
+            "a library was invented by the constructor"
+        );
+        assert!(
+            app.library_error().is_none(),
+            "having no library is not a failure: {:?}",
+            app.library_error()
+        );
+    }
+
+    #[test]
     fn a_folder_chosen_into_the_field_is_added_and_scanned() {
-        let mut app = app();
+        // A folder is added to a library, so this needs one; `app()` is an
+        // application with no library at all.
+        let mut app = imported();
         let folder = crate::fixtures::scratch("chosen-folder");
 
         *app.folder_input_mut() = folder.display().to_string();
         let added = app.import_folder_input();
 
         assert!(added, "the folder is new to the library");
-        assert_eq!(app.library_folders().len(), 1);
+        assert_eq!(
+            app.library_folders().len(),
+            1,
+            "the two tracks `imported()` stores are rows, not watched folders, \
+             so the folder chosen here is the first one"
+        );
         assert_eq!(
             app.folder_input(),
             "",
@@ -2289,7 +2329,7 @@ mod tests {
         std::fs::write(folder.join("Roygbiv.mp3"), b"").expect("a file to index");
         std::fs::write(folder.join("Xtal.flac"), b"").expect("another file to index");
 
-        let mut app = app();
+        let mut app = empty();
         assert!(app.add_library_folder(&folder));
         run_the_scan(&mut app);
         assert_eq!(app.browse().track_count(), 2);
@@ -2438,6 +2478,26 @@ mod tests {
                 error: None,
             },
             Playback::with_engine(AudioEngine::without_device(), 1.0),
+        )
+    }
+
+    /// An application over a library of its own, with nothing in it yet.
+    ///
+    /// Counts in a test are about what the test itself puts in, so a scanning
+    /// test wants an empty library rather than the two rows `imported()`
+    /// stores.
+    fn empty() -> MusicCraftApp {
+        let library =
+            crate::library::Library::in_memory(std::env::temp_dir().join("musiccraft-app-artwork"))
+                .expect("an in-memory library");
+
+        resolve(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error: None,
+            },
+            library,
         )
     }
 }

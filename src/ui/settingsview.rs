@@ -772,7 +772,9 @@ mod tests {
 
     #[test]
     fn a_watched_folder_can_be_forgotten_from_the_pane() {
-        let mut app = app(None);
+        // Forgetting a folder is about the watched list, so the application
+        // needs a library for the folder to be watched by.
+        let mut app = watched();
         let folder = std::env::temp_dir().join("musiccraft-settings-forget");
         std::fs::create_dir_all(&folder).expect("a folder to watch");
         assert!(app.add_library_folder(&folder));
@@ -817,6 +819,29 @@ mod tests {
                 error,
             },
             Playback::with_engine(AudioEngine::without_device(), 1.0),
+        )
+    }
+
+    /// An application that has a library, so folders can be watched by one.
+    ///
+    /// The pane's own `app()` deliberately has none; anything that adds or
+    /// forgets a watched folder needs the library version, or it would be
+    /// asserting against a failure ("there is no library to import into")
+    /// rather than against the folder list.
+    fn watched() -> MusicCraftApp {
+        let library = crate::library::Library::in_memory(
+            std::env::temp_dir().join("musiccraft-settings-artwork"),
+        )
+        .expect("an in-memory library");
+
+        MusicCraftApp::with_library(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error: None,
+            },
+            Playback::with_engine(AudioEngine::without_device(), 1.0),
+            library,
         )
     }
 }
