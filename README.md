@@ -1,6 +1,6 @@
-# MusicCraft
+# iCraftMusic
 
-![MusicCraft's Library, on the All Tracks page](docs/screenshot.png)
+![iCraftMusic's Library, on the All Tracks page](docs/screenshot.png)
 
 A native desktop player inspired by [iTunes 11](#itunes-11-and-the-year-in-the-brief),
 written entirely in Rust: a local library, album artwork, playlists, a queue, a
@@ -17,7 +17,7 @@ The crate is named `musiccraft`. The project began in the repository
 [iCraftMusic](https://github.com/cmspeedau/iCraftMusic) — it is a music player,
 and the name on the tin says so.
 
-MusicCraft is built incrementally against [ROADMAP.md](ROADMAP.md), which is the
+iCraftMusic is built incrementally against [ROADMAP.md](ROADMAP.md), which is the
 authority on what each stage delivers and on what is still missing.
 [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md) is the second roadmap: movies, TV shows and
 podcasts, with gPodder synchronization.
@@ -82,7 +82,7 @@ names the formats:
 | ----------------------------------------------------------------------------------------------------- |
 | `.aif` `.aiff` `.alac` `.ape` `.dff` `.dsf` `.mka` `.mpc` `.opus` `.ra` `.tak` `.tta` `.wma` `.wv`    |
 
-Nothing else is a media file as far as MusicCraft is concerned.
+Nothing else is a media file as far as iCraftMusic is concerned.
 
 ### Planned
 
@@ -145,7 +145,7 @@ presented as finished features.
 
 ## iTunes 11, and the year in the brief
 
-iTunes 11 shipped in **late 2012**; 2008 was the iTunes 8 era. MusicCraft treats
+iTunes 11 shipped in **late 2012**; 2008 was the iTunes 8 era. iCraftMusic treats
 11 as the visual reference because that is the release whose layout this window
 is copying: the sidebar on the left, the content area in the middle, one bar
 across the top carrying the transport and the cover of what is playing, and a
@@ -208,7 +208,7 @@ falls back to defaults rather than failing; save errors are surfaced in the top
 bar instead of crashing.
 
 What is stored: the theme, the volume, the folders the library watches, and the
-output device MusicCraft plays through (`output_device`, omitted entirely when
+output device iCraftMusic plays through (`output_device`, omitted entirely when
 the system default is wanted). Changing any of them writes the file at the end
 of the frame.
 
@@ -236,16 +236,16 @@ database** runs SQLite's own `PRAGMA integrity_check` and reports what it found
 without changing anything. To rebuild from scratch:
 
 ```sh
-# 1. Stop MusicCraft, then move the database aside (the cover-art cache and the
+# 1. Stop iCraftMusic, then move the database aside (the cover-art cache and the
 #    music files are untouched).
 mv ~/.local/share/musiccraft/library.sqlite* /tmp/library-broken/
 
-# 2. Start MusicCraft and press Rescan under Settings → Library management.
+# 2. Start iCraftMusic and press Rescan under Settings → Library management.
 #    Every watched folder is indexed again from the files themselves.
 ```
 
 Upgrading the schema never happens silently on top of your only copy: before a
-migration rewrites a database written by an older build, MusicCraft writes a
+migration rewrites a database written by an older build, iCraftMusic writes a
 consistent copy beside it with SQLite's `VACUUM INTO`:
 
 ```
