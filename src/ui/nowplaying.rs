@@ -6,7 +6,8 @@
 //! controls stay live and the failure is shown in place of the track details.
 //!
 //! The bar has three parts. The transport is at the far LEFT, where the pointer
-//! arrives first: the volume slider, then previous · play · next. The middle is
+//! arrives first: previous · play · next, then the speaker and the volume
+//! slider, all in white and centred on the same line as the box beside them. The middle is
 //! the centre box — a pale cream pill centred on the window, holding the album
 //! cover at its left, the track's title and state beside it, and the queue
 //! button at its right. The seek row runs under both.
@@ -129,8 +130,8 @@ pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 // The transport takes the bar's one row; the centre box is
                 // placed over the room that row leaves rather than taking a row
                 // of its own, and it draws the seek row inside itself.
-                let transport = transport_row(app, ui);
-                centre_box(app, ui, transport);
+                transport_row(app, ui);
+                centre_box(app, ui);
             });
         });
 
@@ -143,16 +144,33 @@ pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// against: the box fills the whole bar under this row, so the row's own height
 /// is not what places it.
 ///
-/// The transport reads speaker · slider · previous · play · next: the controls
-/// you reach for most are the ones the pointer is already nearest.
+/// The transport reads previous · play · next, then the speaker and the volume
+/// slider. It is centred on the CENTRE BOX's own middle rather than on the bar's,
+/// so the three buttons sit level with the box they play into — the box is the
+/// thing the transport belongs to, and the bar's extra height is padding around
+/// the two of them.
 fn transport_row(app: &mut MusicCraftApp, ui: &mut egui::Ui) -> Rect {
-    ui.horizontal(|ui| {
-        volume(app, ui);
-        ui.add_space(TRANSPORT_GAP);
-        controls(app, ui);
-    })
-    .response
-    .rect
+    // The row is placed by its own rectangle so its MIDDLE is the centre box's,
+    // which is the bar's own middle: a horizontal layout would put the row's
+    // TOP where the cursor is and the controls would ride high in the bar.
+    let row = Rect::from_center_size(
+        ui.max_rect().center(),
+        Vec2::new(ui.max_rect().width(), COVER_SIZE),
+    );
+
+    ui.scope_builder(
+        UiBuilder::new()
+            .id_salt("playback_transport")
+            .max_rect(row)
+            .layout(Layout::left_to_right(Align::Center)),
+        |ui| {
+            controls(app, ui);
+            ui.add_space(TRANSPORT_GAP);
+            volume(app, ui);
+        },
+    );
+
+    row
 }
 
 /// The cream box on the window's centre: cover, track details, queue button,
@@ -169,7 +187,7 @@ fn transport_row(app: &mut MusicCraftApp, ui: &mut egui::Ui) -> Rect {
 /// the transport on the gray at its left and the seek row on the cream in the
 /// middle. The box needs no inset from the bar for that — the frame's own
 /// margin is the bars' inset, and a second one would only shrink the pill.
-fn centre_box(app: &mut MusicCraftApp, ui: &mut egui::Ui, transport: Rect) {
+fn centre_box(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     // Owned before the box draws: it reads several pieces of the app and then
     // mutates it (dismissing a failure, opening the queue), and a borrow held
     // across that closure is a borrow conflict.
@@ -181,7 +199,7 @@ fn centre_box(app: &mut MusicCraftApp, ui: &mut egui::Ui, transport: Rect) {
     let failure = app.playback_error();
     let state = failure.clone().unwrap_or_else(|| subtitle(app));
 
-    let pill = centre_box_rect(ui.max_rect(), transport);
+    let pill = centre_box_rect(ui.max_rect());
 
     // Under the contents, so the cover, the text and the rail sit on the cream
     // rather than the cream over them.
@@ -284,9 +302,10 @@ fn rail_centre_y(pill: Rect) -> f32 {
         + SEEK_RAIL_HEIGHT / 2.0
 }
 
-/// Where the centre box sits on the bar: centred on the window and filling the
-/// bar's own inner height, its top at the transport row's.
-fn centre_box_rect(bar: Rect, transport: Rect) -> Rect {
+/// Where the centre box sits on the bar: centred on the window, and filling the
+/// bar's own inner height so its middle is the bar's middle — the line the
+/// transport is centred on too.
+fn centre_box_rect(bar: Rect) -> Rect {
     let width = 2.0 * f32::from(theme::CENTRE_BOX_PAD)
         + COVER_SIZE
         + CENTRE_BOX_GAP
@@ -294,10 +313,7 @@ fn centre_box_rect(bar: Rect, transport: Rect) -> Rect {
         + CENTRE_BOX_GAP
         + QUEUE_BUTTON_SIZE;
 
-    Rect::from_min_size(
-        Pos2::new(bar.center().x - width / 2.0, transport.top()),
-        Vec2::new(width, CENTRE_BOX_HEIGHT),
-    )
+    Rect::from_center_size(bar.center(), Vec2::new(width, CENTRE_BOX_HEIGHT))
 }
 
 /// The track's title and, under it, either what the transport is doing or the
@@ -394,10 +410,16 @@ fn subtitle(app: &MusicCraftApp) -> String {
 /// where they sit with the other controls that are about the application.
 fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let has_current = app.playback().current().is_some();
+    // The transport is the bar's own ink everywhere else, but these three are
+    // painted white at the user's request; the helper keeps the colour in one
+    // place so the glyph and the label cannot drift apart.
+    fn white(glyph: &str) -> RichText {
+        RichText::new(glyph).color(theme::PLAYBACK_BAR_CONTROL_INK)
+    }
     let size = [38.0, 28.0];
 
     if ui
-        .add_enabled(has_current, Button::new("⏮").min_size(size.into()))
+        .add_enabled(has_current, Button::new(white("⏮")).min_size(size.into()))
         .on_hover_text("Previous")
         .clicked()
     {
@@ -410,7 +432,7 @@ fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         "▶"
     };
     if ui
-        .add_enabled(has_current, Button::new(play).min_size(size.into()))
+        .add_enabled(has_current, Button::new(white(play)).min_size(size.into()))
         .on_hover_text("Play or pause")
         .clicked()
     {
@@ -418,7 +440,7 @@ fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 
     if ui
-        .add_enabled(has_current, Button::new("⏭").min_size(size.into()))
+        .add_enabled(has_current, Button::new(white("⏭")).min_size(size.into()))
         .on_hover_text("Next")
         .clicked()
     {
@@ -471,15 +493,43 @@ fn queue_popup(app: &mut MusicCraftApp, ui: &mut egui::Ui, bar: Rect) {
     }
 }
 
-/// Speaker icon and volume slider, at the head of the transport.
+/// Speaker icon and volume slider, at the tail of the transport: the buttons
+/// come first and the slider follows them, so the pointer's first stop is the
+/// control that starts the music.
 fn volume(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.spacing_mut().slider_width = VOLUME_SLIDER_WIDTH;
-    ui.label(RichText::new(VOLUME_GLYPH).small().weak());
+    ui.label(
+        RichText::new(VOLUME_GLYPH)
+            .small()
+            .color(theme::PLAYBACK_BAR_CONTROL_INK),
+    );
 
     let mut value = app.playback().volume();
+
+    // The rail and the handle are the one control the bar does not paint from a
+    // widget fill: the slider asks for its rail and handle through the
+    // interaction state's `bg_fill`, so the white it is drawn in has to be set
+    // here for the two of them and restored afterwards, or the transport
+    // buttons that follow in the same row would be left without the bar's own
+    // fills.
+    let resting = ui.style().visuals.widgets.inactive.bg_fill;
+    let hovered = ui.style().visuals.widgets.hovered.bg_fill;
+    let active = ui.style().visuals.widgets.active.bg_fill;
+    {
+        let widgets = &mut ui.style_mut().visuals.widgets;
+        widgets.inactive.bg_fill = theme::PLAYBACK_BAR_CONTROL_INK;
+        widgets.hovered.bg_fill = theme::PLAYBACK_BAR_CONTROL_INK;
+        widgets.active.bg_fill = theme::PLAYBACK_BAR_CONTROL_INK;
+    }
+
     let response = ui
         .add(Slider::new(&mut value, 0.0..=1.0).show_value(false))
         .on_hover_text("Volume");
+
+    let widgets = &mut ui.style_mut().visuals.widgets;
+    widgets.inactive.bg_fill = resting;
+    widgets.hovered.bg_fill = hovered;
+    widgets.active.bg_fill = active;
 
     if response.changed() {
         // Going through the app keeps the setting and the audible volume in
@@ -838,6 +888,29 @@ mod tests {
                 .collect()
         }
 
+        /// The ink of the first line containing `needle` that is painted in
+        /// `colour`. Colour as well as text, because the same glyph can be drawn
+        /// twice in two inks and only one of them is the transport's.
+        fn coloured(&self, needle: &str, colour: egui::Color32) -> Option<egui::Rect> {
+            let text = self.texts.iter().find(|text| {
+                text.galley.text().contains(needle)
+                    && text
+                        .galley
+                        .job
+                        .sections
+                        .first()
+                        .is_some_and(|section| section.format.color == colour)
+            })?;
+            let size = text.galley.size();
+            let min = match text.galley.job.halign {
+                egui::Align::Center => text.pos - egui::vec2(size.x / 2.0, 0.0),
+                egui::Align::RIGHT => text.pos - egui::vec2(size.x, 0.0),
+                egui::Align::LEFT => text.pos,
+            };
+
+            Some(egui::Rect::from_min_size(min, size))
+        }
+
         /// The ink of the first line containing `needle`.
         ///
         /// Read from the galley's own alignment: a centred line is painted from
@@ -1166,24 +1239,38 @@ mod tests {
             .min_by(|a, b| a.left().total_cmp(&b.left()))
             .expect("the volume slider's rail");
 
+        // The buttons head the row and the slider follows them: the change
+        // swapped the two, so the pointer's first stop is the control that
+        // starts the music rather than the one that sets how loud it is.
+        let mut buttons = [
+            painted.ink("⏮").expect("previous"),
+            painted.ink("▶").expect("play"),
+            painted.ink("⏭").expect("next"),
+        ];
+        buttons.sort_by(|a, b| a.left().total_cmp(&b.left()));
+
+        assert!(
+            buttons[0].left() < slider.left(),
+            "the transport buttons are not ahead of the volume slider: {:?} vs {slider:?}",
+            buttons[0]
+        );
+        assert!(
+            buttons[0].left() < 30.0,
+            "the transport is not at the window's left edge: {:?}",
+            buttons[0]
+        );
         assert!(
             speaker.left() < slider.left(),
             "the speaker does not head the volume slider: {speaker:?} vs {slider:?}"
         );
         assert!(
-            speaker.left() < 30.0,
-            "the transport is not at the window's left edge: {speaker:?}"
+            speaker.left() > buttons[2].right(),
+            "the volume slider is not after the transport buttons: {speaker:?} vs {:?}",
+            buttons[2]
         );
 
-        // The three transport controls, left to right, and each inside the
-        // left quarter of the bar.
-        let mut controls = [
-            painted.ink("⏮").expect("previous"),
-            painted.ink("▶").expect("play"),
-            painted.ink("⏭").expect("next"),
-        ];
-        controls.sort_by(|a, b| a.left().total_cmp(&b.left()));
-        for pair in controls.windows(2) {
+        // The three buttons, left to right, each inside the bar's left quarter.
+        for pair in buttons.windows(2) {
             assert!(
                 pair[0].right() <= pair[1].left(),
                 "the transport is out of order: {:?} then {:?}",
@@ -1192,14 +1279,73 @@ mod tests {
             );
         }
         assert!(
-            controls[2].right() < WINDOW_WIDTH / 4.0,
+            buttons[2].right() < WINDOW_WIDTH / 4.0,
             "the transport has drifted out of the bar's left end: {:?}",
-            controls[2]
+            buttons[2]
         );
+    }
+
+    /// The transport is painted WHITE, at the user's request, where the rest of
+    /// the bar's controls take the bar's own ink. The colour comes off the
+    /// painted glyph, not off the constant, so a call site that stopped applying
+    /// it fails here.
+    #[test]
+    fn the_transport_is_white() {
+        let mut app = app();
+        let painted = paint_bar(&mut app);
+
+        let white = theme::PLAYBACK_BAR_CONTROL_INK;
+        assert_eq!(
+            white,
+            egui::Color32::WHITE,
+            "the transport's ink is no longer white"
+        );
+
+        for (glyph, what) in [("⏮", "previous"), ("▶", "play"), ("⏭", "next")] {
+            let ink = painted
+                .coloured(glyph, white)
+                .unwrap_or_else(|| panic!("the {what} glyph is not painted white"));
+            assert!(
+                ink.width() > 1.0,
+                "the {what} glyph is painted but carries no ink: {ink:?}"
+            );
+        }
+
+        let speaker = painted
+            .coloured(VOLUME_GLYPH, white)
+            .expect("the speaker is not painted white");
+
+        // And the slider's rail is white too, so the whole transport reads as one
+        // colour rather than as white buttons beside a gray rail.
+        let rail = painted
+            .rects_with(white)
+            .into_iter()
+            .filter(|rect| rect.width() > 20.0)
+            .max_by(|a, b| a.width().total_cmp(&b.width()));
         assert!(
-            controls[0].left() > slider.right(),
-            "the transport is not to the right of the volume slider: {slider:?} vs {:?}",
-            controls[0]
+            rail.is_some_and(|rail| rail.left() > speaker.left()),
+            "the volume rail is not painted white after the speaker: {rail:?} vs {speaker:?}"
+        );
+    }
+
+    /// The transport's middle is the centre box's middle: the two are drawn from
+    /// the bar's own centre, so the buttons sit level with the box they play
+    /// into rather than riding high in the bar's own padding.
+    #[test]
+    fn the_transport_is_centred_on_the_centre_box() {
+        let mut app = app();
+        let painted = paint_bar(&mut app);
+
+        let pill = painted
+            .rects_with(theme::CENTRE_BOX_FILL)
+            .into_iter()
+            .max_by(|a, b| a.area().total_cmp(&b.area()))
+            .expect("the centre box paints its own fill");
+        let play = painted.ink("▶").expect("the play button");
+
+        assert!(
+            (play.center().y - pill.center().y).abs() <= 1.0,
+            "the transport is not centred on the box's line: {play:?} vs {pill:?}"
         );
     }
 

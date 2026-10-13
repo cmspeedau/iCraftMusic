@@ -147,6 +147,15 @@ pub const PLAYBACK_BAR_CONTROL_HOVER: Color32 = Color32::from_rgb(130, 132, 137)
 /// the ungrooved part of the track.
 pub const PLAYBACK_BAR_CONTROL_ACTIVE: Color32 = Color32::from_rgb(110, 112, 118);
 
+/// Ink of the transport controls on the playback bar: white, at the user's
+/// request, where the rest of the bar's controls take [`PLAYBACK_BAR_INK`].
+///
+/// The bar is a mid-gray in every theme and this is the one colour that reads on
+/// it in both, so it is its own constant rather than the theme's foreground —
+/// which is near-white in the dark theme and would leave the light theme's
+/// transport invisible.
+pub const PLAYBACK_BAR_CONTROL_INK: Color32 = Color32::WHITE;
+
 /// Outline of the playback bar's controls, so they stay distinct from the bar
 /// itself without needing a shadow. The same outline the seek bar's rail is
 /// drawn with.
@@ -532,6 +541,20 @@ mod tests {
                 "the {state} fill {fill:?} does not show on {PLAYBACK_BAR_FILL:?}: \
                  {:.2} against {at_least}",
                 contrast(fill, PLAYBACK_BAR_FILL)
+            );
+        }
+
+        // The white the transport is painted in has to READ on the bar's fill
+        // and on the control fill under its hover. The floor is the ratio this
+        // palette actually produces and it is a LOW one: white on a mid-gray bar
+        // is about 2.1:1, which is the price of the user's request. What the
+        // assertion is for is the direction — a later nudge of the bar's fill
+        // toward white would take it to nothing, and that fails here.
+        for (fill, at_least) in [(PLAYBACK_BAR_FILL, 2.0), (PLAYBACK_BAR_CONTROL_HOVER, 2.5)] {
+            assert!(
+                contrast(PLAYBACK_BAR_CONTROL_INK, fill) >= at_least,
+                "the transport's white ink is too faint on {fill:?}: {:.2}",
+                contrast(PLAYBACK_BAR_CONTROL_INK, fill)
             );
         }
 
