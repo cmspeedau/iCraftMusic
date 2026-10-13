@@ -14,10 +14,11 @@
 use egui::{Align2, RichText, Vec2};
 
 use crate::app::MusicCraftApp;
+use crate::library::PlaylistId;
 use crate::ui::theme;
 
 /// A library action that needs the user's consent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Confirmation {
     /// Forget the tracks currently selected in the table.
     RemoveSelection {
@@ -29,6 +30,19 @@ pub enum Confirmation {
         /// How many rows would be removed.
         count: usize,
     },
+    /// Take a playlist out of the library.
+    ///
+    /// The playlist itself is the whole of it: the tracks it lists stay in the
+    /// library and their files stay on disk, so deleting a playlist can never
+    /// lose music — only the order someone put it in.
+    DeletePlaylist {
+        /// The playlist that would go.
+        id: PlaylistId,
+        /// Its name, so the question can say what is being deleted.
+        name: String,
+        /// How many entries the playlist holds.
+        count: usize,
+    },
 }
 
 impl Confirmation {
@@ -38,6 +52,7 @@ impl Confirmation {
         match self {
             Self::RemoveSelection { .. } => "Remove from the library?",
             Self::ForgetMissing { .. } => "Forget the missing files?",
+            Self::DeletePlaylist { .. } => "Delete this playlist?",
         }
     }
 
@@ -60,6 +75,13 @@ impl Confirmation {
                 count,
                 if *count == 1 { "track" } else { "tracks" }
             ),
+            Self::DeletePlaylist { name, count, .. } => format!(
+                "`{}` and its {} {} entries are removed. The tracks themselves stay in the \
+                 library and their files stay on disk.",
+                name,
+                count,
+                if *count == 1 { "entry" } else { "entries" }
+            ),
         }
     }
 
@@ -69,6 +91,7 @@ impl Confirmation {
         match self {
             Self::RemoveSelection { .. } => "Remove",
             Self::ForgetMissing { .. } => "Forget them",
+            Self::DeletePlaylist { .. } => "Delete",
         }
     }
 }
@@ -121,7 +144,7 @@ mod tests {
     use crate::app::Startup;
     use crate::audio::{AudioEngine, Playback};
     use crate::config::AppConfig;
-    use crate::library::{ClickMode, Library, Track, TrackId};
+    use crate::library::{ClickMode, Library, PlaylistId, Track, TrackId};
 
     fn confirmation(count: usize) -> [Confirmation; 2] {
         [
@@ -153,6 +176,23 @@ mod tests {
                 "{confirmation:?}"
             );
         }
+    }
+
+    #[test]
+    fn deleting_a_playlist_says_the_tracks_and_files_stay() {
+        let confirmation = Confirmation::DeletePlaylist {
+            id: PlaylistId(4),
+            name: "Evening".to_owned(),
+            count: 1,
+        };
+
+        assert_eq!(confirmation.title(), "Delete this playlist?");
+        assert_eq!(confirmation.confirm_label(), "Delete");
+
+        let detail = confirmation.detail();
+        assert!(detail.contains("Evening"), "{detail} names no playlist");
+        assert!(detail.contains("1 entry"), "{detail} miscounts");
+        assert!(detail.contains("disk"), "{detail} loses the files");
     }
 
     #[test]

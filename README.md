@@ -20,9 +20,7 @@ authority on what each stage delivers and on what is still missing.
 | 7     | Settings, Reliability, Performance | Complete |
 | 8+    | See ROADMAP.md                    | Planned  |
 
-Known limitations: the Playlists section is still a placeholder — the queue
-(`☰` in the playback bar) is the only way to arrange what plays, and playlists
-are not yet creatable from the interface. A scan indexes `mp3`, `flac`, `wav`,
+Known limitations: a scan indexes `mp3`, `flac`, `wav`,
 `ogg`, `m4a`, `mp4` and `aac` files; music in any other format is counted and
 named after a scan but cannot be played or tagged. Editing a track's details in
 the library keeps them there until the file changes or the tags are written into
@@ -185,7 +183,8 @@ src/
     ├── shortcuts.rs   # playback and navigation keys
     ├── nowplaying.rs  # playback bar
     ├── queueview.rs   # the queue popover
-    ├── playlistview.rs# playlist view (placeholder)
+    ├── playlistview.rs# the Playlists section
+    ├── playlistedit.rs# the playlist name editor
     ├── settingsview.rs# settings view
     └── statusbar.rs   # the bar across the foot of the window
 ```

@@ -22,6 +22,7 @@ pub mod editview;
 pub mod libraryview;
 pub mod navigation;
 pub mod nowplaying;
+pub mod playlistedit;
 pub mod playlistview;
 pub mod queueview;
 pub mod settingsview;
@@ -49,6 +50,7 @@ pub fn render(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     // is open, and the keyboard is read last so a shortcut cannot fight with a
     // widget that has just claimed the key for itself.
     editview::window(app, ui);
+    playlistedit::window(app, ui);
     dialog::confirm(app, ui);
     shortcuts::handle(app, ui);
 }
@@ -77,7 +79,7 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             .auto_shrink([false, false])
             .show(ui, |ui| match app.section() {
                 NavSection::Library => libraryview::show(app, ui),
-                NavSection::Playlists => playlistview::show(ui),
+                NavSection::Playlists => playlistview::show(app, ui),
                 NavSection::Settings => settingsview::show(app, ui),
             });
     });

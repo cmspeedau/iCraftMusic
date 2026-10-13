@@ -63,11 +63,31 @@ const SEARCH_HEIGHT: f32 = 22.0;
 
 /// What a click on a row asked for, applied once the frame is drawn.
 enum RowAction {
-    Select { index: usize, mode: ClickMode },
-    Play { index: usize },
-    Queue { index: usize },
-    Edit { index: usize },
-    Remove { index: usize },
+    Select {
+        index: usize,
+        mode: ClickMode,
+    },
+    Play {
+        index: usize,
+    },
+    Queue {
+        index: usize,
+    },
+    Edit {
+        index: usize,
+    },
+    Remove {
+        index: usize,
+    },
+    /// Put a track into a playlist that already exists, by name.
+    AddToPlaylist {
+        track: TrackId,
+        name: String,
+    },
+    /// Name a new playlist and put the track in it.
+    NewPlaylist {
+        track: TrackId,
+    },
 }
 
 /// What a click on an album or artist asked for.
@@ -290,12 +310,13 @@ fn no_matches(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 fn error_state(app: &MusicCraftApp, ui: &mut egui::Ui) {
     let detail = app
         .library_error()
-        .unwrap_or("The music library is unavailable.");
+        .unwrap_or("The music library is unavailable.")
+        .to_owned();
 
     empty_state(
         ui,
         "The library is not available",
-        detail,
+        &detail,
         &[
             "Playback, settings and the play field below still work",
             "The library database and its folder live in the data directory",
@@ -363,6 +384,9 @@ fn tracks_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                         action = Some(RowAction::Edit { index });
                         ui.close();
                     }
+
+                    playlist_menu(app, ui, index, &mut action);
+
                     ui.separator();
                     if ui
                         .button("Remove from library")
@@ -414,7 +438,54 @@ fn tracks_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             }
             app.ask_to_remove_selection();
         }
+        RowAction::AddToPlaylist { track, name } => {
+            app.add_tracks_to_playlist(&name, &[track]);
+        }
+        RowAction::NewPlaylist { track } => {
+            app.start_playlist_from_tracks(&[track]);
+        }
     }
+}
+
+/// The "Add to playlist" entries for one row.
+///
+/// The current track is the one being put in, not the selection: the menu hangs
+/// off a row and a right-click on a row that is not selected would otherwise add
+/// whatever was selected before it.
+fn playlist_menu(
+    app: &MusicCraftApp,
+    ui: &mut egui::Ui,
+    index: usize,
+    action: &mut Option<RowAction>,
+) {
+    let Some(track) = app.library_tracks().get(index).and_then(|track| track.id) else {
+        return;
+    };
+
+    ui.menu_button("Add to playlist", |ui| {
+        for playlist in app.playlists() {
+            if ui.button(playlist.display_name()).clicked() {
+                *action = Some(RowAction::AddToPlaylist {
+                    track,
+                    name: playlist.name.clone(),
+                });
+                ui.close();
+            }
+        }
+
+        if !app.playlists().is_empty() {
+            ui.separator();
+        }
+
+        if ui
+            .button("New playlist…")
+            .on_hover_text("Name a playlist and put this track in it")
+            .clicked()
+        {
+            *action = Some(RowAction::NewPlaylist { track });
+            ui.close();
+        }
+    });
 }
 
 /// Column headings, clickable to sort. Returns the column that was clicked.

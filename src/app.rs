@@ -23,8 +23,9 @@ use crate::error::{AppError, Result};
 use crate::library::browse::LibraryBrowse;
 use crate::library::edit::{Outcome, field_errors};
 use crate::library::{
-    ImportSummary, Library, ScanProgress, ScanSession, Track, TrackEditor, TrackId,
+    ImportSummary, Library, PlaylistId, ScanProgress, ScanSession, Track, TrackEditor, TrackId,
 };
+use crate::playlists::{PlaylistDraft, PlaylistEditKind, PlaylistSummary, Playlists};
 use crate::ui;
 use crate::ui::artwork::ArtworkCache;
 use crate::ui::dialog::Confirmation;
@@ -162,6 +163,25 @@ pub struct MusicCraftApp {
     /// The theme currently installed into `egui`, so it is only re-applied when
     /// the preference actually changes.
     applied_theme: Option<ThemeMode>,
+    /// Every playlist the library holds, as a name and its totals.
+    ///
+    /// Read from the database by [`MusicCraftApp::refresh`] like the track rows
+    /// are, so the sidebar and the Playlists section never query it themselves.
+    playlists: Vec<PlaylistSummary>,
+    /// The playlist the Playlists section is showing, when one is open.
+    selected_playlist: Option<PlaylistId>,
+    /// The selected playlist's tracks, in play order.
+    playlist_tracks: Vec<Track>,
+    /// The name editor, when a playlist is being created or renamed.
+    playlist_draft: Option<PlaylistDraft>,
+    /// Why the last playlist action failed, ready to show.
+    playlist_error: Option<String>,
+    /// Tracks waiting to go into a playlist that is about to be named.
+    ///
+    /// The "New playlist…" entry in the Library's menu has the tracks in hand
+    /// before the playlist exists, so they are held here until the name editor
+    /// is answered and the playlist can be made to put them in.
+    playlist_pending: Vec<TrackId>,
 }
 
 impl MusicCraftApp {
@@ -194,7 +214,15 @@ impl MusicCraftApp {
     /// along. Callers that want a library use
     /// [`MusicCraftApp::with_library`]; the real application calls
     /// [`MusicCraftApp::open_library_from_disk`].
-    pub fn with_playback(startup: Startup, playback: Playback) -> Self {
+    pub fn with_playback(startup: Startup, mut playback: Playback) -> Self {
+        // Shuffle and repeat are preferences like the theme and the volume: the
+        // transport is put into the state the user left it in, so the first
+        // album played starts shuffled when that is how they listen.
+        playback.set_repeat(startup.config.repeat);
+        if startup.config.shuffle {
+            playback.toggle_shuffle();
+        }
+
         Self::with_library_later(startup, playback)
     }
 
@@ -250,6 +278,12 @@ impl MusicCraftApp {
             settings_error: None,
             integrity: None,
             applied_theme: None,
+            playlists: Vec::new(),
+            selected_playlist: None,
+            playlist_tracks: Vec::new(),
+            playlist_draft: None,
+            playlist_error: None,
+            playlist_pending: Vec::new(),
         };
 
         if let Some(library) = app.library.as_ref() {
@@ -287,6 +321,339 @@ impl MusicCraftApp {
     /// Close the queue popover.
     pub fn close_queue(&mut self) {
         self.queue_open = false;
+    }
+
+    /// Every playlist the library holds, for the sidebar.
+    #[must_use]
+    pub fn playlists(&self) -> &[PlaylistSummary] {
+        &self.playlists
+    }
+
+    /// The playlist the Playlists section has open.
+    #[must_use]
+    pub fn selected_playlist(&self) -> Option<PlaylistId> {
+        self.selected_playlist
+    }
+
+    /// The open playlist's tracks, in play order.
+    #[must_use]
+    pub fn playlist_tracks(&self) -> &[Track] {
+        &self.playlist_tracks
+    }
+
+    /// The open playlist's name and totals.
+    #[must_use]
+    pub fn selected_playlist_summary(&self) -> Option<&PlaylistSummary> {
+        let open = self.selected_playlist?;
+
+        self.playlists.iter().find(|playlist| playlist.id == open)
+    }
+
+    /// Why the last playlist action failed, ready to show and dismiss.
+    #[must_use]
+    pub fn playlist_error(&self) -> Option<&str> {
+        self.playlist_error.as_deref()
+    }
+
+    /// Dismiss the last playlist error.
+    pub fn dismiss_playlist_error(&mut self) {
+        self.playlist_error = None;
+    }
+
+    /// Show a playlist in the Playlists section, reading its tracks back.
+    ///
+    /// Returns whether the playlist was found, so the caller can tell an empty
+    /// playlist from one that has just been deleted in another window.
+    pub fn open_playlist(&mut self, id: PlaylistId) -> bool {
+        let Some(library) = self.library.as_mut() else {
+            return false;
+        };
+
+        match Playlists::new(library.repository_mut()).playlist(id) {
+            Ok(Some(playlist)) => {
+                self.selected_playlist = Some(id);
+                self.playlist_tracks = playlist.tracks;
+                true
+            }
+            Ok(None) => {
+                self.playlist_error = Some("that playlist is no longer in the library".to_owned());
+                false
+            }
+            Err(error) => {
+                self.playlist_error = Some(error.to_string());
+                false
+            }
+        }
+    }
+
+    /// Close the Playlists section's open playlist.
+    pub fn close_playlist(&mut self) {
+        self.selected_playlist = None;
+        self.playlist_tracks.clear();
+    }
+
+    /// The name editor, when a playlist is being created or renamed.
+    #[must_use]
+    pub fn playlist_draft(&self) -> Option<&PlaylistDraft> {
+        self.playlist_draft.as_ref()
+    }
+
+    /// The name editor, for the window's text field.
+    pub fn playlist_draft_mut(&mut self) -> Option<&mut PlaylistDraft> {
+        self.playlist_draft.as_mut()
+    }
+
+    /// Start creating a playlist, or renaming the one that is open.
+    pub fn start_playlist_edit(&mut self, kind: PlaylistEditKind) {
+        let existing = kind
+            .target()
+            .and_then(|id| self.playlists.iter().find(|playlist| playlist.id == id))
+            .cloned();
+
+        self.playlist_draft = Some(PlaylistDraft::new(kind, existing.as_ref()));
+        self.playlist_error = None;
+    }
+
+    /// Start a new playlist and put `tracks` in it once it has a name.
+    ///
+    /// This is the Library's "New playlist…" entry: the user picks tracks
+    /// first, then names the playlist, which is the order the menu offers them.
+    pub fn start_playlist_from_tracks(&mut self, tracks: &[TrackId]) {
+        self.playlist_pending = tracks.to_vec();
+
+        let existing = None;
+        self.playlist_draft = Some(PlaylistDraft::new(PlaylistEditKind::Create, existing));
+        self.playlist_error = None;
+    }
+
+    /// Close the name editor without changing anything.
+    pub fn cancel_playlist_edit(&mut self) {
+        self.playlist_draft = None;
+        self.playlist_pending.clear();
+    }
+
+    /// Carry out whatever the name editor was opened for.
+    ///
+    /// A name already in use is the database's refusal rather than the draft's,
+    /// so the message it returns is shown beside the field instead of replacing
+    /// the window: the user's typed name is still there to correct.
+    pub fn confirm_playlist_edit(&mut self) {
+        let Some(draft) = self.playlist_draft.clone() else {
+            return;
+        };
+
+        let name = match draft.validated_name() {
+            Ok(name) => name,
+            Err(message) => {
+                if let Some(draft) = self.playlist_draft.as_mut() {
+                    draft.fail(message);
+                }
+                return;
+            }
+        };
+
+        let Some(library) = self.library.as_mut() else {
+            return;
+        };
+
+        // What the edit asks the library to do, worked out before it is done so
+        // a failure leaves the draft exactly as the user typed it.
+        let outcome = {
+            let mut playlists = Playlists::new(library.repository_mut());
+
+            match draft.kind() {
+                PlaylistEditKind::Create => playlists.create(&name).map(Some),
+                PlaylistEditKind::Rename(id) => playlists.rename(id, &name).map(|()| None),
+                PlaylistEditKind::Duplicate(id) => playlists.duplicate(id, &name).map(Some),
+            }
+        };
+
+        match outcome {
+            Ok(created) => {
+                self.playlist_draft = None;
+                self.playlist_error = None;
+
+                // A new or copied playlist is the one the user wants to look at,
+                // so the section moves to it rather than staying where it was.
+                let pending = std::mem::take(&mut self.playlist_pending);
+                if let (Some(id), false) = (created, pending.is_empty()) {
+                    self.add_tracks_to_playlist_id(id, &pending);
+                }
+
+                if let Err(error) = self.refresh() {
+                    self.playlist_error = Some(error.to_string());
+                } else if let Some(id) = created {
+                    self.open_playlist(id);
+                }
+            }
+            Err(error) => {
+                if let Some(draft) = self.playlist_draft.as_mut() {
+                    draft.fail(playlist_conflict(&error, &name));
+                }
+            }
+        }
+    }
+
+    /// Add tracks to a playlist, creating it under `name` if it is new.
+    ///
+    /// This is what the Library's "Add to playlist" menu calls, so the same
+    /// entry can put the selection into an existing playlist or into one named
+    /// on the spot.
+    ///
+    /// Returns how many tracks were added, so the caller can say what happened.
+    pub fn add_tracks_to_playlist(&mut self, name: &str, tracks: &[TrackId]) -> usize {
+        let Some(library) = self.library.as_mut() else {
+            return 0;
+        };
+
+        let added = {
+            let mut playlists = Playlists::new(library.repository_mut());
+
+            match playlists
+                .create_or_find(name)
+                .and_then(|id| playlists.add_tracks(id, tracks))
+            {
+                Ok((_, added)) => added,
+                Err(error) => {
+                    self.playlist_error = Some(error.to_string());
+                    0
+                }
+            }
+        };
+
+        if added > 0
+            && let Err(error) = self.refresh()
+        {
+            self.playlist_error = Some(error.to_string());
+        }
+
+        added
+    }
+
+    /// Add tracks to an existing playlist by identifier.
+    ///
+    /// The name-taking [`MusicCraftApp::add_tracks_to_playlist`] is what the
+    /// menu uses when the playlist may not exist yet; this is the half of it
+    /// that runs once the playlist does.
+    fn add_tracks_to_playlist_id(&mut self, id: PlaylistId, tracks: &[TrackId]) -> usize {
+        let Some(library) = self.library.as_mut() else {
+            return 0;
+        };
+
+        match Playlists::new(library.repository_mut()).add_tracks(id, tracks) {
+            Ok((_, added)) => added,
+            Err(error) => {
+                self.playlist_error = Some(error.to_string());
+                0
+            }
+        }
+    }
+
+    /// Swap two entries of the open playlist, keeping the rest in order.
+    ///
+    /// Returns whether the playlist changed, which is `false` for a move that
+    /// goes nowhere or a playlist that is not open.
+    pub fn move_in_playlist(&mut self, from: usize, to: usize) -> bool {
+        let Some(id) = self.selected_playlist else {
+            return false;
+        };
+
+        let Some(library) = self.library.as_mut() else {
+            return false;
+        };
+
+        let moved = match Playlists::new(library.repository_mut()).move_track(id, from, to) {
+            Ok(moved) => moved,
+            Err(error) => {
+                self.playlist_error = Some(error.to_string());
+                false
+            }
+        };
+
+        if moved {
+            self.reload_playlist_tracks();
+        }
+
+        moved
+    }
+
+    /// Take a track out of the open playlist.
+    ///
+    /// Returns whether a row was removed. Only the first occurrence goes: a
+    /// playlist is allowed to hold the same track twice.
+    pub fn remove_from_playlist(&mut self, track: TrackId) -> bool {
+        let Some(id) = self.selected_playlist else {
+            return false;
+        };
+
+        let Some(library) = self.library.as_mut() else {
+            return false;
+        };
+
+        let removed = match Playlists::new(library.repository_mut()).remove_track(id, track) {
+            Ok(removed) => removed,
+            Err(error) => {
+                self.playlist_error = Some(error.to_string());
+                false
+            }
+        };
+
+        if removed {
+            // The playlist's totals have changed, so the sidebar's count is
+            // reloaded with the tracks rather than left showing the old one.
+            if let Err(error) = self.refresh() {
+                self.playlist_error = Some(error.to_string());
+            }
+        }
+
+        removed
+    }
+
+    /// Take the open playlist out of the library.
+    ///
+    /// The deletion is asked for through [`MusicCraftApp::ask_to_delete_playlist`]
+    /// rather than called directly, so the files it points at are never touched
+    /// without the user having said so.
+    pub fn delete_playlist(&mut self, id: PlaylistId) -> bool {
+        let Some(library) = self.library.as_mut() else {
+            return false;
+        };
+
+        let deleted = match Playlists::new(library.repository_mut()).delete(id) {
+            Ok(deleted) => deleted,
+            Err(error) => {
+                self.playlist_error = Some(error.to_string());
+                false
+            }
+        };
+
+        if deleted {
+            if self.selected_playlist == Some(id) {
+                self.close_playlist();
+            }
+
+            if let Err(error) = self.refresh() {
+                self.playlist_error = Some(error.to_string());
+            }
+        }
+
+        deleted
+    }
+
+    /// Play the open playlist from the top.
+    ///
+    /// Returns how many tracks were queued, which is zero for an empty one.
+    pub fn play_playlist(&mut self) -> usize {
+        let tracks = self.playlist_tracks.clone();
+
+        self.play_tracks(&tracks, 0)
+    }
+
+    /// Add the open playlist to the end of the queue.
+    pub fn queue_playlist(&mut self) -> usize {
+        let tracks = self.playlist_tracks.clone();
+
+        self.queue_tracks(&tracks)
     }
 
     /// The state of the transport, as the playback bar should draw it.
@@ -390,11 +757,25 @@ impl MusicCraftApp {
     /// Change how the queue behaves at the end of a track.
     pub fn set_repeat_mode(&mut self, mode: RepeatMode) {
         self.playback.set_repeat(mode);
+
+        // Shuffle and repeat are ways of listening rather than properties of one
+        // queue, so the choice is remembered and applied to the next album too.
+        if self.config.repeat != mode {
+            self.config.repeat = mode;
+            self.config_dirty = true;
+        }
     }
 
     /// Turn shuffle on or off, returning the new state.
     pub fn toggle_shuffle(&mut self) -> bool {
-        self.playback.toggle_shuffle()
+        let shuffle = self.playback.toggle_shuffle();
+
+        if self.config.shuffle != shuffle {
+            self.config.shuffle = shuffle;
+            self.config_dirty = true;
+        }
+
+        shuffle
     }
 
     /// Move a queued track to another position, returning whether it moved.
@@ -812,9 +1193,54 @@ impl MusicCraftApp {
         let artists = library.artists()?;
 
         self.browse.replace(tracks, albums, artists);
+
+        // The playlists come back with the tracks, so the sidebar and the
+        // section are drawn from what the database last said rather than
+        // querying it from a frame.
+        self.playlists = match self.library.as_mut() {
+            Some(library) => Playlists::new(library.repository_mut()).list()?,
+            None => Vec::new(),
+        };
+
+        // A playlist that has been deleted — here or in another window — leaves
+        // the section showing something that no longer exists.
+        if let Some(open) = self.selected_playlist
+            && !self.playlists.iter().any(|playlist| playlist.id == open)
+        {
+            self.selected_playlist = None;
+            self.playlist_tracks.clear();
+        }
+
+        self.reload_playlist_tracks();
+
         tracing::debug!("library refreshed: {} tracks", self.browse.track_count());
 
         Ok(())
+    }
+
+    /// Read the open playlist's tracks back out of the database.
+    fn reload_playlist_tracks(&mut self) {
+        let Some(id) = self.selected_playlist else {
+            self.playlist_tracks.clear();
+            return;
+        };
+
+        let Some(library) = self.library.as_mut() else {
+            self.playlist_tracks.clear();
+            return;
+        };
+
+        match Playlists::new(library.repository_mut()).playlist(id) {
+            Ok(Some(playlist)) => self.playlist_tracks = playlist.tracks,
+            Ok(None) => {
+                self.playlist_tracks.clear();
+                self.selected_playlist = None;
+            }
+            Err(error) => {
+                self.playlist_tracks.clear();
+                self.playlist_error = Some(error.to_string());
+            }
+        }
     }
 
     /// Replace the queue with `tracks` and start playing the one at `start`.
@@ -1129,10 +1555,32 @@ impl MusicCraftApp {
         }
     }
 
+    /// Ask the user before taking a playlist out of the library.
+    ///
+    /// Asked rather than done, for the same reason removing tracks is: the
+    /// playlist is something the user built, and it cannot be got back with a
+    /// scan the way a track can.
+    pub fn ask_to_delete_playlist(&mut self, id: PlaylistId) {
+        let Some(summary) = self
+            .playlists
+            .iter()
+            .find(|playlist| playlist.id == id)
+            .cloned()
+        else {
+            return;
+        };
+
+        self.pending = Some(Confirmation::DeletePlaylist {
+            id,
+            name: summary.name.clone(),
+            count: summary.track_count,
+        });
+    }
+
     /// The destructive action waiting to be confirmed, if there is one.
     #[must_use]
     pub fn pending_confirmation(&self) -> Option<Confirmation> {
-        self.pending
+        self.pending.clone()
     }
 
     /// Drop the pending action without doing it.
@@ -1151,6 +1599,9 @@ impl MusicCraftApp {
             }
             Some(Confirmation::ForgetMissing { .. }) => {
                 self.forget_missing();
+            }
+            Some(Confirmation::DeletePlaylist { id, .. }) => {
+                self.delete_playlist(id);
             }
             None => {}
         }
@@ -1180,6 +1631,12 @@ impl MusicCraftApp {
         }
 
         removed
+    }
+
+    /// Every track the library holds, for the "add the selection" flow.
+    #[must_use]
+    pub fn library_tracks(&self) -> &[Track] {
+        self.browse.tracks()
     }
 
     /// One track of the library by its row identifier.
@@ -1537,6 +1994,24 @@ fn choose_folder(start: Option<&PathBuf>) -> Option<PathBuf> {
 /// A queue entry for a library track, labelled with its tag title.
 fn queue_item(track: &Track) -> QueueItem {
     QueueItem::new(track.path.clone(), track.title.clone())
+}
+
+/// What to tell the user when a name they typed is already in use.
+///
+/// The database refuses a duplicate name with its own error, which names a
+/// constraint rather than the thing the user is looking at. The playlist rules
+/// are the interesting part here — the name is taken, and that is all the user
+/// needs to be told — so the message is put into their terms rather than passed
+/// through.
+fn playlist_conflict(error: &AppError, name: &str) -> String {
+    match error {
+        AppError::Database {
+            source: rusqlite::Error::SqliteFailure(_, Some(message)),
+        } if message.contains("playlists.name") => {
+            format!("a playlist called `{name}` already exists")
+        }
+        other => other.to_string(),
+    }
 }
 
 /// The one-line report shown after an import finishes.
@@ -2568,5 +3043,138 @@ mod tests {
             },
             library,
         )
+    }
+
+    #[test]
+    fn adding_a_whole_album_to_a_playlist_is_one_transaction() {
+        let mut app = imported();
+        let ids: Vec<TrackId> = app
+            .library_tracks()
+            .iter()
+            .filter_map(|track| track.id)
+            .collect();
+        assert_eq!(ids.len(), 2, "the fixture stores two tracks");
+
+        assert_eq!(app.add_tracks_to_playlist("Evening", &ids), 2);
+
+        let made = app.playlists().first().expect("a playlist");
+        assert_eq!(made.track_count, 2);
+    }
+
+    #[test]
+    fn adding_nothing_to_a_playlist_writes_nothing() {
+        let mut app = imported();
+
+        assert_eq!(app.add_tracks_to_playlist("Evening", &[]), 0);
+        assert!(
+            app.playlists().is_empty(),
+            "an empty list does not conjure a playlist"
+        );
+    }
+
+    #[test]
+    fn shuffle_and_repeat_are_remembered_between_runs() {
+        let mut app = app();
+        assert!(!app.config.shuffle);
+        assert_eq!(app.config.repeat, RepeatMode::Off);
+
+        assert!(app.toggle_shuffle());
+        app.set_repeat_mode(RepeatMode::All);
+
+        assert!(app.config_dirty, "the choice is waiting to be written");
+        assert!(app.config.shuffle);
+        assert_eq!(app.config.repeat, RepeatMode::All);
+
+        // A second application over the same settings starts how the first
+        // one left off.
+        let restored = MusicCraftApp::with_playback(
+            Startup {
+                config: app.config.clone(),
+                config_path: None,
+                error: None,
+            },
+            Playback::with_engine(AudioEngine::without_device(), 1.0),
+        );
+
+        assert!(restored.playback().shuffle());
+        assert_eq!(restored.playback().repeat(), RepeatMode::All);
+    }
+
+    #[test]
+    fn repeating_the_same_choice_dirties_nothing() {
+        let mut app = app();
+        app.toggle_shuffle();
+        app.set_repeat_mode(RepeatMode::All);
+
+        // Answer the pending write, then make the same two choices again.
+        app.persist();
+        assert!(!app.config_dirty);
+
+        assert!(!app.toggle_shuffle(), "back to in-order playback");
+        app.set_repeat_mode(RepeatMode::All);
+        assert!(
+            app.config_dirty,
+            "turning shuffle off and leaving repeat alone are two changes"
+        );
+    }
+
+    #[test]
+    fn a_queue_walked_through_a_playlist_leaves_the_playlist_alone() {
+        let mut app = imported();
+        let ids: Vec<TrackId> = app
+            .library_tracks()
+            .iter()
+            .filter_map(|track| track.id)
+            .collect();
+        app.add_tracks_to_playlist("Evening", &ids);
+
+        let id = app.playlists().first().expect("a playlist").id;
+        app.open_playlist(id);
+        let before: Vec<TrackId> = app
+            .playlist_tracks()
+            .iter()
+            .filter_map(|track| track.id)
+            .collect();
+
+        // Playing the playlist fills the queue; moving and removing entries
+        // there is the Queue page's business and must not reach the playlist.
+        assert_eq!(app.play_playlist(), 2);
+        app.move_in_queue(0, 1);
+        app.remove_from_queue(0);
+        app.clear_queue();
+
+        let after: Vec<TrackId> = app
+            .playlist_tracks()
+            .iter()
+            .filter_map(|track| track.id)
+            .collect();
+
+        assert_eq!(after, before, "the playlist kept its tracks and its order");
+        assert_eq!(app.playlists().first().expect("a playlist").track_count, 2);
+    }
+
+    #[test]
+    fn a_track_can_only_be_in_a_playlist_once_as_a_row_but_twice_as_an_entry() {
+        let mut app = imported();
+        let ids: Vec<TrackId> = app
+            .library_tracks()
+            .iter()
+            .filter_map(|track| track.id)
+            .collect();
+
+        // The same track, added twice: two entries, one library row.
+        app.add_tracks_to_playlist("Evening", &ids[..1]);
+        assert_eq!(app.add_tracks_to_playlist("Evening", &ids[..1]), 1);
+
+        let made = app.playlists().first().expect("a playlist");
+        assert_eq!(made.track_count, 2, "the playlist lists it twice");
+
+        app.open_playlist(made.id);
+        app.remove_from_playlist(ids[0]);
+        assert_eq!(
+            app.playlist_tracks().len(),
+            1,
+            "and one call takes one of them out"
+        );
     }
 }

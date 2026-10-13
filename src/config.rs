@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::audio::RepeatMode;
 use crate::error::{AppError, Result};
 
 /// Volume applied when no preference has been stored yet.
@@ -65,6 +66,14 @@ pub struct AppConfig {
     /// settings. A stored identifier is only honoured when that device is still
     /// on the machine.
     pub output_device: Option<String>,
+    /// Whether playback shuffles the queue.
+    ///
+    /// Remembered across runs because it is a way of listening rather than a
+    /// property of one queue: a user who shuffles their library expects the next
+    /// album they play to be shuffled too.
+    pub shuffle: bool,
+    /// What playback does when the current track ends.
+    pub repeat: RepeatMode,
 }
 
 impl Default for AppConfig {
@@ -74,6 +83,8 @@ impl Default for AppConfig {
             volume: DEFAULT_VOLUME,
             library_folders: Vec::new(),
             output_device: None,
+            shuffle: false,
+            repeat: RepeatMode::default(),
         }
     }
 }
@@ -233,6 +244,8 @@ mod tests {
             volume: 0.35,
             library_folders: vec![PathBuf::from("/home/example/Music")],
             output_device: Some("alsa:default".to_owned()),
+            shuffle: true,
+            repeat: RepeatMode::All,
         };
 
         config.save(&path).expect("save succeeds");
@@ -240,6 +253,15 @@ mod tests {
         let _ = fs::remove_file(&path);
 
         assert_eq!(loaded, config);
+    }
+
+    #[test]
+    fn a_settings_file_without_the_listening_modes_still_loads() {
+        let path = PathBuf::from("config.toml");
+        let config = AppConfig::from_toml(&path, "volume = 0.5\n").expect("parses");
+
+        assert!(!config.shuffle, "shuffle starts off");
+        assert_eq!(config.repeat, RepeatMode::Off, "and so does repeat");
     }
 
     #[test]

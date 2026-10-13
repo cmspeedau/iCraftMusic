@@ -22,8 +22,10 @@
 //! # }
 //! ```
 
+pub mod edit;
 pub mod playlist;
 
+pub use edit::{PlaylistDraft, PlaylistEditKind};
 pub use playlist::{Playlist, PlaylistSummary};
 
 use rusqlite::{OptionalExtension, params};
@@ -272,14 +274,46 @@ impl<'a> Playlists<'a> {
     /// [`AppError::TrackHasNoRow`] when the track has not been stored yet, and
     /// [`AppError::Database`] when the rows cannot be written.
     pub fn add_track(&mut self, playlist: PlaylistId, track: TrackId) -> Result<usize> {
+        Ok(self.add_tracks(playlist, &[track])?.0)
+    }
+
+    /// Append several tracks to the end of a playlist, in the order given.
+    ///
+    /// Returns the position the first track landed at and how many were added,
+    /// so a caller can tell "nothing to add" from "added, starting here".
+    ///
+    /// One transaction for the whole list: adding an album to a playlist is one
+    /// edit as far as the database is concerned, so the user's music never ends
+    /// up half-added by a failure in the middle.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::PlaylistNotFound`] when the playlist is gone,
+    /// [`AppError::TrackHasNoRow`] when any track has not been stored yet, and
+    /// [`AppError::Database`] when the rows cannot be written.
+    pub fn add_tracks(
+        &mut self,
+        playlist: PlaylistId,
+        tracks: &[TrackId],
+    ) -> Result<(usize, usize)> {
         if !self.exists(playlist)? {
             return Err(AppError::PlaylistNotFound(playlist));
         }
 
-        self.require_track(track)?;
+        // Every track is checked before anything is written, so a list with one
+        // unknown track in it adds nothing at all.
+        for track in tracks {
+            self.require_track(*track)?;
+        }
+
+        if tracks.is_empty() {
+            return Ok((self.len(playlist)?, 0));
+        }
 
         let connection = self.repository.connection_mut();
-        let position: i64 = connection
+        let transaction = connection.transaction().map_err(AppError::database)?;
+
+        let first: i64 = transaction
             .query_row(
                 "SELECT COALESCE(MAX(position) + 1, 0) FROM playlist_tracks WHERE playlist_id = ?1",
                 params![playlist.get()],
@@ -287,16 +321,26 @@ impl<'a> Playlists<'a> {
             )
             .map_err(AppError::database)?;
 
-        connection
+        for (offset, track) in tracks.iter().enumerate() {
+            let position = first + i64::try_from(offset).unwrap_or(i64::MAX);
+            transaction
+                .execute(
+                    "INSERT INTO playlist_tracks (playlist_id, track_id, position) \
+                     VALUES (?1, ?2, ?3)",
+                    params![playlist.get(), track.get(), position],
+                )
+                .map_err(AppError::database)?;
+        }
+
+        transaction
             .execute(
-                "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, ?2, ?3)",
-                params![playlist.get(), track.get(), position],
+                "UPDATE playlists SET updated_at = datetime('now') WHERE id = ?1",
+                params![playlist.get()],
             )
             .map_err(AppError::database)?;
+        transaction.commit().map_err(AppError::database)?;
 
-        touch(connection, playlist)?;
-
-        Ok(usize::try_from(position).unwrap_or(usize::MAX))
+        Ok((usize::try_from(first).unwrap_or(usize::MAX), tracks.len()))
     }
 
     /// Take the first occurrence of a track out of a playlist, compacting the
