@@ -15,7 +15,7 @@
 use egui::{Key, RichText, Slider, TextEdit, Vec2};
 
 use crate::app::MusicCraftApp;
-use crate::config::{DEFAULT_VOLUME, ThemeMode};
+use crate::config::DEFAULT_VOLUME;
 use crate::ui::shortcuts::Command;
 use crate::ui::theme;
 
@@ -23,11 +23,6 @@ use crate::ui::theme;
 pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.add_space(4.0);
     library_management(app, ui);
-
-    ui.add_space(12.0);
-    ui.separator();
-    ui.add_space(12.0);
-    appearance(app, ui);
 
     ui.add_space(12.0);
     ui.separator();
@@ -63,26 +58,6 @@ const IMPORT_WIDTH: f32 = 72.0;
 const RESCAN_WIDTH: f32 = 68.0;
 /// Width of the button that stops a running scan.
 const STOP_WIDTH: f32 = 54.0;
-
-/// Theme choice.
-fn appearance(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    ui.label(RichText::new("Appearance").strong());
-    ui.label(
-        RichText::new("Changes apply immediately and are saved automatically.")
-            .small()
-            .weak(),
-    );
-    ui.add_space(6.0);
-
-    let current = app.theme();
-    ui.horizontal(|ui| {
-        for mode in ThemeMode::ALL {
-            if ui.selectable_label(current == mode, mode.label()).clicked() {
-                app.set_theme(mode);
-            }
-        }
-    });
-}
 
 /// Playback preferences: how loud, and through what.
 fn playback(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
