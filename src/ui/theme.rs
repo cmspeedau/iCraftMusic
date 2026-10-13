@@ -6,7 +6,8 @@
 //! place.
 
 use egui::{
-    Color32, Context, CornerRadius, Frame, Margin, Stroke, Style, ThemePreference, Visuals, vec2,
+    Color32, Context, CornerRadius, FontFamily, FontId, Frame, Margin, Stroke, Style, TextStyle,
+    ThemePreference, Visuals, vec2,
 };
 
 use crate::config::ThemeMode;
@@ -26,15 +27,13 @@ pub const NAV_ITEM_HEIGHT: f32 = 28.0;
 /// little shorter than one of the browsing entries above it without crowding.
 pub const PLAYLIST_ITEM_HEIGHT: f32 = 24.0;
 
-/// Size of the open playlist's counts under the section heading, in points.
+/// Size of body-level small text across the interface, in points.
 ///
-/// The other sections' one-liners are a *description of the page* set small and
-/// weak, which is right for a line you read once. This one is a fact about the
-/// playlist you are looking at — how much is in it and how long it runs — and
-/// it is the only thing under the heading, so it is set a little larger: egui's
-/// "small" is 9.0, and 3 points over that reads as a caption rather than as
-/// fine print. Everything else keeps `small()`.
-pub const PLAYLIST_TOTALS_SIZE: f32 = 12.0;
+/// egui's default for its "small" style is 9.0, which is too small to read
+/// comfortably on a desktop: this raises every `.small()` label in one place,
+/// in both themes, rather than at each of the call sites. 12.0 is also what the
+/// hand-painted rows already use, so the drawn text and the laid-out text agree.
+pub const SMALL_TEXT_SIZE: f32 = 12.0;
 
 /// How many playlists the sidebar lists before it starts scrolling, in points.
 ///
@@ -185,6 +184,17 @@ fn preference(mode: ThemeMode) -> ThemePreference {
 fn customise(style: &mut Style) {
     style.spacing.item_spacing = vec2(8.0, 6.0);
     style.spacing.button_padding = vec2(10.0, 6.0);
+
+    // Nothing is set in egui's "small" size: its 9.0 is too small to read on a
+    // desktop at arm's length, and every one of this interface's labels is
+    // either a heading, a control, or — where a distinction is wanted — a
+    // *muted* line, which is what carries the hierarchy instead of the size.
+    // Raising it here covers the whole interface at once, both themes included,
+    // and leaves every `.small()` call site saying what it means.
+    style.text_styles.insert(
+        TextStyle::Small,
+        FontId::new(SMALL_TEXT_SIZE, FontFamily::Proportional),
+    );
 
     style.visuals.hyperlink_color = ACCENT;
     style.visuals.selection.bg_fill = ACCENT;

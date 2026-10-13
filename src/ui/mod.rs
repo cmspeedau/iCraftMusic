@@ -83,10 +83,6 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         let detail =
             shown.map_or_else(|| section.description().to_owned(), PlaylistSummary::totals);
 
-        // Decided before the heading row borrows the application to draw the
-        // section's own controls.
-        let counts_shown = shown.is_some();
-
         // The Library is the one section with something to search, so its field
         // rides on the heading line instead of taking a row of its own. The
         // Playlists section puts the open playlist's buttons there instead.
@@ -106,17 +102,9 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             }
         });
 
-        // The Playlists section's line is the playlist's counts rather than a
-        // description of a page, and it is the only thing standing under the
-        // heading, so it is set larger than the other sections' one-liners.
-        let line = RichText::new(detail).weak();
-        let line = if counts_shown {
-            line.size(theme::PLAYLIST_TOTALS_SIZE)
-        } else {
-            line.small()
-        };
-
-        ui.label(line);
+        // One line under the heading, describing the section — or, when a
+        // playlist is open, its counts.
+        ui.label(RichText::new(detail).small().weak());
         ui.add_space(10.0);
 
         ScrollArea::vertical()
@@ -286,6 +274,11 @@ mod tests {
     /// the pixels, not the string parameter that was passed in.
     fn frame(app: &mut MusicCraftApp) -> Vec<egui::epaint::ClippedShape> {
         let ctx = egui::Context::default();
+        // The application applies the theme when it draws; a bare context has
+        // egui's own styles, so a test that reads a font size would read the
+        // wrong one. Applying it here is what the real window does.
+        let mode = app.theme();
+        crate::ui::theme::apply(&ctx, mode);
         let mut output = None;
 
         for _ in 0..3 {
@@ -347,41 +340,40 @@ mod tests {
         }
     }
 
-    /// The counts line is set larger than the other sections' one-liners, which
-    /// are small print: it is a fact about the open playlist, not a description
-    /// of a page, and it stands alone under the heading.
+    /// Nothing in the interface is set at egui's default "small" size: 9.0 is
+    /// too small to read on a desktop, so the style raises it to 12.0 once,
+    /// rather than each `.small()` call site overriding it.
     #[test]
-    fn the_open_playlists_counts_are_set_bigger_than_a_section_description() {
+    fn no_small_text_is_left_at_egui_s_own_size() {
         let mut app = imported();
         app.add_tracks_to_playlist("Evening", &[TrackId(1)]);
 
-        // The same section, once with a playlist open and once without.
+        // The Library's one-liner, the section's own description with no
+        // playlist open, and the playlist's counts with one open.
+        app.set_section(NavSection::Library);
+        let library = size_of(&frame(&mut app), "Your music, by artist, album and track")
+            .expect("the Library's description");
+
         app.set_section(NavSection::Playlists);
-        let quiet = size_of(&frame(&mut app), "Collections you have put together")
-            .expect("the section's own description");
+        let section = size_of(&frame(&mut app), "Collections you have put together")
+            .expect("the section's description");
 
         app.open_playlist(app.playlists().first().expect("a playlist").id);
         let counts = size_of(&frame(&mut app), "1 track").expect("the counts line");
 
-        assert!(
-            counts > quiet,
-            "the counts line is not bigger than the section's description: \
-             {counts} vs {quiet}"
-        );
-        assert_eq!(
-            counts - quiet,
-            3.0,
-            "the counts line should be 3 points bigger than the small print, \
-             which is egui's 9.0 plus 3: {counts} vs {quiet}"
-        );
-        // The Library's description is untouched by any of this.
-        app.set_section(NavSection::Library);
-        assert!(
-            size_of(&frame(&mut app), "Your music, by artist, album and track")
-                .expect("the Library's description")
-                == quiet,
-            "the Library's one-liner changed size with the Playlists section"
-        );
+        for (what, size) in [
+            ("the Library's description", library),
+            ("the section's description", section),
+            ("the playlist's counts", counts),
+        ] {
+            assert!(
+                size > 9.0,
+                "{what} is still at egui's own small size: {size}"
+            );
+        }
+
+        assert_eq!(library, section);
+        assert_eq!(section, counts);
     }
 
     /// The font size the line of text reading `needle` was set in.

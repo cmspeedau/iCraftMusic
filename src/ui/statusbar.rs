@@ -297,8 +297,11 @@ mod tests {
     #[test]
     fn the_corner_glyphs_stand_out_from_the_bar_line() {
         // The counts are drawn `.small`; the corner glyphs must not be, or the
-        // bar's controls read as more words on the bar.
-        let line = egui::TextStyle::Small.resolve(&egui::Style::default());
+        // bar's controls read as more words on the bar. Resolved through the
+        // app's own style, so this reads the size the bar actually draws at.
+        let ctx = egui::Context::default();
+        theme::apply(&ctx, crate::config::ThemeMode::Light);
+        let line = egui::TextStyle::Small.resolve(&ctx.style_of(egui::Theme::Light));
 
         assert!(
             theme::STATUS_BAR_BUTTON_GLYPH_SIZE > line.size,
