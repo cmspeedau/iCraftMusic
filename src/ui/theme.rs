@@ -132,28 +132,40 @@ pub const PLAYBACK_BAR_INK_MUTED: Color32 = Color32::from_rgb(58, 60, 66);
 
 /// Fill of an idle control on the playback bar.
 ///
-/// The theme's own button fill would put a light tile on the bar, so the bar's
-/// controls come in its own grays: the whole ramp is the status bar's gray,
-/// a step darker at each state, so a control still marks itself out on a bar
-/// that is now that same gray, and the outline deeper again.
-pub const PLAYBACK_BAR_CONTROL: Color32 = Color32::from_rgb(156, 158, 163);
+/// WHITE, at the user's request, where it was a step of the bar's own gray: the
+/// bar's controls and the search field are the one surface on the bar that is
+/// not its gray, so a button reads as a button rather than as a tile of the bar.
+/// The bar still supplies everything drawn ON them — [`PLAYBACK_BAR_INK`] reads
+/// on white at about 13:1 — and the ramp under this steps so a hover and a held
+/// control still show themselves.
+pub const PLAYBACK_BAR_CONTROL: Color32 = Color32::WHITE;
 
 /// Fill of a control on the playback bar the pointer is over.
-pub const PLAYBACK_BAR_CONTROL_HOVER: Color32 = Color32::from_rgb(130, 132, 137);
+///
+/// A light step of [`PLAYBACK_BAR_CONTROL`] rather than a darker shade: the
+/// control is a white tile on the bar, so its states step AWAY from the white
+/// and settle back toward the bar's gray, and the pointer still has a sign.
+pub const PLAYBACK_BAR_CONTROL_HOVER: Color32 = Color32::from_rgb(224, 224, 229);
 
 /// Fill of a control on the playback bar that is held or selected.
 ///
-/// Doubles as the seek bar's rail, which is the same shade of gray and reads as
-/// the ungrooved part of the track.
-pub const PLAYBACK_BAR_CONTROL_ACTIVE: Color32 = Color32::from_rgb(110, 112, 118);
+/// A mid-gray, and the one step of the ramp that overshoots: it is also what
+/// the seek bar's UNGROOVED rail is filled with, and that rail is drawn on the
+/// centre box's cream rather than on the bar — a tile that had stepped all the
+/// way down from the white would be a hairline of nothing there. Held controls
+/// take it too, so a press is plainly visible.
+pub const PLAYBACK_BAR_CONTROL_ACTIVE: Color32 = Color32::from_rgb(156, 158, 163);
 
-/// Ink of the transport controls on the playback bar: white, at the user's
-/// request, where the rest of the bar's controls take [`PLAYBACK_BAR_INK`].
+/// Ink of the playback bar's controls that have no surface of their own: the
+/// speaker at the head of the volume slider and the slider's rail, both drawn
+/// straight onto the bar's gray. White, at the user's request.
 ///
-/// The bar is a mid-gray in every theme and this is the one colour that reads on
-/// it in both, so it is its own constant rather than the theme's foreground —
-/// which is near-white in the dark theme and would leave the light theme's
-/// transport invisible.
+/// The three transport glyphs took this colour too until the user asked for the
+/// buttons to be white as well: their button is now a white surface, so they
+/// take [`PLAYBACK_BAR_INK`], which is what reads on it. What is left here is
+/// the pair drawn ON the bar rather than on a control — white on the bar's gray
+/// is about 2.1:1, which is the price of the request, and it is the direction of
+/// that ratio the test below pins.
 pub const PLAYBACK_BAR_CONTROL_INK: Color32 = Color32::WHITE;
 
 /// Outline of the playback bar's controls, so they stay distinct from the bar
@@ -321,7 +333,14 @@ pub fn apply_playback_bar_visuals(visuals: &mut Visuals) {
     // A button is painted with `weak_bg_fill`; a slider takes its rail from
     // `bg_fill` and its handle from the same `bg_fill` through the interaction
     // state, so the rail is the darker of the two.
+    //
+    // `noninteractive` carries the resting fill too, because the transport is
+    // DISABLED while nothing is queued and egui draws a disabled button from
+    // that state: without it the three buttons would be white tiles with a track
+    // playing and theme-coloured ones without, which is the same control
+    // changing its surface to say something it is not.
     visuals.widgets.inactive.weak_bg_fill = PLAYBACK_BAR_CONTROL;
+    visuals.widgets.noninteractive.weak_bg_fill = PLAYBACK_BAR_CONTROL;
     visuals.widgets.hovered.weak_bg_fill = PLAYBACK_BAR_CONTROL_HOVER;
     visuals.widgets.active.weak_bg_fill = PLAYBACK_BAR_CONTROL_ACTIVE;
     visuals.widgets.inactive.bg_fill = PLAYBACK_BAR_CONTROL_ACTIVE;
@@ -527,51 +546,70 @@ mod tests {
         );
     }
 
-    /// A control on the playback bar has to stay visible where the bar is now
-    /// the status bar's own gray: at rest it is a step from that gray, under
-    /// the pointer a further step, and the outline deeper again. The floors are
-    /// the ratios this palette actually produces, so a later nudge toward the
-    /// bar's own colour fails rather than sliding under the eye.
+    /// A control on the playback bar has to stay visible where it is now a WHITE
+    /// tile on the bar's gray: at rest it is the white itself, under the pointer
+    /// a step down from it, and held a further step and the outline deeper
+    /// again. The floors are the ratios this palette actually produces, so a
+    /// later nudge toward the bar's own colour fails rather than sliding under
+    /// the eye.
     #[test]
     fn the_playback_bars_controls_still_show_against_its_own_fill() {
+        // The resting fill is the white the user asked for, and the bar is not.
+        assert_eq!(
+            PLAYBACK_BAR_CONTROL,
+            Color32::WHITE,
+            "a button on the bar no longer rests in the white it was asked for"
+        );
+        assert_ne!(
+            PLAYBACK_BAR_CONTROL, PLAYBACK_BAR_FILL,
+            "the controls were flattened into the bar"
+        );
+
+        // The resting white and the states it steps through: a hovered or held
+        // control has to show against the white it rests in, which is what the
+        // pointer reads — the bar's gray is behind all of them.
+        assert!(
+            contrast(PLAYBACK_BAR_CONTROL, PLAYBACK_BAR_FILL) >= 2.0,
+            "the white control tile does not show on the bar: {:.2}",
+            contrast(PLAYBACK_BAR_CONTROL, PLAYBACK_BAR_FILL)
+        );
         let ramp = [
-            ("resting", PLAYBACK_BAR_CONTROL, 1.2),
-            ("hovered", PLAYBACK_BAR_CONTROL_HOVER, 1.5),
-            ("active", PLAYBACK_BAR_CONTROL_ACTIVE, 1.8),
+            ("hovered", PLAYBACK_BAR_CONTROL_HOVER, 1.2),
+            ("held", PLAYBACK_BAR_CONTROL_ACTIVE, 1.5),
             ("edge", PLAYBACK_BAR_CONTROL_EDGE, 2.5),
         ];
         for (state, fill, at_least) in ramp {
             assert!(
-                contrast(fill, PLAYBACK_BAR_FILL) >= at_least,
-                "the {state} fill {fill:?} does not show on {PLAYBACK_BAR_FILL:?}: \
+                contrast(fill, PLAYBACK_BAR_CONTROL) >= at_least,
+                "the {state} fill {fill:?} does not show against the resting white: \
                  {:.2} against {at_least}",
-                contrast(fill, PLAYBACK_BAR_FILL)
+                contrast(fill, PLAYBACK_BAR_CONTROL)
             );
         }
 
-        // The white the transport is painted in has to READ on the bar's fill
-        // and on the control fill under its hover. The floor is the ratio this
-        // palette actually produces and it is a LOW one: white on a mid-gray bar
-        // is about 2.1:1, which is the price of the user's request. What the
-        // assertion is for is the direction — a later nudge of the bar's fill
-        // toward white would take it to nothing, and that fails here.
-        for (fill, at_least) in [(PLAYBACK_BAR_FILL, 2.0), (PLAYBACK_BAR_CONTROL_HOVER, 2.5)] {
-            assert!(
-                contrast(PLAYBACK_BAR_CONTROL_INK, fill) >= at_least,
-                "the transport's white ink is too faint on {fill:?}: {:.2}",
-                contrast(PLAYBACK_BAR_CONTROL_INK, fill)
-            );
-        }
+        // The white ink is now only on the two controls with no surface of their
+        // own — the speaker and the volume rail, drawn straight onto the bar's
+        // gray. Its floor is a LOW one: white on a mid-gray bar is about 2.1:1,
+        // which is the price of the user's request. What the assertion is for is
+        // the direction — a later nudge of the bar's fill toward white would take
+        // it to nothing, and that fails here.
+        assert!(
+            contrast(PLAYBACK_BAR_CONTROL_INK, PLAYBACK_BAR_FILL) >= 2.0,
+            "the speaker's white ink is too faint on the bar: {:.2}",
+            contrast(PLAYBACK_BAR_CONTROL_INK, PLAYBACK_BAR_FILL)
+        );
 
-        // And the bar's ink still reads on any of those fills, since the labels
-        // and the seek bar are drawn in it over them.
+        // And the bar's ink still reads on every control fill, since the
+        // transport's glyphs, the Clear label and the seek bar are drawn in it
+        // over them — and the field's comment in `nowplaying` says the query
+        // reads at well over 10:1 on the white one.
         for fill in [
             PLAYBACK_BAR_CONTROL,
             PLAYBACK_BAR_CONTROL_HOVER,
             PLAYBACK_BAR_CONTROL_ACTIVE,
         ] {
             assert!(
-                contrast(PLAYBACK_BAR_INK, fill) >= 3.0,
+                contrast(PLAYBACK_BAR_INK, fill) >= 4.5,
                 "the bar's ink is too faint on the control fill {fill:?}: {:.2}",
                 contrast(PLAYBACK_BAR_INK, fill)
             );
@@ -579,11 +617,11 @@ mod tests {
     }
 
     /// The search field is a control on the bar rather than a field on a page,
-    /// so it takes the bar's own palette: a fill of one of the bar's control
-    /// shades and, in the bar's ink, the query and the caret. The theme's
-    /// text-edit fill is near-black in the dark theme, which would put the bar's
-    /// dark ink on a black tile, and egui's own caret is the theme's, which
-    /// would vanish on the field's light fill.
+    /// and it is filled with one of the bar's own control shades — the white —
+    /// with the bar's ink for the query and the caret. The theme's text-edit
+    /// fill is near-black in the dark theme, which would put the bar's dark ink
+    /// on a black tile, and egui's own caret is the theme's, which would vanish
+    /// on the field's light fill.
     #[test]
     fn the_search_field_wears_the_playback_bars_own_controls() {
         let mut visuals = Visuals::dark();
@@ -592,6 +630,11 @@ mod tests {
         assert_eq!(
             visuals.text_cursor.stroke.color, PLAYBACK_BAR_INK,
             "the caret would not show on the fill the field is drawn on"
+        );
+        assert_eq!(
+            PLAYBACK_BAR_CONTROL,
+            Color32::WHITE,
+            "the bar's control fill is no longer the white the field is drawn in"
         );
 
         for what in ["the query", "the caret"] {

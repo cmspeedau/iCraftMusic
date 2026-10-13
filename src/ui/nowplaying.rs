@@ -129,6 +129,16 @@ const QUEUE_BUTTON_SIZE: f32 = 28.0;
 /// heading, so the same query reads the same way on the bar.
 const SEARCH_WIDTH: f32 = 220.0;
 
+/// Fill of the search field and of the buttons beside it, in points.
+///
+/// White, at the user's request: on a bar whose own fill is a mid gray, the
+/// field and the buttons are the one surface that is not, so the query reads as
+/// a field rather than as another control tile. Like the transport's glyphs
+/// were, it is a surface of its own, so everything drawn on it — the query, its
+/// hint text, the caret and the Clear button's label — takes the bar's dark ink
+/// and reads on it.
+const SEARCH_FILL: Color32 = Color32::WHITE;
+
 /// Height of the search field, in points.
 const SEARCH_HEIGHT: f32 = 22.0;
 
@@ -338,9 +348,14 @@ fn search_rect(bar: Rect, pill: Rect) -> Rect {
 /// or not the button is drawn, so the field's two edges are the same whatever
 /// the query comes to.
 fn search_field(app: &mut MusicCraftApp, ui: &mut egui::Ui, field: Rect, clear: Rect) {
+    // The button beside the field is white like the field, at the user's
+    // request, so its label is the bar's dark ink rather than the theme's
+    // button ink — which is near-white in the dark theme and would vanish on it.
+    let label = RichText::new("Clear").color(theme::PLAYBACK_BAR_INK);
+
     if app.browse().is_filtered()
         && ui
-            .put(clear, Button::new("Clear"))
+            .put(clear, Button::new(label).fill(SEARCH_FILL))
             .on_hover_text("Show the whole library again")
             .clicked()
     {
@@ -349,14 +364,14 @@ fn search_field(app: &mut MusicCraftApp, ui: &mut egui::Ui, field: Rect, clear: 
 
     ui.put(
         field,
-        // The field is filled with one of the bar's own control shades rather
-        // than the theme's text-edit fill: the theme's is near-black in the dark
-        // theme, which would put the bar's dark ink on a black tile. On the
-        // control shade the bar's ink reads at 6.8:1, and the field reads as one
-        // of the bar's controls resting on it.
+        // The field and the buttons beside it are a WHITE surface, at the user's
+        // request, so the query, its hint, the caret and the button's label all
+        // take the bar's dark ink and read on it — well over 10:1, where the
+        // theme's own text-edit fill is near-black in the dark theme and would
+        // have put the bar's dark ink on a black tile.
         TextEdit::singleline(app.browse_mut().query_text_mut())
             .hint_text("Search…")
-            .background_color(theme::PLAYBACK_BAR_CONTROL),
+            .background_color(SEARCH_FILL),
     )
     .on_hover_text("Matches title, artist, album, genre and path");
 }
@@ -598,16 +613,20 @@ fn subtitle(app: &MusicCraftApp) -> String {
 /// where they sit with the other controls that are about the application.
 fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let has_current = app.playback().current().is_some();
-    // The transport is the bar's own ink everywhere else, but these three are
-    // painted white at the user's request; the helper keeps the colour in one
-    // place so the glyph and the label cannot drift apart.
-    fn white(glyph: &str) -> RichText {
-        RichText::new(glyph).color(theme::PLAYBACK_BAR_CONTROL_INK)
+    // The three glyphs are painted in the bar's OWN ink, not the white the
+    // speaker and the volume rail take: their button is a white surface now, at
+    // the user's request, and white on white would be nothing. It was called
+    // `white` while it returned white, so the name is gone with the colour.
+    fn glyph_ink(glyph: &str) -> RichText {
+        RichText::new(glyph).color(theme::PLAYBACK_BAR_INK)
     }
     let size = [TRANSPORT_BUTTON_WIDTH, TRANSPORT_BUTTON_HEIGHT];
 
     if ui
-        .add_enabled(has_current, Button::new(white("⏮")).min_size(size.into()))
+        .add_enabled(
+            has_current,
+            Button::new(glyph_ink("⏮")).min_size(size.into()),
+        )
         .on_hover_text("Previous")
         .clicked()
     {
@@ -620,7 +639,10 @@ fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         "▶"
     };
     if ui
-        .add_enabled(has_current, Button::new(white(play)).min_size(size.into()))
+        .add_enabled(
+            has_current,
+            Button::new(glyph_ink(play)).min_size(size.into()),
+        )
         .on_hover_text("Play or pause")
         .clicked()
     {
@@ -628,7 +650,10 @@ fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 
     if ui
-        .add_enabled(has_current, Button::new(white("⏭")).min_size(size.into()))
+        .add_enabled(
+            has_current,
+            Button::new(glyph_ink("⏭")).min_size(size.into()),
+        )
         .on_hover_text("Next")
         .clicked()
     {
@@ -707,10 +732,11 @@ fn volume(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
     // The rail and the handle are the one control the bar does not paint from a
     // widget fill: the slider asks for its rail and handle through the
-    // interaction state's `bg_fill`, so the white it is drawn in has to be set
+    // interaction state's `bg_fill`, so the ink it is drawn in has to be set
     // here for the two of them and restored afterwards, or the transport
     // buttons that follow in the same row would be left without the bar's own
-    // fills.
+    // fills. It reads far better on the bar's gray than the white it was, which
+    // is what the transport came off for.
     let resting = ui.style().visuals.widgets.inactive.bg_fill;
     let hovered = ui.style().visuals.widgets.hovered.bg_fill;
     let active = ui.style().visuals.widgets.active.bg_fill;
@@ -1058,6 +1084,7 @@ mod tests {
     /// What one frame of the bar drew: the rectangles, the images and the text.
     #[derive(Default)]
     struct Painted {
+        #[allow(dead_code)]
         rects: Vec<(egui::Rect, egui::Color32)>,
         images: Vec<egui::Rect>,
         texts: Vec<egui::epaint::TextShape>,
@@ -1558,12 +1585,111 @@ mod tests {
         );
     }
 
-    /// The transport is painted WHITE, at the user's request, where the rest of
-    /// the bar's controls take the bar's own ink. The colour comes off the
-    /// painted glyph, not off the constant, so a call site that stopped applying
-    /// it fails here.
+    /// The transport split when the user asked for the search field and the
+    /// buttons to be white. The field and the buttons are now a WHITE surface,
+    /// so the three glyphs printed on a button take the bar's own dark ink, and
+    /// the white is what is left to the two controls drawn straight ON the bar's
+    /// gray — the speaker at the head of the volume slider and the slider's own
+    /// rail. Colours come off the painted shapes, not off the constants, so a
+    /// call site that stopped applying one fails here.
     #[test]
-    fn the_transport_is_white() {
+    fn the_transport_glyphs_take_the_bars_ink_on_their_white_buttons() {
+        let mut app = app();
+        let painted = paint_bar(&mut app);
+
+        // The buttons the glyphs are printed on are white, the surface the user
+        // asked for, and the glyphs on them are the bar's ink so they read.
+        assert_eq!(
+            theme::PLAYBACK_BAR_CONTROL,
+            egui::Color32::WHITE,
+            "the buttons are no longer the white surface the user asked for"
+        );
+        assert_eq!(
+            theme::PLAYBACK_BAR_INK,
+            egui::Color32::from_rgb(32, 32, 36),
+            "the bar's ink moved, and the glyphs are read on the white tiles"
+        );
+
+        for (glyph, what) in [("⏮", "previous"), ("▶", "play"), ("⏭", "next")] {
+            let ink = painted
+                .coloured(glyph, theme::PLAYBACK_BAR_INK)
+                .unwrap_or_else(|| {
+                    panic!("the {what} glyph is not painted in the bar's ink on its white button")
+                });
+            assert!(
+                ink.width() > 1.0,
+                "the {what} glyph is painted but carries no ink: {ink:?}"
+            );
+
+            // And the button behind it is the fill the glyph is read off: this
+            // fixture carries no track, so the three buttons are DISABLED and
+            // egui paints one by multiplying the control's colour by the
+            // theme's `disabled_alpha` — the white control at half is a
+            // #80808080 rect over the bar. Reading it back through the same
+            // gamma-multiply is what proves the button is the white control
+            // dimmed, rather than the theme's own fill left in place.
+            let button = egui::Rect::from_center_size(ink.center(), egui::vec2(38.0, 28.0));
+            let painted_button = painted
+                .rects
+                .iter()
+                .find(|(rect, _)| {
+                    (rect.width() - TRANSPORT_BUTTON_WIDTH).abs() < 0.5
+                        && (rect.height() - TRANSPORT_BUTTON_HEIGHT).abs() < 0.5
+                        && rect.intersects(button)
+                })
+                .unwrap_or_else(|| panic!("the {what} button paints no background: {button:?}"));
+            assert_eq!(
+                painted_button.1,
+                dimmed(theme::PLAYBACK_BAR_CONTROL),
+                "the {what} button is not the white control dimmed as a disabled one, \
+                 but {:#?}: {button:?}",
+                painted_button.1
+            );
+        }
+    }
+
+    /// A disabled widget's fill, as egui paints it: the control's own colour
+    /// through the same `gamma_multiply` the painter applies when it dims a
+    /// widget, at the alpha the visuals carry. Alpha included, so a button
+    /// painted in the theme's fill rather than the bar's would fail here.
+    fn dimmed(fill: egui::Color32) -> egui::Color32 {
+        fill.gamma_multiply(egui::Visuals::dark().disabled_alpha())
+    }
+
+    /// The three transport buttons rest in the white the user asked for,
+    /// whatever their state: an enabled button takes it from `inactive` and a
+    /// disabled one — the transport with nothing queued, which is how the app
+    /// opens — from `noninteractive`, and egui dims both by the same alpha. A
+    /// call site that set only one of them shows white tiles with a track
+    /// playing and theme-coloured ones without.
+    #[test]
+    fn a_playback_control_rests_in_the_white_in_every_theme() {
+        for theme in [egui::Visuals::light(), egui::Visuals::dark()] {
+            let mut visuals = theme;
+            theme::apply_playback_bar_visuals(&mut visuals);
+
+            assert_eq!(
+                visuals.widgets.inactive.weak_bg_fill,
+                theme::PLAYBACK_BAR_CONTROL,
+                "an enabled button is not rested in the white"
+            );
+            assert_eq!(
+                visuals.widgets.noninteractive.weak_bg_fill,
+                theme::PLAYBACK_BAR_CONTROL,
+                "a disabled button — the transport with nothing queued — takes \
+                 the theme's own fill instead of the white"
+            );
+            assert_eq!(theme::PLAYBACK_BAR_CONTROL, egui::Color32::WHITE);
+        }
+    }
+
+    /// What is left white is the pair that has no surface of its own: the
+    /// speaker at the head of the volume slider and the rail it draws on the
+    /// bar's gray. White on that gray is about 2.1:1 — the price of the user's
+    /// request — and both are painted in it together, so the volume reads as one
+    /// control rather than as white ink beside a rail of another shade.
+    #[test]
+    fn the_volume_group_is_painted_white_on_the_bar() {
         let mut app = app();
         let painted = paint_bar(&mut app);
 
@@ -1571,30 +1697,21 @@ mod tests {
         assert_eq!(
             white,
             egui::Color32::WHITE,
-            "the transport's ink is no longer white"
+            "the volume group's ink is no longer white"
         );
-
-        for (glyph, what) in [("⏮", "previous"), ("▶", "play"), ("⏭", "next")] {
-            let ink = painted
-                .coloured(glyph, white)
-                .unwrap_or_else(|| panic!("the {what} glyph is not painted white"));
-            assert!(
-                ink.width() > 1.0,
-                "the {what} glyph is painted but carries no ink: {ink:?}"
-            );
-        }
 
         let speaker = painted
             .coloured(VOLUME_GLYPH, white)
             .expect("the speaker is not painted white");
 
-        // And the slider's rail is white too, so the whole transport reads as one
-        // colour rather than as white buttons beside a gray rail.
+        // The rail is the white rectangle after the speaker: the three transport
+        // glyphs carry the bar's ink now, so the rail is the only rectangle of
+        // the white in the frame.
         let rail = painted
             .rects_with(white)
             .into_iter()
             .filter(|rect| rect.width() > 20.0)
-            .max_by(|a, b| a.width().total_cmp(&b.width()));
+            .max_by(|a, b| a.left().total_cmp(&b.left()));
         assert!(
             rail.is_some_and(|rail| rail.left() > speaker.left()),
             "the volume rail is not painted white after the speaker: {rail:?} vs {speaker:?}"
@@ -1805,8 +1922,13 @@ mod tests {
                 .iter()
                 .find(|(rect, _)| *rect == background)
                 .map(|(_, colour)| *colour),
-            Some(theme::PLAYBACK_BAR_CONTROL),
-            "the field is not filled as one of the bar's controls"
+            Some(SEARCH_FILL),
+            "the field is not filled white as the user asked"
+        );
+        assert_eq!(
+            SEARCH_FILL,
+            egui::Color32::WHITE,
+            "the field's fill is no longer white"
         );
         assert!(
             background.left() > pill.right(),
@@ -1894,16 +2016,26 @@ mod tests {
         // The reserved room is what the field is set off from, so the button
         // sits in it whether or not its label fills it — the way the field's
         // trailing edge stays put.
+        //
+        // The button is WHITE: `Button::new(..).fill(SEARCH_FILL)` overrides the
+        // interactive frame unconditionally, so the room under the pointer — and
+        // the click coordinate taken from its centre — sits in the same white as
+        // the field beside it, and the two read as one control row.
         let pos = clear.center();
         assert!(
             painted.ink("Clear").is_some(),
             "the button does not draw its own label"
         );
         assert!(
+            painted.coloured("Clear", theme::PLAYBACK_BAR_INK).is_some(),
+            "the Clear button's label is not in the bar's ink, which is what \
+             reads on the white fill it is drawn in"
+        );
+        assert!(
             painted
                 .rects
                 .iter()
-                .any(|(rect, colour)| *colour == theme::PLAYBACK_BAR_CONTROL && rect.contains(pos)),
+                .any(|(rect, colour)| *colour == SEARCH_FILL && rect.contains(pos)),
             "the button is not drawn as one of the bar's controls: {pos:?}"
         );
         frame(vec![egui::Event::PointerMoved(pos)]);
