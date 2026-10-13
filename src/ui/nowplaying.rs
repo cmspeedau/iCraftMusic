@@ -21,6 +21,26 @@ use crate::ui::{queueview, theme};
 /// head of the bar without pushing anything past the bottom of it.
 const COVER_SIZE: f32 = 40.0;
 
+/// Fraction of the seek row's length the slider gives up, in points per point.
+///
+/// Elapsed time, slider and total time share one row across the window, so the
+/// slider's length is whatever they leave it — and at the full remainder it ran
+/// span for span with the transport above it, reading as a second bar rather
+/// than as a control. The slider now takes HALF of what that remainder would
+/// give it: a share rather than a fixed number of points, so the user's "half
+/// the size" holds at any window width instead of only at the one it was
+/// measured on. The room the slider gives up stays where it was, at the row's
+/// right-hand end: the total time keeps the window's edge and the gap opens
+/// between it and the slider.
+const SEEK_BAR_SHARE: f32 = 0.5;
+
+/// Shortest the seek bar is allowed to get, in points.
+///
+/// A narrow window would otherwise squeeze it to nothing: the elapsed and total
+/// times take a fixed width each, and the share above is taken from the whole
+/// row. The slider keeps this much and the labels are left to share the rest.
+const SEEK_BAR_MIN_WIDTH: f32 = 160.0;
+
 /// Draw the playback bar.
 pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let panel = Panel::top("musiccraft_playback_bar")
@@ -318,11 +338,16 @@ fn volume(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 fn progress(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let duration = app.track_duration();
     let elapsed = app.elapsed();
+    let total = duration.map_or_else(|| "--:--".to_owned(), format_duration);
 
     ui.horizontal(|ui| {
         ui.label(RichText::new(format_duration(elapsed)).small().weak());
 
-        ui.spacing_mut().slider_width = (ui.available_width() - 80.0).max(80.0);
+        // The slider takes half of what the two times leave the row. The 80
+        // covers the labels' own widths and the spacing around them.
+        let remaining = (ui.available_width() - 80.0).max(0.0);
+        ui.spacing_mut().slider_width =
+            (remaining * (1.0 - SEEK_BAR_SHARE)).max(SEEK_BAR_MIN_WIDTH);
         let mut fraction = app.progress();
         let seek = ui.add_enabled(
             duration.is_some(),
@@ -333,7 +358,10 @@ fn progress(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             app.seek_to_fraction(fraction);
         }
 
-        let total = duration.map_or_else(|| "--:--".to_owned(), format_duration);
+        // The track's length follows the seek bar's end rather than sitting at
+        // the window's edge: the row reads elapsed · slider · length as one
+        // line, and the length the slider gives up shows as the room to the
+        // right of the pair.
         ui.label(RichText::new(total).small().weak());
     });
 }
@@ -576,6 +604,170 @@ mod tests {
 
             Some(egui::Rect::from_min_size(min, size))
         }
+    }
+
+    /// A track long enough for the seek row to have a real length, playing.
+    ///
+    /// The slider is drawn disabled with no duration and a disabled slider's
+    /// rail is not the shade these assertions look for, so the fixture's track
+    /// has to carry a length the way the decoder would report one.
+    fn app_playing_a_timed_track() -> MusicCraftApp {
+        use crate::library::{Library, Track, TrackId};
+
+        let audio = crate::fixtures::scratch_file("Seek.wav", &crate::fixtures::silent_wav(64));
+        let library =
+            Library::in_memory(crate::fixtures::scratch("seek-bar")).expect("an in-memory library");
+
+        let mut app = MusicCraftApp::with_library(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error: None,
+            },
+            Playback::with_engine(AudioEngine::without_device(), 1.0),
+            library,
+        );
+
+        let mut track = Track::from_path(&audio);
+        track.id = Some(TrackId(1));
+        track.title = TITLE.to_owned();
+        track.duration = Some(std::time::Duration::from_secs(240));
+        app.library_mut()
+            .expect("a library")
+            .repository_mut()
+            .upsert_track(&track)
+            .expect("the track should be stored");
+        app.refresh().expect("the library should refresh");
+
+        app.open_path(&std::fs::canonicalize(&audio).unwrap_or(audio));
+
+        app
+    }
+
+    /// The seek bar's rail, from one frame of the seek row.
+    ///
+    /// The row's widest rectangle is the rail; the only other rectangle beside
+    /// it is the slider's handle, a fraction of that width. Found by size
+    /// rather than by colour because a slider with no known duration is drawn
+    /// DISABLED, in egui's own disabled style rather than the bar's control
+    /// gray — the device-less fixture has no duration to offer, and the row's
+    /// geometry is what these tests are about.
+    fn seek_rail(painted: &Painted) -> egui::Rect {
+        painted
+            .rects
+            .iter()
+            .map(|(rect, _)| *rect)
+            .filter(|rect| rect.width() >= SEEK_BAR_MIN_WIDTH)
+            .max_by(|left, right| left.width().total_cmp(&right.width()))
+            .expect("the seek row paints a rail")
+    }
+
+    /// The window the seek row is painted into, matching `paint_seek_row`.
+    const WINDOW_WIDTH: f32 = 1180.0;
+
+    /// Run the seek row alone through real frames at a known window size.
+    ///
+    /// Alone rather than under the bar: one slider in the frame makes the rail
+    /// unambiguous, where the bar also paints the volume slider's. The bar's
+    /// own 16-point frame margin only makes the rail shorter still.
+    fn paint_seek_row(app: &mut MusicCraftApp) -> Painted {
+        let ctx = egui::Context::default();
+        let mut output = None;
+        for _ in 0..3 {
+            let mut frame = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(WINDOW_WIDTH, 808.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| super::progress(app, ui),
+            );
+            frame.textures_delta.clear();
+            output = Some(frame);
+        }
+
+        let output = output.expect("`run_ui` ran at least once");
+        let mut painted = Painted::default();
+        for clipped in &output.shapes {
+            painted.collect(&clipped.shape);
+        }
+
+        painted
+    }
+
+    #[test]
+    fn the_seek_bar_takes_no_more_than_its_half_of_the_row() {
+        let mut app = app_playing_a_timed_track();
+        let rail = seek_rail(&paint_seek_row(&mut app));
+
+        // The room the row leaves the slider, measured from the slider's own
+        // left edge: "half the size" is a share of what there is to take, not a
+        // number of points that only holds at one window width.
+        let row = WINDOW_WIDTH - rail.left();
+
+        assert!(
+            rail.width() <= row * (SEEK_BAR_SHARE + 0.01),
+            "the seek bar is {} wide, more than the {} half of the row it may take",
+            rail.width(),
+            row * SEEK_BAR_SHARE
+        );
+        assert!(
+            rail.width() >= SEEK_BAR_MIN_WIDTH,
+            "the seek bar is still usable at {} wide",
+            rail.width()
+        );
+        assert!(
+            (rail.width() - row * SEEK_BAR_SHARE).abs() < row * 0.05,
+            "the seek bar is {} wide, not the {} half of the row the size it had leaves",
+            rail.width(),
+            row * SEEK_BAR_SHARE
+        );
+    }
+
+    #[test]
+    fn the_seek_bar_stops_well_short_of_the_row_it_sits_in() {
+        let mut app = app_playing_a_timed_track();
+        let rail = seek_rail(&paint_seek_row(&mut app));
+
+        assert!(
+            rail.width() < WINDOW_WIDTH - 100.0,
+            "the seek bar is {} wide, not the {WINDOW_WIDTH} of the row it sits in",
+            rail.width()
+        );
+        assert!(
+            rail.right() <= WINDOW_WIDTH / 2.0,
+            "the seek bar ends at {}, inside the right half of the row",
+            rail.right()
+        );
+    }
+
+    #[test]
+    fn the_total_time_sits_at_the_end_of_the_seek_bar() {
+        let mut app = app_playing_a_timed_track();
+        let painted = paint_seek_row(&mut app);
+        let rail = seek_rail(&painted);
+
+        let total = painted
+            .ink("--:--")
+            .expect("the total time is painted even with no track length");
+
+        assert!(
+            total.left() >= rail.right(),
+            "the total time follows the seek bar rather than sitting away from it: \
+             {total:?} against {rail:?}"
+        );
+        assert!(
+            total.left() - rail.right() < 40.0,
+            "the total time is the bar's own trailing label, not a label parked \
+             across the row: {total:?} against {rail:?}"
+        );
+        assert!(
+            total.right() < WINDOW_WIDTH - SEEK_BAR_MIN_WIDTH,
+            "the total time travels with the bar instead of holding the window's \
+             edge: {total:?}"
+        );
     }
 
     #[test]
