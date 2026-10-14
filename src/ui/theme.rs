@@ -6,8 +6,8 @@
 //! place.
 
 use egui::{
-    Color32, Context, CornerRadius, FontFamily, FontId, Frame, Margin, Stroke, Style, TextStyle,
-    ThemePreference, Visuals, vec2,
+    Color32, Context, CornerRadius, FontFamily, FontId, Frame, Margin, Painter, Rect, Response,
+    Stroke, StrokeKind, Style, TextStyle, ThemePreference, Ui, Visuals, vec2,
 };
 
 use crate::config::ThemeMode;
@@ -91,6 +91,77 @@ pub const STATUS_BAR_HOVER: Color32 = Color32::from_rgb(158, 160, 166);
 
 /// Accent colour used for selections and links in both themes.
 pub const ACCENT: Color32 = Color32::from_rgb(10, 132, 255);
+
+/// The inner band of the keyboard focus ring.
+///
+/// egui draws no focus ring of its own — a focused button and an unfocused one
+/// paint identically — so the interface draws this itself wherever the keyboard
+/// can rest: the hand-painted rows, the sidebar entries, and the glyph
+/// controls. It is [`ACCENT`], the colour every selection in the interface
+/// already speaks.
+pub const FOCUS_RING: Color32 = ACCENT;
+
+/// The hairline outside the focus ring's accent band.
+///
+/// ACCENT alone is under the 3:1 a focus indicator owes its surroundings on
+/// the light surfaces — the bars' mid gray and the sidebar's blue especially —
+/// so a dark hairline rides just outside it. On the dark theme's panel the
+/// hairline sinks into the panel and the accent band carries the ring; on the
+/// light surfaces the hairline is what makes the edge. One of the two bands
+/// clears 3:1 on every surface the ring is ever drawn on, which is what the
+/// test below pins.
+pub const FOCUS_RING_EDGE: Color32 = Color32::from_rgb(24, 24, 28);
+
+/// Width of the focus ring's accent band, in points.
+pub const FOCUS_RING_WIDTH: f32 = 2.0;
+
+/// Width of the focus ring's hairline, in points.
+pub const FOCUS_RING_EDGE_WIDTH: f32 = 1.0;
+
+/// Draw the keyboard focus ring inside `rect`.
+///
+/// Two bands, both measured inwards from `rect`, so the ring never paints
+/// outside the control it marks — the rows are painted through a clipped
+/// painter and a ring standing outside the row would be shaved by the clip.
+pub fn focus_ring(painter: &Painter, rect: Rect) {
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(4),
+        Stroke::new(FOCUS_RING_EDGE_WIDTH, FOCUS_RING_EDGE),
+        StrokeKind::Inside,
+    );
+    painter.rect_stroke(
+        rect.shrink(FOCUS_RING_EDGE_WIDTH),
+        CornerRadius::same(4),
+        Stroke::new(FOCUS_RING_WIDTH, FOCUS_RING),
+        StrokeKind::Inside,
+    );
+}
+
+/// Draw the focus ring over `response` when the keyboard is on it.
+///
+/// egui 0.36 moves focus only under the keyboard — Tab, the arrow keys, an
+/// AccessKit request — and never on click, so the ring belongs to the
+/// keyboard alone: the pointer has hover and selection to speak with, and the
+/// ring says exactly one thing, which is where Enter will land.
+pub fn focus_ring_if_focused(ui: &Ui, response: &Response) {
+    if response.has_focus() {
+        focus_ring(ui.painter(), response.rect);
+    }
+}
+
+/// Name `response`'s control for a screen reader.
+///
+/// egui hands AccessKit the widget's own text as its name, which is fine for a
+/// button reading `Clear` and useless for one reading `⏵`. This overwrites the
+/// name with words — the same string the control already shows as hover text,
+/// so pointer and keyboard users are told the same thing. It is cheap and
+/// inert when AccessKit is not active for the frame (screen readers, tests):
+/// egui returns `None` and the closure never runs.
+pub fn accessible_name(ui: &Ui, response: &Response, name: &str) {
+    ui.ctx()
+        .accesskit_node_builder(response.id, |node| node.set_label(name));
+}
 
 /// Background colour of the navigation sidebar.
 ///
@@ -890,5 +961,87 @@ mod tests {
                 "a glyph wider than its button would be clipped by it"
             )
         };
+    }
+
+    /// The focus ring is the only sign the keyboard is on something, so it has
+    /// to clear the 3:1 an indicator owes the surface it sits on. It does that
+    /// with two bands because no single colour clears it on all five: the
+    /// accent band shows on the dark panel, the hairline shows on the light
+    /// surfaces where the accent sinks in. The test asks of each surface only
+    /// that ONE band stands out from it.
+    #[test]
+    fn the_focus_ring_shows_on_every_surface_it_lands_on() {
+        let light_panel = Visuals::light().panel_fill;
+        let dark_panel = Visuals::dark().panel_fill;
+
+        for surface in [
+            SIDEBAR_FILL,
+            STATUS_BAR_FILL,
+            CENTRE_BOX_FILL,
+            light_panel,
+            dark_panel,
+        ] {
+            let best = contrast(FOCUS_RING, surface).max(contrast(FOCUS_RING_EDGE, surface));
+            assert!(
+                best >= 3.0,
+                "the focus ring is invisible on {surface:?}: its better band only reaches {best:.2}:1"
+            );
+        }
+    }
+
+    /// The ring belongs to the control: both bands are painted inwards from
+    /// the rect, so a row drawn through a clipped painter cannot shave it.
+    #[test]
+    fn the_focus_ring_paints_its_two_bands_inside_the_rect() {
+        let rect = Rect::from_min_size(egui::Pos2::ZERO, vec2(120.0, 24.0));
+        let ctx = Context::default();
+
+        let mut bands = Vec::new();
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(rect),
+                ..Default::default()
+            },
+            |ui| focus_ring(ui.painter(), rect),
+        );
+        for clipped in &output.shapes {
+            if let egui::Shape::Rect(boxed) = &clipped.shape {
+                bands.push((boxed.rect, boxed.stroke.color, boxed.stroke.width));
+            }
+        }
+        output.textures_delta.clear();
+
+        assert!(
+            bands.contains(&(rect, FOCUS_RING_EDGE, FOCUS_RING_EDGE_WIDTH)),
+            "no hairline band: {bands:?}"
+        );
+        assert!(
+            bands.contains(&(
+                rect.shrink(FOCUS_RING_EDGE_WIDTH),
+                FOCUS_RING,
+                FOCUS_RING_WIDTH
+            )),
+            "no accent band just inside it: {bands:?}"
+        );
+        for (band, _, _) in &bands {
+            assert!(
+                rect.contains_rect(*band),
+                "a band painted outside the control it marks: {band:?} vs {rect:?}"
+            );
+        }
+    }
+
+    /// Naming a control is the cheap half of accessibility and must never be
+    /// the reason a frame dies: with no AccessKit active — every in-process
+    /// test, and every session without an assistive technology attached —
+    /// egui hands back `None` and the name is simply not set.
+    #[test]
+    fn naming_a_control_without_accesskit_active_is_harmless() {
+        let ctx = Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let response = ui.button("⏵");
+            accessible_name(ui, &response, "Play or pause");
+        });
+        output.textures_delta.clear();
     }
 }

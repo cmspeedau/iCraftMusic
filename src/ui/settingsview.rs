@@ -212,6 +212,21 @@ fn shortcuts(ui: &mut egui::Ui) {
                 ui.end_row();
             }
         });
+
+    // Not a shortcut table entry: Tab and the arrow keys are egui moving
+    // focus, and Enter is answered by whichever row wears the ring — the
+    // Library table, the album grid, the artists, a playlist, the queue —
+    // rather than by a command run over the whole application. It belongs in
+    // the pane so the gesture is findable, and stated as what it is.
+    ui.add_space(8.0);
+    ui.label(
+        RichText::new(
+            "Tab and the arrow keys move the focus ring; Enter acts on the row \
+             it rests on, as a double-click would.",
+        )
+        .small()
+        .weak(),
+    );
 }
 
 /// Where settings live on disk.

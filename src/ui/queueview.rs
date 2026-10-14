@@ -104,22 +104,25 @@ fn row(app: &MusicCraftApp, ui: &mut egui::Ui, index: usize, action: &mut Option
             label
         };
 
-        if ui
+        let label_response = ui
             .selectable_label(is_current, label)
-            .on_hover_text("Play this track")
-            .clicked()
-        {
+            .on_hover_text("Play this track");
+        theme::focus_ring_if_focused(ui, &label_response);
+        if label_response.clicked() {
             *action = Some(Action::Play(index));
         }
 
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let remove_hover = if is_current {
+                "Playing now — skip past it before removing it"
+            } else {
+                "Remove from the queue"
+            };
             let remove = ui
                 .add_enabled(!is_current, Button::new("✕").small())
-                .on_hover_text(if is_current {
-                    "Playing now — skip past it before removing it"
-                } else {
-                    "Remove from the queue"
-                });
+                .on_hover_text(remove_hover);
+            theme::accessible_name(ui, &remove, "Remove from the queue");
+            theme::focus_ring_if_focused(ui, &remove);
             if remove.clicked() {
                 *action = Some(Action::Remove(index));
             }
@@ -127,6 +130,8 @@ fn row(app: &MusicCraftApp, ui: &mut egui::Ui, index: usize, action: &mut Option
             let down = ui
                 .add_enabled(index + 1 < len, Button::new("↓").small())
                 .on_hover_text("Move later in the queue");
+            theme::accessible_name(ui, &down, "Move later in the queue");
+            theme::focus_ring_if_focused(ui, &down);
             if down.clicked() {
                 *action = Some(Action::Move {
                     from: index,
@@ -137,6 +142,8 @@ fn row(app: &MusicCraftApp, ui: &mut egui::Ui, index: usize, action: &mut Option
             let up = ui
                 .add_enabled(index > 0, Button::new("↑").small())
                 .on_hover_text("Move earlier in the queue");
+            theme::accessible_name(ui, &up, "Move earlier in the queue");
+            theme::focus_ring_if_focused(ui, &up);
             if up.clicked() {
                 *action = Some(Action::Move {
                     from: index,

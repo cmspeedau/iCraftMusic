@@ -493,7 +493,7 @@ fn page_buttons(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             Stroke::new(PAGE_BUTTON_EDGE, theme::PLAYBACK_BAR_CONTROL_EDGE)
         };
 
-        if ui
+        let response = ui
             .add_sized(
                 size,
                 Button::new(RichText::new(glyph).color(ink))
@@ -502,9 +502,14 @@ fn page_buttons(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                     .stroke(edge)
                     .frame(true),
             )
-            .on_hover_text(label)
-            .clicked()
-        {
+            .on_hover_text(label);
+        // The PAGES table is the single source for what each button is called:
+        // the pointer reads it as hover text, a screen reader reads it as the
+        // node's name, and a keyboard user sees it under the ring.
+        theme::accessible_name(ui, &response, label);
+        theme::focus_ring_if_focused(ui, &response);
+
+        if response.clicked() {
             app.browse_mut().set_kind(kind);
         }
     }
@@ -568,7 +573,7 @@ fn search_field(app: &mut MusicCraftApp, ui: &mut egui::Ui, field: Rect, clear: 
         app.browse_mut().set_query_text(String::new());
     }
 
-    ui.put(
+    let response = ui.put(
         field,
         // The field and the buttons beside it are a WHITE surface, at the user's
         // request, so the query, its hint, the caret and the button's label all
@@ -578,8 +583,13 @@ fn search_field(app: &mut MusicCraftApp, ui: &mut egui::Ui, field: Rect, clear: 
         TextEdit::singleline(app.browse_mut().query_text_mut())
             .hint_text("Search…")
             .background_color(SEARCH_FILL),
-    )
-    .on_hover_text("Matches title, artist, album, genre and path");
+    );
+    // The hint reaches a screen reader as the field's placeholder, but the
+    // words give it a name outright; the ring shows where Tab has reached on a
+    // field whose only other sign of focus is a caret in empty white.
+    theme::accessible_name(ui, &response, "Search");
+    theme::focus_ring_if_focused(ui, &response);
+    response.on_hover_text("Matches title, artist, album, genre and path");
 }
 
 /// The cream box on the window's centre: cover, track details, queue button,
@@ -828,14 +838,23 @@ fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
     let size = [TRANSPORT_BUTTON_WIDTH, TRANSPORT_BUTTON_HEIGHT];
 
-    if ui
-        .add_enabled(
-            has_current,
-            Button::new(glyph_ink("⏮")).min_size(size.into()),
-        )
-        .on_hover_text("Previous")
-        .clicked()
-    {
+    // Each button gets the words the pointer already reads as hover text: a
+    // screen reader is told "Previous" rather than "⏮", and the ring is what
+    // Tab leaves behind. One shape so the three cannot disagree about which
+    // control says what.
+    let transport_button = |ui: &mut egui::Ui, glyph: &str, words: &str| {
+        let response = ui
+            .add_enabled(
+                has_current,
+                Button::new(glyph_ink(glyph)).min_size(size.into()),
+            )
+            .on_hover_text(words);
+        theme::accessible_name(ui, &response, words);
+        theme::focus_ring_if_focused(ui, &response);
+        response.clicked()
+    };
+
+    if transport_button(ui, "⏮", "Previous") {
         app.previous_track();
     }
 
@@ -844,25 +863,11 @@ fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     } else {
         "▶"
     };
-    if ui
-        .add_enabled(
-            has_current,
-            Button::new(glyph_ink(play)).min_size(size.into()),
-        )
-        .on_hover_text("Play or pause")
-        .clicked()
-    {
+    if transport_button(ui, play, "Play or pause") {
         app.toggle_playback();
     }
 
-    if ui
-        .add_enabled(
-            has_current,
-            Button::new(glyph_ink("⏭")).min_size(size.into()),
-        )
-        .on_hover_text("Next")
-        .clicked()
-    {
+    if transport_button(ui, "⏭", "Next") {
         app.next_track();
     }
 }
@@ -874,15 +879,22 @@ fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 fn queue_button(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let queued = app.playback().queue().len();
     let open = app.queue_open();
+    let words = format!(
+        "Queue ({} {})",
+        queued,
+        if queued == 1 { "track" } else { "tracks" }
+    );
 
-    if ui
+    let response = ui
         .add_sized(
             Vec2::splat(QUEUE_BUTTON_SIZE),
             Button::selectable(open, RichText::new(QUEUE_GLYPH).size(QUEUE_GLYPH_SIZE)),
         )
-        .on_hover_text(format!("Queue ({queued})"))
-        .clicked()
-    {
+        .on_hover_text(&words);
+    theme::accessible_name(ui, &response, &words);
+    theme::focus_ring_if_focused(ui, &response);
+
+    if response.clicked() {
         app.toggle_queue();
     }
 }
@@ -975,6 +987,10 @@ fn volume(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let response = ui
         .add(Slider::new(&mut value, 0.0..=1.0).show_value(false))
         .on_hover_text("Volume");
+    // The rail answers the arrow keys while it has focus; the name and the
+    // ring are what say that this is the volume, and that the keyboard is here.
+    theme::accessible_name(ui, &response, "Volume");
+    theme::focus_ring_if_focused(ui, &response);
 
     let widgets = &mut ui.style_mut().visuals.widgets;
     widgets.inactive.bg_fill = resting;

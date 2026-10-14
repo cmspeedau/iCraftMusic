@@ -36,7 +36,7 @@ pretending otherwise.
 | 5     | Playlists and Queue Management      | Complete |
 | 6     | Metadata Editing and Library Polish | Complete |
 | 7     | Settings, Reliability, Performance  | Complete |
-| 8     | Visual Refinement and Accessibility | Planned  |
+| 8     | Visual Refinement and Accessibility | Complete |
 | 9     | Release and Distribution            | Planned  |
 | 10    | Optional Future Enhancements        | Planned  |
 
@@ -148,11 +148,12 @@ is picked, the same way clicking an album tile does.
 | Library — Albums      | Album grid with cover art, decoded once per album and re-decoded when the texture cache fills                         |
 | Library — Artists     | Artist list, virtualised like the track table                                                                        |
 | Search                | Live filtering as the query is typed, over the rows already in memory; typing never touches the database              |
-| Playlists             | Create, rename, copy and delete; add tracks from the Library's context menu; reorder entries; play the whole list     |
+| Playlists             | Create, rename, copy and delete; add tracks from the Library's context menu; reorder entries; play the whole list, or from any row by double-click |
 | Metadata editing      | Title, artist, album, album artist, genre, track and disc numbers, and the cover; save to the database or write the tags into the file |
 | Play counts           | A **Plays** column, counted by the library rather than by the file, so a rescan does not reset it                     |
 | Sorting and filtering | A leading article is ignored (`The Beatles` files under B); the table can be narrowed to tracks whose files have vanished |
-| Keyboard              | Space, `Ctrl/⌘ ←/→/↑/↓`, `Ctrl/⌘ L/P/,/1/2/3/E`, `Delete` and `Esc`; listed in Settings, and none fires while a text field has focus |
+| Keyboard              | Space, `Ctrl/⌘ ←/→/↑/↓`, `Ctrl/⌘ L/P/,/1/2/3/E`, `Delete` and `Esc`; Tab and the arrow keys walk a visible focus ring, and Enter acts on the row it rests on — the table, the albums, the artists, a playlist — as a double-click would; listed in Settings, and none fires while a text field has focus |
+| Accessibility         | Every focusable control shows the ring, and every glyph-only button and slider gives a screen reader the words the pointer gets as hover text (`Repeat: this track`, not `🔁`) through AccessKit |
 | Settings              | Theme, volume, watched folders and output device, each persisted as it changes                                        |
 | Diagnostics           | Build, schema version, library counts, exact paths, the audio stream in use, and an on-demand `PRAGMA integrity_check` |
 | Recovery              | A versioned database copied beside itself (`VACUUM INTO`) before a migration rewrites it                             |
@@ -332,7 +333,7 @@ src/
 └── ui/
     ├── mod.rs         # shell composition
     ├── navigation.rs  # sidebar sections and the playlist list
-    ├── theme.rs       # light/dark theming
+    ├── theme.rs       # light/dark theming, the focus ring, and accessible names
     ├── libraryview.rs # library view: tracks, albums, artists
     ├── editview.rs    # the metadata editor
     ├── dialog.rs      # confirmation for destructive library actions

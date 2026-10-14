@@ -15,13 +15,15 @@
 
 use std::collections::BTreeSet;
 
-use egui::{Align2, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Sense, Vec2};
+use egui::{
+    Align2, Color32, CornerRadius, FontId, PointerButton, Pos2, Rect, RichText, Sense, Vec2,
+};
 
 use crate::app::MusicCraftApp;
 use crate::library::browse::{AlbumCard, BrowseKind, ClickMode};
 use crate::library::{Track, TrackId};
 use crate::search::SortKey;
-use crate::ui::{empty_state, theme};
+use crate::ui::{empty_state, keyboard_activated, theme};
 
 /// Height of a track or artist row, in points.
 const ROW_HEIGHT: f32 = 24.0;
@@ -347,9 +349,15 @@ fn tracks_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
                 let response = track_row(ui, &columns, index + 1, track, selected, is_current);
 
-                if response.double_clicked() {
+                // Enter on the ring the row wears is the keyboard's double-click.
+                // The row still answers to egui's Space/Enter-as-click while it
+                // has focus, so a plain `clicked()` cannot be trusted to mean
+                // the pointer chose it — selection is `clicked_by(Primary)`
+                // alone, which keeps the keyboard's Enter from selecting the
+                // row a second time under the play.
+                if keyboard_activated(&response, ui) || response.double_clicked() {
                     action = Some(RowAction::Play { index });
-                } else if response.clicked() {
+                } else if response.clicked_by(PointerButton::Primary) {
                     action = Some(RowAction::Select {
                         index,
                         mode: click_mode(ui),
@@ -650,6 +658,11 @@ fn track_row(
         );
     }
 
+    // The row's own background already answers the pointer — selection fills
+    // it, hover shades it. The ring is what the pointer cannot see: the mark
+    // that says this row is where Enter will land.
+    theme::focus_ring_if_focused(ui, &response);
+
     response.on_hover_text(hover_text(track))
 }
 
@@ -714,9 +727,9 @@ fn albums_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
             let response = album_tile(ui, texture, card);
 
-            if response.double_clicked() {
+            if keyboard_activated(&response, ui) || response.double_clicked() {
                 action = Some(GroupAction::PlayAlbum(card.album.name.clone()));
-            } else if response.clicked() {
+            } else if response.clicked_by(PointerButton::Primary) {
                 action = Some(GroupAction::Filter(card.album.name.clone()));
             }
 
@@ -812,6 +825,8 @@ fn album_tile(
         ui.visuals().weak_text_color(),
     );
 
+    theme::focus_ring_if_focused(ui, &response);
+
     response
 }
 
@@ -880,11 +895,13 @@ fn artists_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                     ui.visuals().weak_text_color(),
                 );
 
-                if response.double_clicked() {
+                if keyboard_activated(&response, ui) || response.double_clicked() {
                     action = Some(GroupAction::PlayArtist(artist.name.clone()));
-                } else if response.clicked() {
+                } else if response.clicked_by(PointerButton::Primary) {
                     action = Some(GroupAction::Filter(artist.name.clone()));
                 }
+
+                theme::focus_ring_if_focused(ui, &response);
 
                 response.context_menu(|ui| {
                     if ui.button("Play").clicked() {
@@ -1407,5 +1424,272 @@ mod tests {
             );
             assert!(columns.width_of(Column::Duration) > 0.0);
         }
+    }
+
+    /// Draw one frame of the table with `events` in front of it.
+    ///
+    /// Focus and Enter are only testable through a real `Context`: a
+    /// `__run_test_ui` frame has no memory worth speaking of across frames,
+    /// and a click that never went through `run` never set focus anywhere.
+    /// The frames below share one context, so what the first click focuses is
+    /// what the last Enter finds.
+    fn paint_frame(
+        ctx: &egui::Context,
+        app: &mut MusicCraftApp,
+        events: Vec<egui::Event>,
+    ) -> Vec<egui::epaint::ClippedShape> {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                events,
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1180.0, 808.0),
+                )),
+                ..Default::default()
+            },
+            |ui| show(app, ui),
+        );
+        output.textures_delta.clear();
+        output.shapes
+    }
+
+    /// The rectangle the library table painted the title `needle` into.
+    fn ink_of(shapes: &[egui::epaint::ClippedShape], needle: &str) -> egui::Rect {
+        shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) if text.galley.text() == needle => {
+                    // The table draws its titles LEFT_CENTER, so `pos` is the
+                    // left edge of the line's vertical centre, not its corner.
+                    let size = text.galley.size();
+                    Some(egui::Rect::from_min_size(
+                        egui::pos2(text.pos.x, text.pos.y - size.y / 2.0),
+                        size,
+                    ))
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("nothing painted reads {needle:?}"))
+    }
+
+    /// Tab until something in the table wears the focus ring, returning how
+    /// many Tabs it took and the ring's rectangle.
+    ///
+    /// egui 0.36 hands focus to the keyboard — Tab, arrows, AccessKit — and
+    /// NOT to the mouse: clicking a row selects it but leaves focus where it
+    /// was. So the tests move the ring the way the user would, and the ring
+    /// itself is the evidence of where it landed. The leading Tabs land on
+    /// the table's column headings, which are focusable but wear no ring;
+    /// the first ring is the first visible row.
+    fn tab_until_ring(ctx: &egui::Context, app: &mut MusicCraftApp) -> (usize, egui::Rect) {
+        for tab in 1..=40 {
+            let shapes = paint_frame(
+                ctx,
+                app,
+                vec![egui::Event::Key {
+                    key: egui::Key::Tab,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            if let Some(ring) = rings(&shapes).first().copied() {
+                return (tab, ring);
+            }
+        }
+        panic!("40 Tabs and the table never showed a focus ring");
+    }
+
+    /// The rectangles of every painted focus ring's accent band.
+    fn rings(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::Rect> {
+        shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(boxed)
+                    if boxed.stroke.color == theme::FOCUS_RING
+                        && (boxed.stroke.width - theme::FOCUS_RING_WIDTH).abs() < 0.01 =>
+                {
+                    Some(boxed.rect)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Move the pointer onto `at`, press, and release — the mouse's click.
+    fn click_pointer(ctx: &egui::Context, app: &mut MusicCraftApp, at: egui::Pos2) {
+        paint_frame(
+            ctx,
+            app,
+            vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        paint_frame(
+            ctx,
+            app,
+            vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+    }
+
+    /// One frame with Enter pressed.
+    fn press_enter(ctx: &egui::Context, app: &mut MusicCraftApp) {
+        paint_frame(
+            ctx,
+            app,
+            vec![egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+    }
+
+    #[test]
+    fn enter_on_the_focused_row_plays_it_and_a_further_tab_moves_the_play() {
+        let mut app = imported();
+        let ctx = egui::Context::default();
+        let shapes = paint_frame(&ctx, &mut app, vec![]);
+
+        // The library sorts by title, so Roygbiv is the first row and Xtal
+        // the second — the rows the two rings will land on, in that order.
+        let first = ink_of(&shapes, "Roygbiv");
+        let (tabs, ring) = tab_until_ring(&ctx, &mut app);
+        assert!(
+            ring.height() > 0.0
+                && first.center().y >= ring.top()
+                && first.center().y <= ring.bottom(),
+            "the first ring is not on the first row: {ring:?} vs title at {:?}",
+            first.center()
+        );
+
+        press_enter(&ctx, &mut app);
+        assert_eq!(
+            app.playback().current().map(|item| item.title().to_owned()),
+            Some("Roygbiv".to_owned()),
+            "Enter on the row the ring rests on is its double-click"
+        );
+
+        // One Tab on: the ring moves to the next row, and Enter plays THAT
+        // one — proof the play follows the ring and not the first focus.
+        let shapes = paint_frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::Key {
+                key: egui::Key::Tab,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        let ring = rings(&shapes).first().copied().expect("ring on second tab");
+        let second = ink_of(&shapes, "Xtal");
+        assert!(
+            second.center().y >= ring.top() && second.center().y <= ring.bottom(),
+            "the ring did not move to the second row: {ring:?} vs {:?}",
+            second.center()
+        );
+
+        press_enter(&ctx, &mut app);
+        assert_eq!(
+            app.playback().current().map(|item| item.title().to_owned()),
+            Some("Xtal".to_owned()),
+            "the second row's Enter should have taken over the play"
+        );
+        assert!(tabs >= 1);
+    }
+
+    #[test]
+    fn enter_with_nothing_focused_plays_nothing() {
+        // The other half: the play must belong to the ring, not to the key.
+        let mut app = imported();
+        let ctx = egui::Context::default();
+        paint_frame(&ctx, &mut app, vec![]);
+
+        press_enter(&ctx, &mut app);
+
+        assert!(
+            app.playback().current().is_none(),
+            "an unfocused table played something"
+        );
+    }
+
+    #[test]
+    fn a_focused_row_wears_exactly_one_focus_ring() {
+        let mut app = imported();
+        let ctx = egui::Context::default();
+        paint_frame(&ctx, &mut app, vec![]);
+        tab_until_ring(&ctx, &mut app);
+
+        let shapes = paint_frame(&ctx, &mut app, vec![]);
+        assert_eq!(rings(&shapes).len(), 1, "one ring for the one focused row");
+    }
+
+    #[test]
+    fn the_keyboard_enter_does_not_select_the_row() {
+        // Selection is the pointer's `clicked_by(Primary)`; egui's
+        // Space/Enter-as-click on the focused row must not run it. The ring
+        // plays the row and leaves the selection alone — empty here, because
+        // the mouse never touched the table.
+        let mut app = imported();
+        let ctx = egui::Context::default();
+        paint_frame(&ctx, &mut app, vec![]);
+        tab_until_ring(&ctx, &mut app);
+
+        press_enter(&ctx, &mut app);
+
+        assert!(app.playback().current().is_some(), "the row played");
+        assert!(
+            app.browse().selection().ids().next().is_none(),
+            "Enter reached the selection as well as the transport"
+        );
+    }
+
+    #[test]
+    fn a_mouse_click_selects_a_row_and_clears_the_ring() {
+        // egui 0.36 surrenders focus when the pointer clicks elsewhere — the
+        // same rule that frees the transport shortcuts once a click leaves the
+        // search field. So the mouse buys a selection and the keyboard pays
+        // with its ring: after a click elsewhere, Enter belongs to nothing,
+        // and Tab walks the ring back. What must NOT happen is the click
+        // moving the ring to the row it just selected, because then Enter
+        // would play whatever the pointer last touched.
+        let mut app = imported();
+        let ctx = egui::Context::default();
+        paint_frame(&ctx, &mut app, vec![]);
+        tab_until_ring(&ctx, &mut app);
+
+        let shapes = paint_frame(&ctx, &mut app, vec![]);
+        let title = ink_of(&shapes, "Xtal");
+        click_pointer(&ctx, &mut app, title.center());
+
+        let shapes = paint_frame(&ctx, &mut app, vec![]);
+        assert!(rings(&shapes).is_empty(), "the click left a ring behind");
+        assert_eq!(
+            app.browse().selection().ids().collect::<Vec<_>>(),
+            vec![app.browse().visible_track_ids()[1]],
+            "the click still selected the row it landed on"
+        );
+
+        press_enter(&ctx, &mut app);
+        assert!(
+            app.playback().current().is_none(),
+            "with the ring gone, Enter must play nothing — not the last-clicked row"
+        );
     }
 }

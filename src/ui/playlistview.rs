@@ -20,6 +20,7 @@ use crate::app::MusicCraftApp;
 use crate::library::{PlaylistId, Track, TrackId};
 use crate::playlists::PlaylistEditKind;
 
+use super::keyboard_activated;
 use super::theme;
 
 /// Height of one track row, in points.
@@ -43,6 +44,8 @@ enum Action {
     Queue,
     /// Take one track out of the open playlist.
     RemoveTrack(TrackId),
+    /// Play the open playlist from one of its entries.
+    PlayFrom(usize),
     /// Move an entry one place earlier.
     MoveEarlier(usize),
     /// Move an entry one place later.
@@ -222,6 +225,15 @@ fn track_rows(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action
 
         position_controls(ui, rect, index, last, action);
 
+        // The gesture the Library's table taught: double-click plays from the
+        // row, and so does Enter on the row wearing the focus ring — the one
+        // keyboard route into a playlist that does not go through the heading.
+        if keyboard_activated(&response, ui) || response.double_clicked() {
+            *action = Some(Action::PlayFrom(index));
+        }
+
+        theme::focus_ring_if_focused(ui, &response);
+
         let track_id = track.id;
         response
             .on_hover_text(hover_text(track))
@@ -264,6 +276,13 @@ fn position_controls(
                 Button::new(RichText::new(label).size(12.0)).frame(false),
             );
 
+            // ⏶ and ⏷ say nothing to a screen reader on their own, and a
+            // keyboard user cannot see which of them the row's arrow focus has
+            // reached without a ring; both take the words the pointer already
+            // gets as hover text.
+            theme::accessible_name(ui, &response, fallback);
+            theme::focus_ring_if_focused(ui, &response);
+
             if response.on_hover_text(fallback).clicked() {
                 *action = Some(if earlier {
                     Action::MoveEarlier(index)
@@ -289,6 +308,12 @@ fn apply(app: &mut MusicCraftApp, action: Action) {
         }
         Action::RemoveTrack(id) => {
             app.remove_from_playlist(id);
+        }
+        Action::PlayFrom(index) => {
+            // Copied out first: `play_tracks` takes the rows it queues while
+            // the application is mutably borrowed to start playback.
+            let tracks: Vec<Track> = app.playlist_tracks().to_vec();
+            app.play_tracks(&tracks, index);
         }
         // A move is a swap of one row with its neighbour, which is how the
         // database orders playlist entries.
@@ -458,6 +483,107 @@ mod tests {
             1,
             "the sidebar count follows"
         );
+    }
+
+    #[test]
+    fn playing_from_a_row_queues_the_playlist_from_that_entry_on() {
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &library_ids(&app));
+        app.open_playlist(app.playlists().first().expect("a playlist").id);
+
+        let second = app.playlist_tracks()[1].title.clone();
+        apply(&mut app, Action::PlayFrom(1));
+
+        assert_eq!(
+            app.playback().current().map(|item| item.title().to_owned()),
+            Some(second),
+            "the row the ring was on becomes the track that plays"
+        );
+        assert_eq!(
+            app.playback().queue().len(),
+            2,
+            "the whole playlist still goes on the queue — the row only moves the start"
+        );
+    }
+
+    #[test]
+    fn enter_on_the_focused_playlist_row_plays_from_there() {
+        // Driven the way the keyboard drives it: a frame, a Tab to put the
+        // ring on the first row, an Enter. egui 0.36 gives focus to the
+        // keyboard only, so this — not a synthetic click — is the honest path.
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &library_ids(&app));
+        app.open_playlist(app.playlists().first().expect("a playlist").id);
+        let first = app.playlist_tracks()[0].title.clone();
+
+        let ctx = egui::Context::default();
+        paint(&ctx, &mut app, vec![]);
+        let shapes = paint(
+            &ctx,
+            &mut app,
+            vec![key(egui::Key::Tab, egui::Modifiers::NONE)],
+        );
+        assert!(
+            rings(&shapes) == 1,
+            "Tab did not put a focus ring on a playlist row"
+        );
+
+        paint(
+            &ctx,
+            &mut app,
+            vec![key(egui::Key::Enter, egui::Modifiers::NONE)],
+        );
+
+        assert_eq!(
+            app.playback().current().map(|item| item.title().to_owned()),
+            Some(first),
+            "Enter on the ringed row should have started the playlist at its top"
+        );
+    }
+
+    /// Draw one frame of the section with `events` in front of it.
+    fn paint(
+        ctx: &egui::Context,
+        app: &mut MusicCraftApp,
+        events: Vec<egui::Event>,
+    ) -> Vec<egui::epaint::ClippedShape> {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                events,
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1180.0, 808.0),
+                )),
+                ..Default::default()
+            },
+            |ui| show(app, ui),
+        );
+        output.textures_delta.clear();
+        output.shapes
+    }
+
+    fn key(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }
+    }
+
+    /// How many painted focus-ring accent bands the frame carries.
+    fn rings(shapes: &[egui::epaint::ClippedShape]) -> usize {
+        shapes
+            .iter()
+            .filter(|clipped| match &clipped.shape {
+                egui::Shape::Rect(boxed) => {
+                    boxed.stroke.color == theme::FOCUS_RING
+                        && (boxed.stroke.width - theme::FOCUS_RING_WIDTH).abs() < 0.01
+                }
+                _ => false,
+            })
+            .count()
     }
 
     #[test]

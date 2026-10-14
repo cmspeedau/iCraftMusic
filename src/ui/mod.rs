@@ -104,6 +104,17 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     });
 }
 
+/// Enter on the control that wears the focus ring.
+///
+/// Every hand-painted row in the interface takes this for its keyboard
+/// gesture: the ring says where the keyboard is, Enter acts on that row, and
+/// what it does is the row's double-click — play the track, the album, the
+/// artist's work. The check is per-row on `has_focus()`, so one Enter cannot
+/// fire two rows even though every visible row reads the same key.
+pub fn keyboard_activated(response: &egui::Response, ui: &egui::Ui) -> bool {
+    response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter))
+}
+
 /// A centred placeholder for sections that have no data yet.
 ///
 /// `bullets` are shown as a short list under the explanation; pass `&[]` to

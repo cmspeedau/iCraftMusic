@@ -125,9 +125,13 @@ fn nav_item(ui: &mut egui::Ui, section: NavSection, selected: bool) -> bool {
     let size = [ui.available_width(), theme::NAV_ITEM_HEIGHT];
     let button = Button::selectable(selected, RichText::new(section.label()));
 
-    ui.add_sized(size, button)
-        .on_hover_text(section.description())
-        .clicked()
+    let response = ui
+        .add_sized(size, button)
+        .on_hover_text(section.description());
+    // The entry's own word names it to a screen reader; the ring is the part
+    // egui never draws — the only sign Tab has stopped here.
+    theme::focus_ring_if_focused(ui, &response);
+    response.clicked()
 }
 
 /// The playlists, under a heading that sits level with "Browse".
@@ -189,9 +193,9 @@ fn playlist_item(
     let size = [ui.available_width(), theme::PLAYLIST_ITEM_HEIGHT];
     let button = Button::selectable(selected, RichText::new(playlist.display_name()));
 
-    ui.add_sized(size, button)
-        .on_hover_text(playlist.totals())
-        .clicked()
+    let response = ui.add_sized(size, button).on_hover_text(playlist.totals());
+    theme::focus_ring_if_focused(ui, &response);
+    response.clicked()
 }
 
 #[cfg(test)]

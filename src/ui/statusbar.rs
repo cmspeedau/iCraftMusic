@@ -128,6 +128,12 @@ fn new_playlist(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         ),
     );
 
+    // The glyph is a cross to the eye and nothing at all to a screen reader;
+    // the ring is the only sign Tab has reached it. Both take what the bar
+    // already says about the control under the pointer.
+    theme::accessible_name(ui, &response, "New playlist");
+    theme::focus_ring_if_focused(ui, &response);
+
     if response
         .on_hover_text("Name a playlist, then add tracks to it")
         .clicked()
@@ -155,6 +161,9 @@ fn settings(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 .strong(),
         ),
     );
+
+    theme::accessible_name(ui, &response, NavSection::Settings.label());
+    theme::focus_ring_if_focused(ui, &response);
 
     if response
         .on_hover_text(NavSection::Settings.label())
@@ -185,6 +194,11 @@ fn shuffle(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             ),
         )
         .on_hover_text(shuffle_hover(on));
+
+    // The hover words carry the on/off state; a screen reader reads them from
+    // the node's name, and the ring says the keyboard is here.
+    theme::accessible_name(ui, &response, shuffle_hover(on));
+    theme::focus_ring_if_focused(ui, &response);
 
     if !on {
         strike_out(ui, response.rect);
@@ -222,6 +236,9 @@ fn repeat(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             ),
         )
         .on_hover_text(repeat_hover(mode));
+
+    theme::accessible_name(ui, &response, repeat_hover(mode));
+    theme::focus_ring_if_focused(ui, &response);
 
     if !on {
         strike_out(ui, response.rect);
