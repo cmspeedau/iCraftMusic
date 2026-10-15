@@ -16,7 +16,10 @@ use std::time::Duration;
 
 use eframe::CreationContext;
 
-use crate::audio::{AudioDevice, Playback, PlaybackEvent, QueueItem, RepeatMode};
+use crate::audio::{
+    AudioDevice, EqualizerSettings, MAX_CROSSFADE_SECONDS, Playback, PlaybackEvent, QueueItem,
+    RepeatMode,
+};
 use crate::config::{AppConfig, ThemeMode};
 use crate::diagnostics::{self, Diagnostics};
 use crate::error::{AppError, Result};
@@ -222,6 +225,10 @@ impl MusicCraftApp {
         if startup.config.shuffle {
             playback.toggle_shuffle();
         }
+        // The audio effects are preferences too: the equalizer the user set and
+        // the crossfade length are in force from the first track.
+        playback.set_equalizer(startup.config.equalizer.clone());
+        playback.set_crossfade(startup.config.crossfade_seconds);
 
         Self::with_library_later(startup, playback)
     }
@@ -1861,6 +1868,47 @@ impl MusicCraftApp {
             self.config_dirty = true;
         }
         self.playback.set_volume(volume);
+    }
+
+    /// The stored equalizer settings.
+    pub fn equalizer(&self) -> &EqualizerSettings {
+        &self.config.equalizer
+    }
+
+    /// Replace the equalizer settings and schedule a save.
+    ///
+    /// The value is handed to the player straight away, and because each track
+    /// reads the settings as it runs, the change is heard on the track that is
+    /// already playing.
+    pub fn set_equalizer(&mut self, settings: EqualizerSettings) {
+        if self.config.equalizer != settings {
+            self.config.equalizer = settings.clone();
+            self.config_dirty = true;
+        }
+        self.playback.set_equalizer(settings);
+    }
+
+    /// The stored crossfade length in seconds; zero means gapless.
+    pub fn crossfade_seconds(&self) -> f32 {
+        self.config.crossfade_seconds
+    }
+
+    /// Set the crossfade length and schedule a save.
+    ///
+    /// A change takes effect from the next track change: the track already
+    /// lined up is on the device or decoded already, so it keeps the transition
+    /// it was prepared for.
+    pub fn set_crossfade_seconds(&mut self, seconds: f32) {
+        let seconds = if seconds.is_finite() {
+            seconds.clamp(0.0, MAX_CROSSFADE_SECONDS)
+        } else {
+            0.0
+        };
+        if self.config.crossfade_seconds != seconds {
+            self.config.crossfade_seconds = seconds;
+            self.config_dirty = true;
+        }
+        self.playback.set_crossfade(seconds);
     }
 
     /// Where settings are stored, when the platform provides a location.

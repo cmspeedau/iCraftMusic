@@ -38,7 +38,18 @@ pretending otherwise.
 | 7     | Settings, Reliability, Performance  | Complete |
 | 8     | Visual Refinement and Accessibility | Complete |
 | 9     | Release and Distribution            | Planned  |
-| 10    | Optional Future Enhancements        | Planned  |
+| 10    | Optional Future Enhancements        | Partial  |
+
+Stage 10 collects features that are optional rather than prerequisites, and
+three of them have been built: **gapless playback**, **crossfade** and a
+**graphic equalizer**. Consecutive tracks whose order the queue already knows
+change over with no silence between them, because the track that follows is
+handed to the audio device before the current one ends and the hand-over is
+reported from the audio itself. A crossfade length above zero blends the two
+instead, overlapping them by that many seconds on the engine's two decks. The
+equalizer is a ten-band peaking-filter bank with a preamp and presets, applied to
+every track as it plays. The other additions the roadmap lists are not started.
+See [ROADMAP.md](ROADMAP.md#stage-10--optional-future-enhancements) for the detail.
 
 Beyond music, four further stages are planned in
 [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md):
@@ -143,6 +154,7 @@ is picked, the same way clicking an album tile does.
 | Area                  | What works                                                                                                          |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | Playback              | Play, pause, stop, seek, volume, previous and next; device, decoder and missing-file failures reported in place of the track detail |
+| Gapless playback      | The queue lines up the next track's audio behind the current one, so consecutive tracks change over with no silence between them; the change-over is reported from the audio, not a frame late |
 | Queue                 | Move a track earlier or later, remove it, clear the list, jump to any entry; shuffle and repeat                       |
 | Library — All Tracks  | Sortable table (title, artist, album, genre, duration, plays) with click, ctrl-click and shift-click selection        |
 | Library — Albums      | Album grid with cover art, decoded once per album and re-decoded when the texture cache fills                         |
@@ -154,7 +166,7 @@ is picked, the same way clicking an album tile does.
 | Sorting and filtering | A leading article is ignored (`The Beatles` files under B); the table can be narrowed to tracks whose files have vanished |
 | Keyboard              | Space, `Ctrl/⌘ ←/→/↑/↓`, `Ctrl/⌘ L/P/,/1/2/3/E`, `Delete` and `Esc`; Tab and the arrow keys walk a visible focus ring, and Enter acts on the row it rests on — the table, the albums, the artists, a playlist — as a double-click would; listed in Settings, and none fires while a text field has focus |
 | Accessibility         | Every focusable control shows the ring, and every glyph-only button and slider gives a screen reader the words the pointer gets as hover text (`Repeat: this track`, not `🔁`) through AccessKit |
-| Settings              | Theme, volume, watched folders and output device, each persisted as it changes                                        |
+| Settings              | Theme, volume, watched folders, output device, the crossfade length and the equalizer, each persisted as it changes     |
 | Diagnostics           | Build, schema version, library counts, exact paths, the audio stream in use, and an on-demand `PRAGMA integrity_check` |
 | Recovery              | A versioned database copied beside itself (`VACUUM INTO`) before a migration rewrites it                             |
 | Logging               | stderr and a rotated, bounded log file under the data directory                                                      |
@@ -163,7 +175,15 @@ is picked, the same way clicking an album tile does.
 Known limitations: a scan can be stopped but is not resumed after the application
 exits. Editing a track's details keeps them in the library until the file changes
 or the tags are written into the file itself. A file played without being indexed
-(the play field, or the command line) has no row to count a play against. There
+(the play field, or the command line) has no row to count a play against. Gapless
+playback covers every track order the queue can name before the current track
+ends, but an edit to the queue in the moment before a change-over — removing or
+moving the track that was lined up — makes the player follow the queue with a
+normal load, which can be heard as a short gap; this is the one case where a
+change is not seamless. A crossfade is stepped on the frame clock rather than
+per sample, so a fade is smooth but not exact; it also needs a track whose length
+the decoder reported, and a track shorter than the fade finishes before the fade
+does. The equalizer has ten fixed bands and one preset shape per band. There
 is no installer and no release artifact yet; packaging is prepared under
 `packaging/`, not finished. These are deliberate and tracked in the roadmap, not
 presented as finished features.

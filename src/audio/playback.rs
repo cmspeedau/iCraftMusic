@@ -6,6 +6,11 @@
 //! seek, volume, repeat, shuffle — is one method here, and each of them records
 //! a failure for the UI to display instead of throwing it at the caller.
 //!
+//! The same place joins the two sides of a gapless change: when a track starts,
+//! the queue is asked which track follows and that track's audio is handed to
+//! the device to wait behind the current one, so the two run together with no
+//! pause between them. Only the bookkeeping waits for the change to happen.
+//!
 //! Keeping the facade infallible matters for the interface: a frame cannot
 //! return an error, and a player that dies because one file would not decode is
 //! worse than one that shows a message and moves on.
@@ -14,7 +19,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::{AudioEngine, AudioError, PlayQueue, QueueItem, RepeatMode, is_supported};
+use super::{
+    AudioEngine, AudioError, EngineEvent, EqualizerSettings, PlayQueue, QueueItem, RepeatMode,
+    is_supported,
+};
 
 /// Something the queue did that the interface should know about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +95,10 @@ impl Playback {
     pub fn switch_output(&mut self, device: Option<&str>) -> Result<(), AudioError> {
         let mut engine = AudioEngine::open_device(device)?;
         engine.set_volume(self.engine.volume());
+        // The effects are properties of the player, not of the device, so they
+        // follow the track onto the new output.
+        engine.set_equalizer(self.engine.equalizer());
+        engine.set_crossfade(self.engine.crossfade_seconds());
 
         // Reload after the swap: the old device's player is torn down with its
         // stream, so the track has to be handed to the new one to keep playing.
@@ -98,10 +110,11 @@ impl Playback {
 
         self.engine = engine;
 
-        if let Some(path) = resume
-            && let Err(error) = self.engine.load(&path)
-        {
-            self.error = Some(error);
+        if let Some(path) = resume {
+            match self.engine.load(&path) {
+                Ok(_) => self.preload_next(),
+                Err(error) => self.error = Some(error),
+            }
         }
 
         Ok(())
@@ -179,6 +192,28 @@ impl Playback {
     /// Sets the playback volume, clamped to the accepted range.
     pub fn set_volume(&mut self, volume: f32) {
         self.engine.set_volume(volume);
+    }
+
+    /// The equalizer settings the engine is filtering with.
+    #[must_use]
+    pub fn equalizer(&self) -> EqualizerSettings {
+        self.engine.equalizer()
+    }
+
+    /// Replaces the equalizer settings; tracks already playing follow them.
+    pub fn set_equalizer(&self, settings: EqualizerSettings) {
+        self.engine.set_equalizer(settings);
+    }
+
+    /// The crossfade length in seconds; zero means a gapless change-over.
+    #[must_use]
+    pub fn crossfade_seconds(&self) -> f32 {
+        self.engine.crossfade_seconds()
+    }
+
+    /// Sets the crossfade length, clamped to the accepted range.
+    pub fn set_crossfade(&mut self, seconds: f32) {
+        self.engine.set_crossfade(seconds);
     }
 
     /// How the queue behaves when a track ends.
@@ -400,21 +435,62 @@ impl Playback {
     /// This is also the entry point for a simple "play this file": build a
     /// queue of one with [`Playback::enqueue`] and call this.
     pub fn play_current(&mut self) {
-        let Some(item) = self.queue.current() else {
+        let Some(index) = self.queue.current_index() else {
             self.error = Some(AudioError::EmptyQueue);
             return;
         };
-        let path = item.path().to_path_buf();
+        self.start_index(index);
+    }
+
+    /// Loads the queue track at `index`, plays it, and lines up the one after
+    /// it so the two change over with no gap.
+    fn start_index(&mut self, index: usize) {
+        let Some(path) = self
+            .queue
+            .items()
+            .get(index)
+            .map(|item| item.path().to_path_buf())
+        else {
+            return;
+        };
+
         match self.engine.load(&path) {
             Ok(_) => {
                 self.error = None;
                 // Pointing the player at a track is what "a play" means, and
-                // every path that starts one — a click, a skip, the next track
-                // after a finished one — comes through here.
+                // every path that starts one — a click, a skip, the track that
+                // follows a finished one — comes through here.
                 self.started.push(path);
+                self.preload_next();
             }
             Err(error) => self.error = Some(error),
         }
+    }
+
+    /// Hands the track the queue says comes next to the device, to wait behind
+    /// the one playing.
+    ///
+    /// A next track that will not decode is not reported here: it is not playing
+    /// yet, and its failure belongs with the attempt to play it, which the end
+    /// of the current track falls back to. Until then nothing about the current
+    /// track changes.
+    fn preload_next(&mut self) {
+        let Some(index) = self.queue.plan_next() else {
+            return;
+        };
+        let Some(path) = self
+            .queue
+            .items()
+            .get(index)
+            .map(|item| item.path().to_path_buf())
+        else {
+            return;
+        };
+
+        // The plan is remembered by the queue, so an engine that cannot preload
+        // now — no device, or a file that will not open — still agrees with the
+        // queue about which track comes next.
+        let _ = self.engine.preload(&path);
     }
 
     /// Starts playback, or pauses it when something is already playing.
@@ -461,10 +537,15 @@ impl Playback {
     }
 
     /// Seeks to `position` within the loaded track.
+    ///
+    /// A seek cancels a crossfade, so the track that was fading in is lined up
+    /// again afterwards.
     pub fn seek(&mut self, position: Duration) {
         if let Err(error) = self.engine.seek(position) {
             self.error = Some(error);
+            return;
         }
+        self.preload_next();
     }
 
     /// Seeks to a fraction of the loaded track, as a progress bar reports.
@@ -479,17 +560,47 @@ impl Playback {
         self.seek(duration.mul_f32(fraction));
     }
 
-    /// Advances the queue when the loaded track reaches its end.
+    /// Advances the queue when a track reaches its end.
     ///
-    /// Call this once per frame. The engine reports the end exactly once per
-    /// track, so the queue advances one track per natural end and never skips
-    /// ahead.
+    /// Call this once per frame. The engine reports each track exactly once, so
+    /// the queue advances one track per natural end and never skips ahead. When
+    /// the next track was already lined up, the audio has changed over with no
+    /// gap and this only brings the queue along; otherwise the next track is
+    /// loaded now, which is where a pause would be heard.
     pub fn poll(&mut self) -> Option<PlaybackEvent> {
-        if !self.engine.poll_finished() {
-            return None;
+        match self.engine.poll_transition()? {
+            EngineEvent::Advanced { path } => self.adopt_preloaded(path),
+            EngineEvent::Finished { .. } => self.next(),
         }
-        self.next();
         Some(PlaybackEvent::TrackFinished)
+    }
+
+    /// Moves the queue onto the track the device has already started.
+    ///
+    /// The audio changed over by itself, so this only brings the cursor and the
+    /// play count along and lines up the following change. When an edit to the
+    /// queue between the preload and the change left the audio on a track the
+    /// queue no longer wants, the queue's own choice is played instead — the one
+    /// case where a change-over can be heard as a short gap.
+    fn adopt_preloaded(&mut self, path: PathBuf) {
+        let planned = self
+            .queue
+            .plan_next()
+            .and_then(|index| self.queue.items().get(index))
+            .map(|item| item.path().to_path_buf());
+
+        if planned.as_deref() == Some(path.as_path()) {
+            self.queue.advance();
+            self.started.push(path);
+            self.preload_next();
+            return;
+        }
+
+        if self.queue.advance().is_some() {
+            self.play_current();
+        } else {
+            self.stop();
+        }
     }
 }
 
@@ -619,6 +730,25 @@ mod tests {
     }
 
     #[test]
+    fn the_effects_reach_the_engine_and_are_reported_back() {
+        let mut playback = Playback::with_engine(AudioEngine::without_device(), 1.0);
+
+        assert_eq!(playback.crossfade_seconds(), 0.0, "gapless by default");
+        playback.set_crossfade(4.0);
+        assert_eq!(playback.crossfade_seconds(), 4.0);
+        playback.set_crossfade(99.0);
+        assert_eq!(
+            playback.crossfade_seconds(),
+            crate::audio::MAX_CROSSFADE_SECONDS,
+            "the length is clamped on the way through"
+        );
+
+        let settings = EqualizerSettings::preset("Jazz").expect("Jazz is a preset");
+        playback.set_equalizer(settings.clone());
+        assert_eq!(playback.equalizer(), settings);
+    }
+
+    #[test]
     fn shuffle_and_repeat_are_owned_by_the_queue() {
         let mut playback = silent(&["/music/a.mp3", "/music/b.mp3"]);
 
@@ -648,6 +778,45 @@ mod tests {
 
         assert_eq!(playback.poll(), None);
         assert_eq!(playback.current().map(QueueItem::title), Some("a"));
+    }
+
+    #[test]
+    fn a_track_that_hands_over_moves_the_cursor_without_a_gap() {
+        let mut playback = silent(&["/music/a.mp3", "/music/b.mp3", "/music/c.mp3"]);
+
+        // Starting a track plans the one that follows; simulating the audio
+        // having changed over onto it is what the engine reports at the end of
+        // the track before.
+        let next = playback.queue.plan_next().expect("b follows a");
+        let path = playback.queue.items()[next].path().to_path_buf();
+        assert_eq!(path, PathBuf::from("/music/b.mp3"));
+
+        playback.adopt_preloaded(path);
+
+        assert_eq!(playback.current().map(QueueItem::title), Some("b"));
+        assert_eq!(
+            playback.take_started(),
+            vec![PathBuf::from("/music/b.mp3")],
+            "the track that took over is counted as played"
+        );
+    }
+
+    #[test]
+    fn an_edit_before_a_hand_over_follows_the_queue_not_the_old_audio() {
+        let mut playback = silent(&["/music/a.mp3", "/music/b.mp3", "/music/c.mp3"]);
+        let stale = playback
+            .queue
+            .plan_next()
+            .map(|index| playback.queue.items()[index].path().to_path_buf())
+            .expect("b follows a");
+
+        // b is moved to the end, so what follows a is now c. The old audio is
+        // already lined up with b, so the change corrects onto the queue's
+        // choice rather than the track it had prepared.
+        playback.move_in_queue(1, 2);
+        playback.adopt_preloaded(stale);
+
+        assert_eq!(playback.current().map(QueueItem::title), Some("c"));
     }
 
     #[test]

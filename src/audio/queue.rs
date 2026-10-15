@@ -103,6 +103,14 @@ pub struct PlayQueue {
     current: Option<usize>,
     repeat: RepeatMode,
     shuffle: bool,
+    /// The index [`PlayQueue::advance`] will move to, chosen once by
+    /// [`PlayQueue::plan_next`] and reused until it is taken.
+    ///
+    /// It is what lets the application line up the next track's audio before the
+    /// current one ends and still be sure the track that plays is the track it
+    /// prepared. Every change to the entries or the rules clears it, so a plan
+    /// can never be older than the state it was drawn from.
+    planned: Option<usize>,
     /// Track order in shuffle mode, newest first, for "previous".
     history: Vec<usize>,
     /// Indices already played in the current shuffle pass.
@@ -126,6 +134,7 @@ impl PlayQueue {
             current: None,
             repeat: RepeatMode::Off,
             shuffle: false,
+            planned: None,
             history: Vec::new(),
             played: Vec::new(),
             rng: seed_from_clock(),
@@ -144,6 +153,7 @@ impl PlayQueue {
     pub fn set_items(&mut self, items: Vec<QueueItem>) {
         self.items = items;
         self.current = if self.items.is_empty() { None } else { Some(0) };
+        self.planned = None;
         self.history.clear();
         self.played.clear();
     }
@@ -191,6 +201,7 @@ impl PlayQueue {
         if index >= self.items.len() {
             return None;
         }
+        self.planned = None;
         if self.current != Some(index) {
             self.remember(index);
         }
@@ -209,6 +220,9 @@ impl PlayQueue {
     /// The cursor does not move; callers decide whether the new track starts.
     pub fn push(&mut self, item: QueueItem) -> usize {
         self.items.push(item);
+        // A track added at the end can change what follows a queue that had run
+        // out, so any plan made before it is dropped.
+        self.planned = None;
         self.items.len() - 1
     }
 
@@ -218,6 +232,7 @@ impl PlayQueue {
             return None;
         }
         let removed = self.items.remove(index);
+        self.planned = None;
         shift_after_removal(&mut self.history, index);
         shift_after_removal(&mut self.played, index);
         self.current = match self.current {
@@ -251,6 +266,7 @@ impl PlayQueue {
         }
         let item = self.items.remove(from);
         self.items.insert(to, item);
+        self.planned = None;
         self.current = self
             .current
             .map(|current| shift_after_move(current, from, to));
@@ -267,16 +283,37 @@ impl PlayQueue {
     pub fn clear(&mut self) {
         self.items.clear();
         self.current = None;
+        self.planned = None;
         self.history.clear();
         self.played.clear();
     }
 
+    /// Chooses the index the transport will move to next, remembering it so the
+    /// move itself can be made later against the same choice.
+    ///
+    /// The application calls this to line up the next track's audio before the
+    /// current one ends; [`PlayQueue::advance`] then moves to exactly this index
+    /// rather than choosing again, so the track that was prepared is the track
+    /// that plays. Calling it twice returns the same index until the move is
+    /// made or the queue changes.
+    pub fn plan_next(&mut self) -> Option<usize> {
+        if let Some(index) = self.planned {
+            return Some(index);
+        }
+        let index = self.next_index()?;
+        self.planned = Some(index);
+        Some(index)
+    }
+
     /// Moves to the next track according to the repeat and shuffle rules.
     ///
-    /// Returns [`None`] when playback should stop: the last track of a
-    /// non-repeating queue has finished.
+    /// When [`PlayQueue::plan_next`] has already chosen the track, this moves to
+    /// that one rather than choosing afresh, which is what keeps a preloaded
+    /// track and the cursor in agreement. Returns [`None`] when playback should
+    /// stop: the last track of a non-repeating queue has finished.
     pub fn advance(&mut self) -> Option<&QueueItem> {
-        let index = self.next_index()?;
+        let index = self.plan_next()?;
+        self.planned = None;
         self.remember(index);
         self.current = Some(index);
         self.current()
@@ -285,6 +322,7 @@ impl PlayQueue {
     /// Moves to the previously played track, staying put at the start of a
     /// linear queue.
     pub fn previous(&mut self) -> Option<&QueueItem> {
+        self.planned = None;
         if self.items.is_empty() {
             self.current = None;
             return None;
@@ -314,11 +352,13 @@ impl PlayQueue {
     /// Sets the repeat mode.
     pub fn set_repeat(&mut self, mode: RepeatMode) {
         self.repeat = mode;
+        self.planned = None;
     }
 
     /// Advances the repeat mode and returns the new one.
     pub fn cycle_repeat(&mut self) -> RepeatMode {
         self.repeat = self.repeat.next();
+        self.planned = None;
         self.repeat
     }
 
@@ -331,6 +371,7 @@ impl PlayQueue {
     /// Turns shuffle on or off, keeping the cursor and restarting the pass.
     pub fn toggle_shuffle(&mut self) -> bool {
         self.shuffle = !self.shuffle;
+        self.planned = None;
         self.played.clear();
         self.history.clear();
         self.shuffle
@@ -513,6 +554,41 @@ mod tests {
         assert_eq!(queue.advance().map(QueueItem::title), Some("c"));
         assert!(queue.advance().is_none(), "the queue does not repeat");
         assert_eq!(current_title(&queue), Some("c"));
+    }
+
+    #[test]
+    fn planning_the_next_track_is_stable_until_it_is_taken() {
+        let mut queue = queue_of(&["a", "b", "c"]);
+
+        assert_eq!(queue.plan_next(), Some(1));
+        assert_eq!(
+            queue.plan_next(),
+            Some(1),
+            "the next track is not chosen twice"
+        );
+        assert_eq!(
+            current_title(&queue),
+            Some("a"),
+            "planning does not move the cursor"
+        );
+
+        assert_eq!(queue.advance().map(QueueItem::title), Some("b"));
+        assert_eq!(
+            queue.plan_next(),
+            Some(2),
+            "the plan moves on once it has been taken"
+        );
+    }
+
+    #[test]
+    fn a_queue_edit_discards_the_plan() {
+        let mut queue = queue_of(&["a", "b", "c"]);
+        assert_eq!(queue.plan_next(), Some(1));
+
+        // Removing b makes c the next track, which a stale plan must not
+        // override.
+        queue.remove(1);
+        assert_eq!(queue.advance().map(QueueItem::title), Some("c"));
     }
 
     #[test]

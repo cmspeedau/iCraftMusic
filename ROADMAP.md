@@ -279,7 +279,7 @@ Possible additions:
     Smart playlists and saved filters.
     Lyrics display and synchronized lyrics.
     Equalizer and audio effects.
-    Gapless playback and crossfade.
+    Crossfade (the fade half of the gapless item below).
     Ratings and listening history (play counts are counted already — see the
     Status section below).
     Playlist import and export.
@@ -290,6 +290,31 @@ Possible additions:
     Optional network streaming or remote library integrations.
 
 These features are not prerequisites for the initial release. Each must be assessed for technical complexity, dependencies, privacy, licensing, and platform support before implementation.
+
+Status: Partial. Three of the additions are implemented: gapless playback, a
+crossfade, and a graphic equalizer.
+
+Gapless playback: the queue chooses the track that follows as a track starts and
+the engine hands that track's decoded audio to the output device behind the
+current one, so rodio runs the two together with no silence between them; the
+change-over is reported from the audio itself — a signal set the instant the last
+sample is pulled — rather than noticed a frame late. It works for every track
+order the queue can name ahead of time, including `Repeat one` and a repeating
+`Repeat all`, and one deliberate exception is documented in README.md: an edit to
+the queue in the moment before a change-over makes the player fall back to a
+normal load, which a listener may hear as a short gap.
+
+Crossfade: a length above zero blends the two tracks instead, on the engine's two
+decks — the outgoing track fading out while the incoming one fades in — with
+equal-power gains so the change does not dip in the middle. A length of zero
+keeps the gapless hand-over. The fade is stepped on the frame clock rather than
+per sample, and needs a track whose length the decoder reported.
+
+Equalizer: a ten-band bank of peaking biquads with a preamp, an on/off switch and
+named presets, applied to every track before it reaches the device. Each track
+re-reads the settings as it runs, so moving a slider is heard on the track
+already playing. The remaining additions above are unstarted.
+
 
 ## Beyond music — stages 11 to 13
 

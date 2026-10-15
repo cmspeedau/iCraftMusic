@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::audio::RepeatMode;
+use crate::audio::{EqualizerSettings, MAX_CROSSFADE_SECONDS, RepeatMode};
 use crate::error::{AppError, Result};
 
 /// Volume applied when no preference has been stored yet.
@@ -74,6 +74,14 @@ pub struct AppConfig {
     pub shuffle: bool,
     /// What playback does when the current track ends.
     pub repeat: RepeatMode,
+    /// How long one track fades into the next, in seconds.
+    ///
+    /// Zero means the tracks change over gaplessly — the next is queued behind
+    /// the current one and starts the instant it ends. Anything above zero
+    /// overlaps the two by that many seconds instead.
+    pub crossfade_seconds: f32,
+    /// The graphic equalizer applied to every track.
+    pub equalizer: EqualizerSettings,
 }
 
 impl Default for AppConfig {
@@ -85,6 +93,8 @@ impl Default for AppConfig {
             output_device: None,
             shuffle: false,
             repeat: RepeatMode::default(),
+            crossfade_seconds: 0.0,
+            equalizer: EqualizerSettings::default(),
         }
     }
 }
@@ -149,6 +159,13 @@ impl AppConfig {
             self.volume = DEFAULT_VOLUME;
         }
         self.volume = self.volume.clamp(0.0, 1.0);
+
+        if !self.crossfade_seconds.is_finite() {
+            self.crossfade_seconds = 0.0;
+        }
+        self.crossfade_seconds = self.crossfade_seconds.clamp(0.0, MAX_CROSSFADE_SECONDS);
+
+        self.equalizer.sanitize();
     }
 
     /// Location of the per-user data directory.
@@ -246,6 +263,7 @@ mod tests {
             output_device: Some("alsa:default".to_owned()),
             shuffle: true,
             repeat: RepeatMode::All,
+            ..AppConfig::default()
         };
 
         config.save(&path).expect("save succeeds");
@@ -253,6 +271,60 @@ mod tests {
         let _ = fs::remove_file(&path);
 
         assert_eq!(loaded, config);
+    }
+
+    #[test]
+    fn crossfade_and_equalizer_survive_a_round_trip() {
+        let path = temp_path("effects");
+        let config = AppConfig {
+            crossfade_seconds: 4.5,
+            equalizer: EqualizerSettings::preset("Rock").expect("Rock is a preset"),
+            ..AppConfig::default()
+        };
+
+        config.save(&path).expect("save succeeds");
+        let loaded = AppConfig::load(&path).expect("load succeeds");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(loaded, config, "the audio effects are remembered");
+        assert!(loaded.equalizer.enabled);
+    }
+
+    #[test]
+    fn out_of_range_effects_are_clamped() {
+        let path = PathBuf::from("config.toml");
+        let text = r#"
+            volume = 0.5
+            crossfade_seconds = 99.0
+            [equalizer]
+            enabled = true
+            preamp_db = 100.0
+            bands = [40.0, -40.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        "#;
+
+        let config = AppConfig::from_toml(&path, text).expect("parses");
+
+        assert_eq!(config.crossfade_seconds, MAX_CROSSFADE_SECONDS);
+        assert_eq!(config.equalizer.preamp_db, crate::audio::MAX_GAIN_DB);
+        assert_eq!(config.equalizer.bands[0], crate::audio::MAX_GAIN_DB);
+        assert_eq!(config.equalizer.bands[1], crate::audio::MIN_GAIN_DB);
+    }
+
+    #[test]
+    fn a_settings_file_without_the_effects_still_loads() {
+        // A config.toml written before these settings existed has no such keys.
+        let path = PathBuf::from("config.toml");
+        let config = AppConfig::from_toml(&path, "volume = 0.5\n").expect("parses");
+
+        assert_eq!(
+            config.crossfade_seconds, 0.0,
+            "an absent crossfade means gapless"
+        );
+        assert!(
+            !config.equalizer.enabled,
+            "an absent equalizer means off and flat"
+        );
+        assert!(config.equalizer.is_flat());
     }
 
     #[test]

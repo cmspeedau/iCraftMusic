@@ -15,6 +15,7 @@
 use egui::{Key, RichText, Slider, TextEdit, Vec2};
 
 use crate::app::MusicCraftApp;
+use crate::audio::{BAND_FREQUENCIES, MAX_CROSSFADE_SECONDS, MAX_GAIN_DB, MIN_GAIN_DB, PRESETS};
 use crate::config::DEFAULT_VOLUME;
 use crate::ui::shortcuts::Command;
 use crate::ui::theme;
@@ -28,6 +29,11 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.separator();
     ui.add_space(12.0);
     playback(app, ui);
+
+    ui.add_space(12.0);
+    ui.separator();
+    ui.add_space(12.0);
+    equalizer(app, ui);
 
     ui.add_space(12.0);
     ui.separator();
@@ -77,8 +83,125 @@ fn playback(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             .weak(),
     );
 
+    ui.add_space(8.0);
+    crossfade(app, ui);
+
     ui.add_space(10.0);
     output_device(app, ui);
+}
+
+/// How much one track overlaps into the next.
+///
+/// This is a single control because the two behaviours are two ends of one
+/// setting: at zero the next track is queued behind the current one and starts
+/// the instant it ends, and above zero the two are mixed for that many seconds
+/// instead.
+fn crossfade(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    let mut seconds = app.crossfade_seconds();
+    let response = ui.add(
+        Slider::new(&mut seconds, 0.0..=MAX_CROSSFADE_SECONDS)
+            .text("Crossfade (s)")
+            .fixed_decimals(1),
+    );
+    if response.changed() {
+        app.set_crossfade_seconds(seconds);
+    }
+
+    let hint = if seconds <= 0.0 {
+        "Off: tracks change over gaplessly, with no gap.".to_owned()
+    } else {
+        format!("The last {seconds:.1} s of each track is mixed into the next.")
+    };
+    ui.label(RichText::new(hint).small().weak());
+}
+
+/// Height of each band's slider, in points.
+const BAND_SLIDER_HEIGHT: f32 = 96.0;
+
+/// The graphic equalizer: ten band gains, a preamp and preset buttons.
+///
+/// The settings are copied out of the application before anything is drawn and
+/// written back once, at the end, if any control moved. That keeps the values
+/// the sliders edit from being the ones on screen, and means a drag is one
+/// settings change however many frames it spans.
+fn equalizer(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    ui.label(RichText::new("Equalizer").strong());
+    ui.add_space(6.0);
+
+    let mut settings = app.equalizer().clone();
+    let mut changed = false;
+
+    changed |= ui
+        .checkbox(&mut settings.enabled, "Enable equalizer")
+        .changed();
+
+    ui.add_space(6.0);
+    ui.horizontal_wrapped(|ui| {
+        for preset in PRESETS {
+            if ui
+                .selectable_label(false, preset.name)
+                .on_hover_text("Copy this preset into the sliders")
+                .clicked()
+            {
+                settings.bands = preset.gains;
+                settings.enabled = true;
+                changed = true;
+            }
+        }
+    });
+
+    ui.add_space(8.0);
+    changed |= ui
+        .add(
+            Slider::new(&mut settings.preamp_db, MIN_GAIN_DB..=MAX_GAIN_DB)
+                .text("Preamp (dB)")
+                .fixed_decimals(0),
+        )
+        .changed();
+
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().slider_width = BAND_SLIDER_HEIGHT;
+        for (index, frequency) in BAND_FREQUENCIES.iter().enumerate() {
+            ui.vertical(|ui| {
+                let gain = &mut settings.bands[index];
+                let response = ui.add(
+                    Slider::new(gain, MIN_GAIN_DB..=MAX_GAIN_DB)
+                        .vertical()
+                        .show_value(false),
+                );
+                changed |= response.changed();
+                ui.label(RichText::new(band_label(*frequency)).small().weak());
+            });
+        }
+    });
+
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        if ui.button("Flat").clicked() {
+            settings.bands = [0.0; crate::audio::BANDS];
+            settings.preamp_db = 0.0;
+            changed = true;
+        }
+        ui.label(
+            RichText::new("Each band moves its own frequency; the preamp trims the whole signal.")
+                .small()
+                .weak(),
+        );
+    });
+
+    if changed {
+        app.set_equalizer(settings);
+    }
+}
+
+/// A band's frequency as its slider label: `31`, `125`, `1k`, `16k`.
+fn band_label(frequency: u32) -> String {
+    if frequency >= 1_000 {
+        format!("{}k", frequency / 1_000)
+    } else {
+        frequency.to_string()
+    }
 }
 
 /// Which device the music comes out of, and what it came out at.

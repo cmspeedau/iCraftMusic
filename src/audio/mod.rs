@@ -15,22 +15,34 @@
 //! operations that need sound, so the application can still browse a library
 //! and build a queue on a machine with no sound card.
 
+mod equalizer;
 mod error;
 mod output;
 mod playback;
 mod player;
 mod queue;
 
+pub use equalizer::{
+    BAND_FREQUENCIES, BANDS, EqualizerSettings, EqualizerShared, MAX_GAIN_DB, MIN_GAIN_DB, PRESETS,
+    Preset,
+};
 pub use error::AudioError;
 pub use output::{AudioDevice, Output, available_devices};
 pub use playback::{Playback, PlaybackEvent};
-pub use player::AudioEngine;
+pub use player::{AudioEngine, EngineEvent};
 pub use queue::{PlayQueue, QueueItem, RepeatMode};
 
 use std::path::Path;
 
 /// The loudest volume the engine accepts, matching the configuration range.
 pub const MAX_VOLUME: f32 = 1.0;
+
+/// The longest crossfade the engine accepts, in seconds.
+///
+/// A crossfade longer than most tracks would have a track fading in before it
+/// has begun; ten seconds is long enough for a deliberate blend and short enough
+/// to stay a transition rather than a mix.
+pub const MAX_CROSSFADE_SECONDS: f32 = 10.0;
 
 /// File extensions the bundled decoder can read.
 ///

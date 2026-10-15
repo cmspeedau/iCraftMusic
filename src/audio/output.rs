@@ -78,12 +78,18 @@ pub fn available_devices() -> Vec<AudioDevice> {
     listed
 }
 
-/// An open output device together with the player bound to its mixer.
+/// An open output device together with the two players bound to its mixer.
 ///
-/// The field order matters: the player is dropped first, so queued sources are
-/// released before the underlying stream is torn down.
+/// Both players feed the one mixer, which sums them. Normally only the active
+/// one carries a source; the second is what lets two tracks overlap during a
+/// crossfade. They are interchangeable, and [`Output::swap`] is what makes the
+/// track that was fading in become the one playing.
+///
+/// The field order matters: the players are dropped before the device, so queued
+/// sources are released before the underlying stream is torn down.
 pub struct Output {
-    player: Player,
+    active: Player,
+    incoming: Player,
     device: MixerDeviceSink,
     /// The device this output was opened through, as [`available_devices`]
     /// names it. `None` when there was nothing to enumerate.
@@ -99,10 +105,15 @@ impl Output {
     pub fn open() -> Result<Self, AudioError> {
         let device = DeviceSinkBuilder::open_default_sink()
             .map_err(|source| AudioError::OutputDevice { source })?;
-        let player = Player::connect_new(device.mixer());
+        let (active, incoming) = players_for(&device);
         let id = current_device_id();
 
-        Ok(Self { player, device, id })
+        Ok(Self {
+            active,
+            incoming,
+            device,
+            id,
+        })
     }
 
     /// Opens the output device named by `id`.
@@ -131,10 +142,11 @@ impl Output {
             .and_then(DeviceSinkBuilder::open_stream)
             .map_err(|source| AudioError::OutputDevice { source })?;
 
-        let player = Player::connect_new(sink.mixer());
+        let (active, incoming) = players_for(&sink);
 
         Ok(Self {
-            player,
+            active,
+            incoming,
             device: sink,
             id: Some(id.to_owned()),
         })
@@ -146,13 +158,32 @@ impl Output {
         self.id.as_deref()
     }
 
-    /// The player bound to this device's mixer.
+    /// The player carrying the track that is playing.
     ///
-    /// One player is enough for gapless track changes: sources are appended to
-    /// it and it plays them in order.
+    /// While nothing is crossfading this is the only player with a source. It is
+    /// also the one the transport controls act on, and the one a gapless
+    /// hand-over is queued onto: sources appended to one player play back to
+    /// back.
     #[must_use]
-    pub fn player(&self) -> &Player {
-        &self.player
+    pub fn active(&self) -> &Player {
+        &self.active
+    }
+
+    /// The player a fading-in track is started on.
+    ///
+    /// Silent outside a crossfade, which is what lets it be cleared and reused
+    /// without a click between tracks.
+    #[must_use]
+    pub fn incoming(&self) -> &Player {
+        &self.incoming
+    }
+
+    /// Exchange the active and incoming players.
+    ///
+    /// Called when a crossfade finishes: the track that was fading in is now the
+    /// one playing, and the one that faded out becomes the spare.
+    pub fn swap(&mut self) {
+        std::mem::swap(&mut self.active, &mut self.incoming);
     }
 
     /// The sample rate the device negotiated, in hertz.
@@ -192,6 +223,14 @@ fn current_device_id() -> Option<String> {
         .id()
         .ok()
         .map(|id| id.to_string())
+}
+
+/// The two players bound to one device's mixer: the active one and the spare
+/// one a crossfade starts on.
+fn players_for(device: &MixerDeviceSink) -> (Player, Player) {
+    let active = Player::connect_new(device.mixer());
+    let incoming = Player::connect_new(device.mixer());
+    (active, incoming)
 }
 
 #[cfg(test)]
