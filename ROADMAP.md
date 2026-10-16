@@ -270,6 +270,13 @@ Acceptance criteria
     Required runtime dependencies are documented.
     No critical known issue is hidden or misrepresented.
 
+One part of this stage is already in the tree: the application checks the
+releases API once at startup and shows a notice on the status bar when a newer
+release than this build exists (see `src/update.rs`). Until a release has been
+published the check finds nothing and stays silent, so the feature is inert by
+construction rather than fabricated. It runs on its own thread, and a failure
+is not reported — not knowing whether there is an update is not a fault.
+
 Stage 10 — Optional Future Enhancements
 
 Goal: Extend the application after the core product is stable.

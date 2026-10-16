@@ -171,6 +171,7 @@ is picked, the same way clicking an album tile does.
 | Recovery              | A versioned database copied beside itself (`VACUUM INTO`) before a migration rewrites it                             |
 | Logging               | stderr and a rotated, bounded log file under the data directory                                                      |
 | Packaging             | Release profile, desktop entry and SVG icon prepared under `packaging/`                                              |
+| Updates               | One check of the releases API at startup; when a newer release than this build exists, the status bar says so and opens its page |
 
 Known limitations: a scan can be stopped but is not resumed after the application
 exits. Editing a track's details keeps them in the library until the file changes
@@ -185,8 +186,12 @@ per sample, so a fade is smooth but not exact; it also needs a track whose lengt
 the decoder reported, and a track shorter than the fade finishes before the fade
 does. The equalizer has ten fixed bands and one preset shape per band. There
 is no installer and no release artifact yet; packaging is prepared under
-`packaging/`, not finished. These are deliberate and tracked in the roadmap, not
-presented as finished features.
+`packaging/`, not finished. The update check is the only network request the
+application makes: it sends nothing but this build's own name and version to the
+releases API, and it stays silent — no notice at all — while no release has been
+published, which is the case for this build. Nothing about the library, the
+listening history or the machine is sent. These are deliberate and tracked in
+the roadmap, not presented as finished features.
 
 ## iTunes 11, and the year in the brief
 

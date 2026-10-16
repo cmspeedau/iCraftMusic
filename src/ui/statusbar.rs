@@ -22,6 +22,7 @@ use crate::app::MusicCraftApp;
 use crate::playlists::PlaylistEditKind;
 use crate::ui::navigation::NavSection;
 use crate::ui::theme;
+use crate::update;
 
 /// The gear drawn at the right end of the bar, opening Settings.
 const GEAR_GLYPH: &str = "⚙";
@@ -95,7 +96,16 @@ pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 }
 
 /// The bar's one line, centred in it.
+///
+/// The counts normally; the update notice in their place when the release check
+/// found a newer build, because the bar has one line and news of a new version
+/// outranks the library's totals until it has been read.
 fn counts(app: &MusicCraftApp, ui: &mut egui::Ui) {
+    if let Some(update::Update::Available { version, url }) = app.release_update() {
+        update_notice(ui, version, url);
+        return;
+    }
+
     let browse = app.browse();
     let line = line_text(
         browse.track_count(),
@@ -109,6 +119,32 @@ fn counts(app: &MusicCraftApp, ui: &mut egui::Ui) {
     // over, so neither button is placed by taking a row.
     ui.centered_and_justified(|ui| {
         ui.label(RichText::new(line).small().weak());
+    });
+}
+
+/// The line shown in the counts' place when a newer release exists.
+///
+/// It names the version and opens the release's page when it is clicked, which
+/// is the one thing to do about it. Drawn `.strong` where the counts are
+/// `.weak`: this is news, not a count.
+fn update_notice(ui: &mut egui::Ui, version: &str, url: &str) {
+    let words = format!("Update available: {version}");
+    let text = RichText::new(format!("{words} — click to open the release page"))
+        .small()
+        .strong();
+
+    ui.centered_and_justified(|ui| {
+        let response = ui
+            .add(egui::Label::new(text).sense(egui::Sense::click()))
+            .on_hover_text(url);
+        // The line is a clickable thing now, so it takes the ring and a name
+        // the way every other control on the bar does.
+        theme::accessible_name(ui, &response, &words);
+        theme::focus_ring_if_focused(ui, &response);
+
+        if response.clicked() {
+            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+        }
     });
 }
 
@@ -362,6 +398,49 @@ mod tests {
     #[test]
     fn the_line_says_song_when_there_is_only_one() {
         assert_eq!(line_text(1, 1, 1), "1 song · 1 album · 1 artist");
+    }
+
+    /// When the release check has found a newer build, the bar's one line is
+    /// the notice rather than the counts: same line, carrying news instead.
+    #[test]
+    fn a_newer_release_takes_the_counts_place_on_the_bar() {
+        let mut app = app();
+        app.set_release_update(update::Update::Available {
+            version: "v9.9.9".to_owned(),
+            url: "https://github.com/cmspeedau/iCraftMusic/releases/tag/v9.9.9".to_owned(),
+        });
+
+        let lines = draw(&mut app, bar).glyphs;
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Update available: v9.9.9")),
+            "the bar does not carry the update notice: {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("songs")),
+            "the counts are still on the bar beside the notice: {lines:?}"
+        );
+    }
+
+    /// A check that came back up to date changes nothing: the counts stay, and
+    /// no notice is drawn for them.
+    #[test]
+    fn being_up_to_date_leaves_the_counts_alone() {
+        let mut app = app();
+        app.set_release_update(update::Update::UpToDate);
+
+        let lines = draw(&mut app, bar).glyphs;
+
+        assert!(
+            lines.iter().any(|line| line.contains("songs")),
+            "the counts left the bar: {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("Update available")),
+            "an up-to-date check drew a notice: {lines:?}"
+        );
     }
 
     #[test]

@@ -55,7 +55,11 @@ fn run() -> anyhow::Result<()> {
         APP_NAME,
         native_options,
         Box::new(move |creation_context| {
-            Ok(Box::new(app::MusicCraftApp::new(creation_context, startup)))
+            let mut app = app::MusicCraftApp::new(creation_context, startup);
+            // Look for a newer build on its own thread; the window opens whether
+            // or not the answer ever comes.
+            app.check_for_release();
+            Ok(Box::new(app))
         }),
     )?;
 

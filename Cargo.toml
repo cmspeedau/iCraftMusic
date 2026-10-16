@@ -24,6 +24,11 @@ thiserror = "2"
 toml = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# The one request the application makes: a GET of the releases API, to say
+# whether a newer build has been published. rustls rather than the system TLS,
+# so a build needs no OpenSSL; gzip is left off because the reply is a few
+# hundred bytes. See `src/update.rs`.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 walkdir = "2"
 
 # A distributable binary rather than a development build: one binary to copy,

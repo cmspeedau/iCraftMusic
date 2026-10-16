@@ -33,6 +33,7 @@ use crate::ui;
 use crate::ui::artwork::ArtworkCache;
 use crate::ui::dialog::Confirmation;
 use crate::ui::navigation::NavSection;
+use crate::update::{ReleaseCheck, Update};
 
 /// What was learned about the user's settings before the window opened.
 ///
@@ -185,6 +186,10 @@ pub struct MusicCraftApp {
     /// before the playlist exists, so they are held here until the name editor
     /// is answered and the playlist can be made to put them in.
     playlist_pending: Vec<TrackId>,
+    /// The release check running on its own thread, until it answers.
+    release_check: Option<ReleaseCheck>,
+    /// What the last finished release check found, once it has answered.
+    release_update: Option<Update>,
 }
 
 impl MusicCraftApp {
@@ -291,6 +296,8 @@ impl MusicCraftApp {
             playlist_draft: None,
             playlist_error: None,
             playlist_pending: Vec::new(),
+            release_check: None,
+            release_update: None,
         };
 
         if let Some(library) = app.library.as_ref() {
@@ -328,6 +335,45 @@ impl MusicCraftApp {
     /// Close the queue popover.
     pub fn close_queue(&mut self) {
         self.queue_open = false;
+    }
+
+    /// Begin looking for a newer release than this build.
+    ///
+    /// Called once, from the binary, and deliberately not from the
+    /// constructors: the release check is the one thing in the application that
+    /// touches the network, and a test should not.
+    pub fn check_for_release(&mut self) {
+        self.release_check = Some(ReleaseCheck::start());
+    }
+
+    /// Collect the release check's answer, if it has one.
+    ///
+    /// Called from the frame loop. The check is dropped once it answers, so a
+    /// finished request is not polled on every frame for the rest of the run.
+    pub fn poll_release_check(&mut self) {
+        let Some(check) = self.release_check.as_mut() else {
+            return;
+        };
+
+        if let Some(update) = check.poll() {
+            self.release_update = Some(update);
+            self.release_check = None;
+        }
+    }
+
+    /// What the release check found, once it has answered.
+    #[must_use]
+    pub fn release_update(&self) -> Option<&Update> {
+        self.release_update.as_ref()
+    }
+
+    /// Put a release check's answer in place as though it had arrived.
+    ///
+    /// For tests: the real answer only ever comes from the network, which tests
+    /// do not touch, so the notice and how it is drawn are checked through here.
+    #[cfg(test)]
+    pub(crate) fn set_release_update(&mut self, update: Update) {
+        self.release_update = Some(update);
     }
 
     /// Every playlist the library holds, for the sidebar.
@@ -2216,6 +2262,10 @@ impl eframe::App for MusicCraftApp {
         // A scan runs on its own thread and reports back through a channel, so
         // the frame loop is also what collects its progress and stores it.
         self.poll_library();
+
+        // The release check runs on its own thread for the same reason: the
+        // frame loop collects its answer when it arrives.
+        self.poll_release_check();
 
         // The progress bar and the elapsed time only move while audio plays, so
         // ask for another frame for exactly as long as that is true. A running

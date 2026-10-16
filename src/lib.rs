@@ -22,6 +22,7 @@ pub mod logging;
 pub mod playlists;
 pub mod search;
 pub mod ui;
+pub mod update;
 
 /// Human-readable application name, used for window titles and config paths.
 pub const APP_NAME: &str = "MusicCraft";
