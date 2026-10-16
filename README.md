@@ -266,9 +266,9 @@ data directory, apart from the settings:
 
 | Path (Linux)                                        | What it is                     |
 | --------------------------------------------------- | ------------------------------ |
-| `~/.config/musiccraft/config.toml`                   | preferences                    |
-| `~/.local/share/musiccraft/library.sqlite`           | the indexed library            |
-| `~/.local/share/musiccraft/logs/musiccraft.log`      | this run's log (and the one before it) |
+| `~/.config/icraftmusic/config.toml`                 | preferences                    |
+| `~/.local/share/icraftmusic/library.sqlite`         | the indexed library            |
+| `~/.local/share/icraftmusic/logs/icraftmusic.log`   | this run's log (and the one before it) |
 
 Settings → Diagnostics shows the exact paths on your machine, the schema version
 of the database, the counts, the audio stream in use, and a button that checks
@@ -287,7 +287,7 @@ without changing anything. To rebuild from scratch:
 ```sh
 # 1. Stop iCraftMusic, then move the database aside (the cover-art cache and the
 #    music files are untouched).
-mv ~/.local/share/musiccraft/library.sqlite* /tmp/library-broken/
+mv ~/.local/share/icraftmusic/library.sqlite* /tmp/library-broken/
 
 # 2. Start iCraftMusic and press Rescan under Settings → Library management.
 #    Every watched folder is indexed again from the files themselves.

@@ -558,7 +558,7 @@ fn diagnostics(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.label(RichText::new("Diagnostics").strong());
     ui.label(
         RichText::new(
-            "What this copy of MusicCraft is, and where it keeps your library, your settings \
+            "What this copy of iCraftMusic is, and where it keeps your library, your settings \
              and its log.",
         )
         .small()

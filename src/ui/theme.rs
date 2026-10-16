@@ -1,4 +1,4 @@
-//! Visual constants and style setup for the MusicCraft shell.
+//! Visual constants and style setup for the iCraftMusic shell.
 //!
 //! Stage 1 only needs a small, mostly flat look: a sidebar, a content area and
 //! a playback bar across the top. Everything here is shared by the views so the
@@ -289,7 +289,7 @@ pub const STATUS_BAR_INK: Color32 = Color32::from_rgb(32, 34, 38);
 /// Muted [`STATUS_BAR_INK`], for the status bar's single line.
 pub const STATUS_BAR_INK_MUTED: Color32 = Color32::from_rgb(58, 60, 66);
 
-/// Install the MusicCraft style for `mode`.
+/// Install the iCraftMusic style for `mode`.
 ///
 /// This sets the egui theme preference and then adjusts both the dark and the
 /// light style, so switching themes later never loses the customisations.
@@ -307,7 +307,7 @@ fn preference(mode: ThemeMode) -> ThemePreference {
     }
 }
 
-/// Apply the MusicCraft spacing and rounding to a single style.
+/// Apply the iCraftMusic spacing and rounding to a single style.
 fn customise(style: &mut Style) {
     style.spacing.item_spacing = vec2(8.0, 6.0);
     style.spacing.button_padding = vec2(10.0, 6.0);

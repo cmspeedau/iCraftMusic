@@ -1,4 +1,4 @@
-//! MusicCraft — a native desktop music player written entirely in Rust.
+//! iCraftMusic — a native desktop music player written entirely in Rust.
 //!
 //! The crate is split into a library and a thin binary (`src/main.rs`) so the
 //! application modules can be exercised by `cargo test` without opening a
@@ -25,7 +25,7 @@ pub mod ui;
 pub mod update;
 
 /// Human-readable application name, used for window titles and config paths.
-pub const APP_NAME: &str = "MusicCraft";
+pub const APP_NAME: &str = "iCraftMusic";
 
 /// Application version, taken from `Cargo.toml` at compile time.
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-/// Everything that can go wrong inside MusicCraft.
+/// Everything that can go wrong inside iCraftMusic.
 #[derive(Debug, Error)]
 pub enum AppError {
     /// The operating system did not provide a per-user config directory.

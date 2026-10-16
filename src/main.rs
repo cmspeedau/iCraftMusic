@@ -1,4 +1,4 @@
-//! MusicCraft: a native desktop music player.
+//! iCraftMusic: a native desktop music player.
 //!
 //! The binary is intentionally thin. It initialises logging, reads the settings
 //! and hands control to `eframe`; everything else lives in the library crate so

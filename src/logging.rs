@@ -23,7 +23,7 @@ const DEFAULT_FILTER: &str = "musiccraft=info,warn";
 pub const LOG_DIRECTORY: &str = "logs";
 
 /// Name of the log file inside [`LOG_DIRECTORY`].
-pub const LOG_FILE: &str = "musiccraft.log";
+pub const LOG_FILE: &str = "icraftmusic.log";
 
 /// How large the log file is allowed to grow before it is started afresh.
 ///
@@ -101,7 +101,7 @@ impl LogSink {
             Ok(file) => file,
             Err(error) => {
                 eprintln!(
-                    "MusicCraft could not open its log file at {}: {error}",
+                    "iCraftMusic could not open its log file at {}: {error}",
                     path.display()
                 );
                 return Self::default();
@@ -111,7 +111,7 @@ impl LogSink {
         // The file is opened before the subscriber is installed, so this line
         // cannot be logged — the user sees it only if they are running from a
         // terminal, which is exactly when it is useful.
-        writeln!(file, "--- MusicCraft log opened ---").ok();
+        writeln!(file, "--- iCraftMusic log opened ---").ok();
 
         Self {
             file: Some(Arc::new(Mutex::new(file))),
@@ -213,18 +213,18 @@ mod tests {
 
     #[test]
     fn the_log_lives_under_the_data_directory() {
-        let path = log_path(Path::new("/home/example/.local/share/musiccraft"));
+        let path = log_path(Path::new("/home/example/.local/share/icraftmusic"));
 
         assert_eq!(
             path,
-            Path::new("/home/example/.local/share/musiccraft/logs/musiccraft.log")
+            Path::new("/home/example/.local/share/icraftmusic/logs/icraftmusic.log")
         );
     }
 
     #[test]
     fn a_log_line_reaches_the_file() {
         let directory = scratch("writes");
-        let path = directory.join("musiccraft.log");
+        let path = directory.join("icraftmusic.log");
         let sink = LogSink::open(Some(&path));
 
         let mut writer = tracing_subscriber::fmt::MakeWriter::make_writer(&sink);
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn an_event_written_in_pieces_arrives_as_one_line() {
         let directory = scratch("pieces");
-        let path = directory.join("musiccraft.log");
+        let path = directory.join("icraftmusic.log");
         let sink = LogSink::open(Some(&path));
 
         // This is what `tracing` does: the level, the message and the newline
@@ -267,7 +267,7 @@ mod tests {
     #[test]
     fn a_log_that_has_grown_too_large_is_started_afresh() {
         let directory = scratch("rotation");
-        let path = directory.join("musiccraft.log");
+        let path = directory.join("icraftmusic.log");
         fs::write(&path, vec![b'x'; MAX_LOG_BYTES as usize]).expect("a full log");
 
         let sink = LogSink::open(Some(&path));
@@ -298,7 +298,7 @@ mod tests {
     fn a_log_file_that_cannot_be_opened_leaves_logging_working() {
         // A directory where the file should be: nothing can be appended to it.
         let directory = scratch("unopenable");
-        let path = directory.join("musiccraft.log");
+        let path = directory.join("icraftmusic.log");
         fs::create_dir_all(&path).expect("a directory in the file's place");
 
         let sink = LogSink::open(Some(&path));

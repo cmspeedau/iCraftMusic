@@ -199,15 +199,15 @@ mod tests {
 
     fn snapshot() -> Diagnostics {
         Diagnostics {
-            app_name: "MusicCraft".to_owned(),
+            app_name: "iCraftMusic".to_owned(),
             version: "0.1.0".to_owned(),
-            config_path: Some(PathBuf::from("/home/you/.config/musiccraft/config.toml")),
-            data_directory: Some(PathBuf::from("/home/you/.local/share/musiccraft")),
+            config_path: Some(PathBuf::from("/home/you/.config/icraftmusic/config.toml")),
+            data_directory: Some(PathBuf::from("/home/you/.local/share/icraftmusic")),
             database_path: Some(PathBuf::from(
-                "/home/you/.local/share/musiccraft/library.sqlite",
+                "/home/you/.local/share/icraftmusic/library.sqlite",
             )),
             log_path: Some(PathBuf::from(
-                "/home/you/.local/share/musiccraft/logs/musiccraft.log",
+                "/home/you/.local/share/icraftmusic/logs/icraftmusic.log",
             )),
             schema_version: Some(3),
             tracks: 18_432,
@@ -235,18 +235,18 @@ mod tests {
     fn the_snapshot_names_the_build_and_every_place_data_lives() {
         let lines = snapshot().lines();
 
-        assert_eq!(value(&lines, "Application"), Some("MusicCraft 0.1.0"));
+        assert_eq!(value(&lines, "Application"), Some("iCraftMusic 0.1.0"));
         assert_eq!(
             value(&lines, "Settings file"),
-            Some("/home/you/.config/musiccraft/config.toml")
+            Some("/home/you/.config/icraftmusic/config.toml")
         );
         assert_eq!(
             value(&lines, "Library database"),
-            Some("/home/you/.local/share/musiccraft/library.sqlite")
+            Some("/home/you/.local/share/icraftmusic/library.sqlite")
         );
         assert_eq!(
             value(&lines, "Log file"),
-            Some("/home/you/.local/share/musiccraft/logs/musiccraft.log")
+            Some("/home/you/.local/share/icraftmusic/logs/icraftmusic.log")
         );
         assert_eq!(value(&lines, "Library schema"), Some("version 3"));
     }
@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn paths_that_do_not_apply_are_left_out_rather_than_shown_empty() {
         let lines = Diagnostics {
-            app_name: "MusicCraft".to_owned(),
+            app_name: "iCraftMusic".to_owned(),
             version: "0.1.0".to_owned(),
             ..Diagnostics::default()
         }

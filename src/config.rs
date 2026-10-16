@@ -1,7 +1,7 @@
 //! Persistent application settings.
 //!
 //! Settings live in a single TOML file under the platform's per-user config
-//! directory (`~/.config/musiccraft/config.toml` on Linux). Loading never
+//! directory (`~/.config/icraftmusic/config.toml` on Linux). Loading never
 //! panics: a missing or malformed file falls back to defaults and reports the
 //! failure back to the caller so it can be surfaced to the user.
 
@@ -46,7 +46,7 @@ impl ThemeMode {
     }
 }
 
-/// Everything MusicCraft remembers between runs.
+/// Everything iCraftMusic remembers between runs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {

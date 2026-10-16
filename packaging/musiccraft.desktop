@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=MusicCraft
+Name=iCraftMusic
 GenericName=Music Player
 Comment=Play and organise a local music library
 Exec=musiccraft %F

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  MusicCraft's icon: a record on a shell-blue field, in the application's own
+  iCraftMusic's icon: a record on a shell-blue field, in the application's own
   accent. Plain SVG so a packager can render whatever sizes the theme asks for
   (`for size in 16 32 48 64 128 256; do rsvg-convert -w $size -h $size ...`).
 
