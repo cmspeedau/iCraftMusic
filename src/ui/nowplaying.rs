@@ -5,6 +5,14 @@
 //! output device could be opened — the queue is still real work, so the
 //! controls stay live and the failure is shown in place of the track details.
 //!
+//! The centre box is the one part whose contents come and go. Its cream pill is
+//! always drawn, but the "now playing" widget inside it — the cover, the
+//! track's title and state, the seek row and the queue button — is painted only
+//! while there is a track on the bar: with nothing playing the box keeps its
+//! surface and holds nothing rather than saying "Nothing playing" in the middle
+//! of the cream. The transport and the Library's own controls stay where they
+//! are.
+//!
 //! The bar has three parts. The transport is at the far LEFT, where the pointer
 //! arrives first: previous · play · next, then the speaker and the volume
 //! slider, all in white. The buttons sit against the bar's left edge and the
@@ -264,6 +272,11 @@ pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 // of its own, and it draws the seek row inside itself. The
                 // search field is placed at the bar's right end, off the same
                 // line, so the three are on one line across the bar.
+                // The centre box's pill is always drawn — it is the widget's
+                // own surface and keeps the bar's middle — but with nothing
+                // playing [`centre_box`] leaves everything it holds off the
+                // cream. The transport and the Library's own controls are drawn
+                // whatever the bar holds.
                 transport_row(app, ui);
                 centre_box(app, ui);
                 search_row(app, ui);
@@ -595,6 +608,12 @@ fn search_field(app: &mut MusicCraftApp, ui: &mut egui::Ui, field: Rect, clear: 
 /// The cream box on the window's centre: cover, track details, queue button,
 /// and the seek row under them.
 ///
+/// The cream pill is drawn whatever the bar holds — it is the widget's own
+/// surface and keeps the bar's middle — but what sits IN it is drawn only while
+/// there is a track on the bar. With nothing playing the box is a bare cream
+/// shape: no cover, no "Nothing playing" line, no seek row and no queue button,
+/// just the surface the widget returns to when something plays.
+///
 /// The pill is painted from the same constants its contents are placed by, so it
 /// fits them exactly and its centre is the window's centre. Painting it here
 /// rather than through a `Frame` is what makes that exact: a frame is only as
@@ -607,19 +626,11 @@ fn search_field(app: &mut MusicCraftApp, ui: &mut egui::Ui, field: Rect, clear: 
 /// middle. The box needs no inset from the bar for that — the frame's own
 /// margin is the bars' inset, and a second one would only shrink the pill.
 fn centre_box(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    // Owned before the box draws: it reads several pieces of the app and then
-    // mutates it (dismissing a failure, opening the queue), and a borrow held
-    // across that closure is a borrow conflict.
-    let playing = app.now_playing();
-    let title = playing
-        .as_ref()
-        .map_or_else(|| "Nothing playing".to_owned(), |track| track.title.clone());
-    let artwork = playing.and_then(|track| track.artwork);
-    let failure = app.playback_error();
-    let state = failure.clone().unwrap_or_else(|| subtitle(app));
-
     let pill = centre_box_rect(ui.max_rect());
 
+    // The surface first and unconditionally: the pill is the widget's own
+    // shape, so with nothing playing it is the whole of what is drawn — the box
+    // keeps its place on the cream rather than closing when the queue is empty.
     // Under the contents, so the cover, the text and the rail sit on the cream
     // rather than the cream over them.
     ui.painter().rect_filled(
@@ -627,6 +638,18 @@ fn centre_box(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         CornerRadius::same(theme::CENTRE_BOX_RADIUS),
         theme::CENTRE_BOX_FILL,
     );
+
+    // Everything the box holds needs a track on the bar; with none, the pill
+    // above is the whole of it. Owned before the contents draw: they read
+    // several pieces of the app and then mutate it (opening the queue), and a
+    // borrow held across that closure is a borrow conflict.
+    let Some(playing) = app.now_playing() else {
+        return;
+    };
+    let title = playing.title.clone();
+    let artwork = playing.artwork;
+    let failure = app.playback_error();
+    let state = failure.clone().unwrap_or_else(|| subtitle(app));
 
     // The two rows are given their own rectangles rather than stacked by the
     // layout, so each one lands where the pill's own height puts it. A row that
@@ -1528,6 +1551,89 @@ mod tests {
         );
     }
 
+    /// With nothing on the bar the pill is still there but empty: the cream
+    /// surface stays, and nothing it holds — no cover slot, no title and state
+    /// line, no seek row and no queue button — is painted on it. The transport
+    /// and the Library's own controls are the bar's, not the widget's, so they
+    /// stay too.
+    #[test]
+    fn an_empty_bar_keeps_the_cream_box_but_puts_nothing_in_it() {
+        let mut app = app();
+        assert_eq!(
+            app.now_playing(),
+            None,
+            "the fixture has no track on the bar"
+        );
+
+        let painted = paint_bar(&mut app);
+
+        // The widget's own surface is still there.
+        assert!(
+            !painted.rects_with(theme::CENTRE_BOX_FILL).is_empty(),
+            "the empty bar closed the centre box instead of leaving it bare"
+        );
+
+        // But nothing is drawn on it.
+        assert!(
+            painted.ink("Nothing playing").is_none(),
+            "the empty bar still names the nothing-playing state"
+        );
+        assert!(
+            painted.ink(QUEUE_GLYPH).is_none(),
+            "the empty bar still draws the queue button"
+        );
+        assert!(
+            painted.ink("--:--").is_none(),
+            "the empty bar still draws the seek row"
+        );
+        let cover_slot = painted
+            .rects_with(theme::CENTRE_BOX_CONTROL)
+            .into_iter()
+            .find(|rect| {
+                (rect.width() - COVER_SIZE).abs() < 0.5 && (rect.height() - COVER_SIZE).abs() < 0.5
+            });
+        assert!(
+            cover_slot.is_none(),
+            "the empty bar still marks out the cover slot"
+        );
+
+        // Only the widget's contents go: the transport and the Library's own
+        // controls are still on the bar.
+        assert!(
+            painted.ink("▶").is_some(),
+            "the transport went with the widget's contents"
+        );
+        assert!(
+            painted.ink(TRACKS_GLYPH).is_some(),
+            "the Library's own controls went with the widget's contents"
+        );
+    }
+
+    /// A track on the bar fills the box again: the surface is the same, and now
+    /// the track's title, its queue button and its seek row are painted on it.
+    #[test]
+    fn a_track_on_the_bar_fills_the_centre_box() {
+        let mut app = app_with_a_loaded_track();
+        let painted = paint_bar(&mut app);
+
+        assert!(
+            !painted.rects_with(theme::CENTRE_BOX_FILL).is_empty(),
+            "the centre box is not drawn for a track on the bar"
+        );
+        assert!(
+            painted.ink("song").is_some(),
+            "the track on the bar is not named"
+        );
+        assert!(
+            painted.ink(QUEUE_GLYPH).is_some(),
+            "the queue button is not drawn for a track on the bar"
+        );
+        assert!(
+            painted.ink("Nothing playing").is_none(),
+            "the empty-state wording is still painted beside a track"
+        );
+    }
+
     #[test]
     fn the_subtitle_names_the_queue_position_and_the_transport_state() {
         let mut app = app();
@@ -2396,7 +2502,7 @@ mod tests {
     /// button left outside the cream would be a control on the bar instead.
     #[test]
     fn the_queue_button_sits_at_the_right_of_the_centre_box() {
-        let mut app = app();
+        let mut app = app_with_a_loaded_track();
         let painted = paint_bar(&mut app);
 
         let pill = painted
@@ -2405,7 +2511,7 @@ mod tests {
             .max_by(|a, b| a.area().total_cmp(&b.area()))
             .expect("the centre box paints its own fill");
         let burger = painted.ink(QUEUE_GLYPH).expect("the queue button");
-        let title = painted.ink("Nothing playing").expect("the title");
+        let title = painted.ink("song").expect("the title");
 
         assert!(
             burger.left() > title.right(),
@@ -2431,7 +2537,7 @@ mod tests {
     /// exactly what it was moved off.
     #[test]
     fn the_queue_button_is_centred_in_the_box() {
-        let mut app = app();
+        let mut app = app_with_a_loaded_track();
         let painted = paint_bar(&mut app);
 
         let pill = painted
@@ -2469,7 +2575,7 @@ mod tests {
     /// fails when the button's own size changes.
     #[test]
     fn the_queue_icon_is_as_big_as_the_glyphs_beside_it() {
-        let mut app = app();
+        let mut app = app_with_a_loaded_track();
         let painted = paint_bar(&mut app);
 
         let queue = painted.ink(QUEUE_GLYPH).expect("the queue button");
@@ -2501,7 +2607,7 @@ mod tests {
     /// control that moved.
     #[test]
     fn a_click_on_the_queue_button_opens_the_queue() {
-        let mut app = app();
+        let mut app = app_with_a_loaded_track();
         assert!(!app.queue_open(), "the queue starts shut");
 
         let ctx = egui::Context::default();
@@ -2829,5 +2935,18 @@ mod tests {
             },
             Playback::with_engine(AudioEngine::without_device(), 1.0),
         )
+    }
+
+    /// An application with a track on the bar, stopped rather than playing.
+    ///
+    /// The centre box is drawn only while there is a track there, so the tests
+    /// that measure it — and the tests that place the Library's pages and search
+    /// field against its pill — need a bar that carries one. Opened and then
+    /// stopped so the transport still shows its resting "▶" and not "⏸".
+    fn app_with_a_loaded_track() -> MusicCraftApp {
+        let mut app = app();
+        app.open_path(Path::new("/music/song.mp3"));
+        app.stop_playback();
+        app
     }
 }
