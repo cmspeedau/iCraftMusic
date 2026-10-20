@@ -214,7 +214,7 @@ indexed where they stand.
 | Equalizer             | A window of its own from the gear: ten band gains, a preamp and presets, able to stay open beside the music so a band is trimmed by ear                                                             |
 | Diagnostics           | Build, schema version, library counts, exact paths, the audio stream in use, and an on-demand `PRAGMA integrity_check` |
 | Recovery              | A versioned database copied beside itself (`VACUUM INTO`) before a migration rewrites it                             |
-| Packaging             | Release profile, desktop entry and SVG icon prepared under `packaging/`                                              |
+| Packaging             | Release profile, desktop entry and SVG icon under `packaging/`; `linuxdeploy` bundles them with the release binary into a single-file AppImage |
 | Updates               | One check of the releases API at startup; when a newer release than this build exists, the centre box says so and the gear menu carries the row that installs it — which swaps the running file only when the application is running from an AppImage, and downloads nothing until it is asked |
 
 Known limitations: a scan can be stopped but is not resumed after the application
@@ -385,11 +385,50 @@ the latest GitHub release for an asset named after this machine's architecture
 (`-x86_64.AppImage`), and installs by renaming that file over the running
 AppImage, which is a swap only an AppImage copy can make.
 
+### Bundling the AppImage
+
+The same pieces, bundled: [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy)
+assembles the directory and compresses it into one file.
+
+```sh
+cargo build --release
+VERSION=0.1.0 ARCH=x86_64 ./linuxdeploy-x86_64.AppImage \
+    --appdir "$PWD/iCraftMusic.AppDir" \
+    -e target/release/musiccraft \
+    -d packaging/musiccraft.desktop \
+    -i packaging/musiccraft.svg \
+    --output appimage
+# → iCraftMusic-0.1.0-x86_64.AppImage
+```
+
+(The absolute `--appdir` matters: the tools are AppImages themselves, and a
+relative directory is looked up from wherever they unpacked themselves to run
+— which is also why the finished file can land in the home directory rather
+than beside the AppDir. Look for it with `ls iCraftMusic-*.AppImage`.)
+
+The bundle carries exactly one executable and the desktop entry with its icon.
+That is deliberate: linuxdeploy's rules keep `libc`, ALSA and the rest of the
+system libraries on the host, and the player opens the display server and
+OpenGL at run time anyway, so there is nothing else to bundle. The file's name
+ends the way the in-app updater expects (`…-x86_64.AppImage`), so it is ready
+to become a GitHub release asset as-is.
+
+Two honest caveats, both ordinary:
+
+- The image inherits the build machine's glibc. Built on a current distro it
+  runs on current distros; an image meant for older machines must be compiled
+  on an older base, since shipping `libc` inside the app is not a thing that
+  works.
+- A machine whose session has no FUSE still runs it: append
+  `--appimage-extract-and-run`, which unpacks to a temporary directory, runs,
+  and cleans up.
+
 ## Project layout
 
 ```
 ROADMAP.md             # music: stages 0–10
 ROADMAP-MEDIA.md       # movies, TV shows, podcasts and devices: stages 11–15
+packaging/             # desktop entry and icon — the pieces the installer and the AppImage share
 
 src/
 ├── main.rs            # binary entry point
