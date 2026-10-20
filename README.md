@@ -36,8 +36,15 @@ pretending otherwise.
 | 6     | Metadata Editing and Library Polish | Complete |
 | 7     | Settings, Reliability, Performance  | Complete |
 | 8     | Visual Refinement and Accessibility | Complete |
+| 8½    | Match the Reference 1:1 (1.0 gate)  | In Progress |
 | 9     | Release and Distribution            | Planned  |
 | 10    | Optional Future Enhancements        | Partial  |
+
+Stage 8½ is the last gate before 1.0: a pixel-level pass matching the window to
+the reference player (iTunes 7 under Wine), measured from captures rather than
+from memory, one component at a time. The sidebar is done; the track table, the
+transport chrome and the status bar follow, and no 1.0 release ships until the
+stage closes.
 
 Stage 10 collects features that are optional rather than prerequisites, and
 four of them have been built: **gapless playback**, **crossfade**, a **graphic

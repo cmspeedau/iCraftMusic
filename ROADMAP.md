@@ -248,6 +248,29 @@ Acceptance criteria
     The application remains legible at common window sizes.
     Visual refinement does not compromise playback reliability.
 
+Stage 8½ — Match the Reference 1:1 (final gate for 1.0)
+
+Goal: Make the window look like the reference player it is modelled on, component by component: iTunes 7 under Wine, resized to the same 1180×780 as ours so pixels are comparable. The half-number keeps Stage 9, Stage 10 and the media roadmap's numbering stable; the position is deliberate — nothing ships as 1.0 until this stage is complete.
+
+Status: In progress. The measuring pipeline lives in `tools/reference/`: `grab.py` photographs a window from its X11 backing pixmap (the window never needs to be raised), `click.py` raises, real-clicks via XTEST, lowers and captures, `resize.py` strips the `WM_NORMAL_HINTS` pin the reference uses to lock its own size. Every number quoted in this stage was read from a capture, not from memory; the captures themselves stay in `target/reference/` and are deliberately not committed, because they are photographs of somebody else's application. The sidebar (source list) is done: panel width and rule, heading colour, row height, icon column, the selection ramp and hover band, and the one disclosure triangle that actually folds PLAYLISTS are painted from measured values, with contrast and paint tests pinning the numbers. Remaining, in this order: the track table, the transport bar with the centre chrome, and the status bar — the measurements for all three are already taken.
+
+Deliverables
+
+    Capture pipeline: per-window photographs of both apps at a matched size, plus a click harness for states that only appear under a real pointer. (Complete.)
+    Sidebar source list, 1:1 including selection, hover, the fold, and the smart-playlist badge. (Complete.)
+    Track table: measured striping, 17px rows, gradient header band with its bottom rule, flat selected row.
+    Transport bar and centre chrome: measured top gradient, pale-green disc panel and border, dark rule under the chrome, toolbar strip. The centre button keeps our house disc — the Apple logo is not ours to ship.
+    Status bar: measured height, gradient, top divider and centred text colour.
+    Every row and control painted here must also be wired: nothing is added to look right that does nothing.
+
+Acceptance criteria
+
+    Side-by-side captures of ours and the reference at the matched size are indistinguishable per component, apart from deliberate exceptions (the house disc mark, and content — our library is not theirs).
+    Measured colours and metrics live in `src/ui/theme.rs` and are pinned by tests, so a regression fails the build instead of drifting.
+    The functional suite stays green across the pass: matching the look must not break drop-to-add, playlists, the queue, or search.
+    Photographs of the reference remain outside version control.
+    While this stage is open, Stage 9 does not publish: no 1.0 release ships before it closes.
+
 Stage 9 — Release and Distribution
 
 Goal: Produce a dependable installable application.
@@ -269,6 +292,7 @@ Acceptance criteria
     Core playback and library workflows pass release testing.
     Required runtime dependencies are documented.
     No critical known issue is hidden or misrepresented.
+    The reference-fidelity gate (Stage 8½) is complete.
 
 One part of this stage is already in the tree: the application checks the
 releases API once at startup and shows a notice on the status bar when a newer
@@ -466,7 +490,7 @@ M2 — Playback	2	Working audio player
 M3 — Library	3–4	Indexed and searchable music collection
 M4 — Organization	5–6	Persistent playlists and metadata editing
 M5 — Stability	7	Reliable daily-use application
-M6 — Release	8–9	Polished, packaged desktop application
+M6 — Release	8–9	Polished, reference-matched, packaged desktop application
 M7 — Expansion	10	Optional advanced capabilities
 M8 — Generalisation	11	One library and player holding more than music
 M9 — Film and TV	12	Films and series indexed, browsed and played locally
@@ -492,7 +516,7 @@ Definition of Done
 
 A feature is complete when its implementation, error handling, tests, documentation, and integration with existing functionality are complete.
 
-The project is ready for its initial release when the core library, playback, search, playlists, persistence, and primary desktop workflows are stable and packaged for the declared target platforms.
+The project is ready for its initial release when the core library, playback, search, playlists, persistence, and primary desktop workflows are stable, the reference-fidelity gate (Stage 8½) is complete, and the application is packaged for the declared target platforms.
 Recommended project layout
 
 Keep both files at the repository root so your coding agent can use the instructions and roadmap throughout development.
