@@ -451,6 +451,10 @@ fn tracks_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// The current track is the one being put in, not the selection: the menu hangs
 /// off a row and a right-click on a row that is not selected would otherwise add
 /// whatever was selected before it.
+///
+/// Smart playlists are not offered. Their tracks come from rules, and a track
+/// arrives there by matching or does not — naming destinations the track cannot
+/// reach would be a dead entry.
 fn playlist_menu(
     app: &MusicCraftApp,
     ui: &mut egui::Ui,
@@ -461,18 +465,25 @@ fn playlist_menu(
         return;
     };
 
+    let manual: Vec<String> = app
+        .playlists()
+        .iter()
+        .filter(|playlist| !playlist.smart)
+        .map(|playlist| playlist.name.clone())
+        .collect();
+
     ui.menu_button("Add to playlist", |ui| {
-        for playlist in app.playlists() {
-            if ui.button(playlist.display_name()).clicked() {
+        for name in &manual {
+            if ui.button(name).clicked() {
                 *action = Some(RowAction::AddToPlaylist {
                     track,
-                    name: playlist.name.clone(),
+                    name: name.clone(),
                 });
                 ui.close();
             }
         }
 
-        if !app.playlists().is_empty() {
+        if !manual.is_empty() {
             ui.separator();
         }
 

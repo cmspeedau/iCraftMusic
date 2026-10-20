@@ -105,6 +105,15 @@ pub enum AppError {
     /// A track was used before it was stored, so it has no row to reference.
     #[error("track {0} has not been stored in the library yet")]
     TrackHasNoRow(crate::library::TrackId),
+
+    /// A playlist is filled by rules, so its membership is not something the
+    /// caller can edit by hand.
+    #[error("playlist {0} is a smart playlist; its tracks come from its rules")]
+    PlaylistIsSmart(crate::library::PlaylistId),
+
+    /// A smart playlist's stored rules could not be read back.
+    #[error("the rules of smart playlist {0} could not be read")]
+    SmartRulesUnreadable(crate::library::PlaylistId),
 }
 
 impl AppError {

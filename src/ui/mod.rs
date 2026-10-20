@@ -27,6 +27,7 @@ pub mod playlistview;
 pub mod queueview;
 pub mod settingsview;
 pub mod shortcuts;
+pub mod smartplaylist;
 pub mod statusbar;
 pub mod theme;
 
@@ -51,6 +52,7 @@ pub fn render(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     // widget that has just claimed the key for itself.
     editview::window(app, ui);
     playlistedit::window(app, ui);
+    smartplaylist::window(app, ui);
     dialog::confirm(app, ui);
     dialog::add_music(app, ui);
     shortcuts::handle(app, ui);

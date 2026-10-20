@@ -29,7 +29,10 @@ use crate::library::{
     CopyProgress, CopyRequest, CopySession, ImportSummary, Library, PlaylistId, ScanProgress,
     ScanSession, Track, TrackEditor, TrackId,
 };
-use crate::playlists::{PlaylistDraft, PlaylistEditKind, PlaylistSummary, Playlists};
+use crate::playlists::{
+    PlaylistDraft, PlaylistEditKind, PlaylistSummary, Playlists, SmartDraft, SmartDraftKind,
+    SmartRules,
+};
 use crate::ui;
 use crate::ui::artwork::ArtworkCache;
 use crate::ui::dialog::{Confirmation, PendingAdd};
@@ -201,6 +204,9 @@ pub struct MusicCraftApp {
     playlist_tracks: Vec<Track>,
     /// The name editor, when a playlist is being created or renamed.
     playlist_draft: Option<PlaylistDraft>,
+    /// The rule editor, when a smart playlist is being made or its rules
+    /// edited.
+    smart_draft: Option<SmartDraft>,
     /// Why the last playlist action failed, ready to show.
     playlist_error: Option<String>,
     /// Tracks waiting to go into a playlist that is about to be named.
@@ -333,6 +339,7 @@ impl MusicCraftApp {
             selected_playlist: None,
             playlist_tracks: Vec::new(),
             playlist_draft: None,
+            smart_draft: None,
             playlist_error: None,
             playlist_pending: Vec::new(),
             release_check: None,
@@ -764,11 +771,133 @@ impl MusicCraftApp {
         }
     }
 
+    /// The rule editor, when a smart playlist is being made or its rules are
+    /// being edited.
+    #[must_use]
+    pub fn smart_draft(&self) -> Option<&SmartDraft> {
+        self.smart_draft.as_ref()
+    }
+
+    /// The rule editor, for the window's name field and rule rows.
+    pub fn smart_draft_mut(&mut self) -> Option<&mut SmartDraft> {
+        self.smart_draft.as_mut()
+    }
+
+    /// Open the rule editor to make a new smart playlist.
+    pub fn start_smart_playlist_create(&mut self) {
+        self.smart_draft = Some(SmartDraft::new(
+            SmartDraftKind::Create,
+            "",
+            SmartRules::default(),
+        ));
+        self.playlist_error = None;
+    }
+
+    /// Open the rule editor with a smart playlist's own name and rules, so
+    /// what is on screen is what is stored until something changes it.
+    ///
+    /// Returns whether the editor opened: a playlist deleted in another window
+    /// or a hand-made one with no rules to edit says so through the usual
+    /// error rather than opening an editor over nothing.
+    pub fn start_smart_playlist_edit(&mut self, id: PlaylistId) -> bool {
+        let outcome = match self.library.as_mut() {
+            Some(library) => {
+                let playlists = Playlists::new(library.repository_mut());
+
+                match playlists.rules(id) {
+                    Ok(Some(rules)) => match playlists.summary(id) {
+                        Ok(Some(summary)) => Ok((summary.name, rules)),
+                        Ok(None) => Err("that playlist is no longer in the library".to_owned()),
+                        Err(error) => Err(error.to_string()),
+                    },
+                    Ok(None) => Err("only a smart playlist has rules to edit".to_owned()),
+                    Err(error) => Err(error.to_string()),
+                }
+            }
+            None => Err("the library is not open".to_owned()),
+        };
+
+        match outcome {
+            Ok((name, rules)) => {
+                self.smart_draft =
+                    Some(SmartDraft::new(SmartDraftKind::EditRules(id), &name, rules));
+                self.playlist_error = None;
+                true
+            }
+            Err(message) => {
+                self.playlist_error = Some(message);
+                false
+            }
+        }
+    }
+
+    /// Close the rule editor without changing anything.
+    pub fn cancel_smart_edit(&mut self) {
+        self.smart_draft = None;
+    }
+
+    /// Carry out whatever the rule editor was opened for: make the smart
+    /// playlist, or give the one it names its new rules.
+    ///
+    /// Saving an edit recomputes the open playlist's tracks through the usual
+    /// refresh — there is no membership to update, which is the whole point.
+    pub fn confirm_smart_edit(&mut self) {
+        let Some(draft) = self.smart_draft.clone() else {
+            return;
+        };
+
+        let (name, rules) = match draft.validated() {
+            Ok(ready) => ready,
+            Err(message) => {
+                if let Some(draft) = self.smart_draft.as_mut() {
+                    draft.fail(message);
+                }
+                return;
+            }
+        };
+
+        let Some(library) = self.library.as_mut() else {
+            return;
+        };
+
+        let outcome = {
+            let mut playlists = Playlists::new(library.repository_mut());
+
+            match draft.kind() {
+                SmartDraftKind::Create => playlists.create_smart(&name, &rules).map(Some),
+                SmartDraftKind::EditRules(id) => playlists
+                    .rename(id, &name)
+                    .and_then(|()| playlists.set_rules(id, &rules))
+                    .map(|()| None),
+            }
+        };
+
+        match outcome {
+            Ok(created) => {
+                self.smart_draft = None;
+                self.playlist_error = None;
+
+                if let Err(error) = self.refresh() {
+                    self.playlist_error = Some(error.to_string());
+                } else if let Some(id) = created {
+                    self.open_playlist(id);
+                }
+            }
+            Err(error) => {
+                if let Some(draft) = self.smart_draft.as_mut() {
+                    draft.fail(playlist_conflict(&error, &name));
+                }
+            }
+        }
+    }
+
     /// Add tracks to a playlist, creating it under `name` if it is new.
     ///
     /// This is what the Library's "Add to playlist" menu calls, so the same
     /// entry can put the selection into an existing playlist or into one named
-    /// on the spot.
+    /// on the spot. A smart playlist of that name refuses the tracks — the menu
+    /// normally hides it, so this is the second line of defence — because its
+    /// tracks come from its rules, and there is nothing to add them to.
     ///
     /// Returns how many tracks were added, so the caller can say what happened.
     pub fn add_tracks_to_playlist(&mut self, name: &str, tracks: &[TrackId]) -> usize {
@@ -784,6 +913,12 @@ impl MusicCraftApp {
                 .and_then(|id| playlists.add_tracks(id, tracks))
             {
                 Ok((_, added)) => added,
+                Err(AppError::PlaylistIsSmart(_)) => {
+                    self.playlist_error = Some(format!(
+                        "`{name}` is a smart playlist — its tracks come from its rules"
+                    ));
+                    0
+                }
                 Err(error) => {
                     self.playlist_error = Some(error.to_string());
                     0

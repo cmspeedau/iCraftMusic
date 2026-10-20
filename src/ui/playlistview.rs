@@ -38,6 +38,8 @@ enum Action {
     Rename(PlaylistId),
     /// Start copying a playlist.
     Duplicate(PlaylistId),
+    /// Open the rule editor over a smart playlist.
+    EditRules(PlaylistId),
     /// Play the open playlist from the top.
     Play,
     /// Add the open playlist to the queue.
@@ -89,11 +91,17 @@ pub fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     // `apply` once a button has been clicked.
     let open = app.selected_playlist();
     let has_tracks = !app.playlist_tracks().is_empty();
+    let smart = app
+        .selected_playlist_summary()
+        .is_some_and(|summary| summary.smart);
 
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         if let Some(id) = open {
-            // Added right to left, so they read left to right as Rename,
-            // Duplicate, Delete from the inside out.
+            // Added right to left, so they read left to right as Edit rules,
+            // Rename, Duplicate, Delete from the inside out. Edit rules is the
+            // smart playlist's own edit — the one thing a hand-made playlist
+            // has no equivalent of — so it goes on the end of the added order
+            // and the beginning of the read order.
             if ui
                 .button(RichText::new("Delete").color(theme::WARNING))
                 .on_hover_text("Remove the playlist; the tracks and their files stay")
@@ -116,6 +124,15 @@ pub fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 .clicked()
             {
                 action = Some(Action::Rename(id));
+            }
+
+            if smart
+                && ui
+                    .button("Edit rules…")
+                    .on_hover_text("Change the rules that fill this playlist")
+                    .clicked()
+            {
+                action = Some(Action::EditRules(id));
             }
 
             ui.separator();
@@ -163,6 +180,23 @@ fn detail_column(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Act
         }
 
         if app.playlist_tracks().is_empty() {
+            if app
+                .selected_playlist_summary()
+                .is_some_and(|summary| summary.smart)
+            {
+                ui.label(RichText::new("No tracks match the rules right now.").weak());
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(
+                        "Nothing in the library answers to these rules yet. \"Edit rules…\" \
+                         on the heading widens them.",
+                    )
+                    .small()
+                    .weak(),
+                );
+                return;
+            }
+
             ui.label(RichText::new("This playlist is empty.").weak());
             ui.add_space(4.0);
             ui.label(
@@ -180,10 +214,18 @@ fn detail_column(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Act
     });
 }
 
-/// The open playlist's tracks, numbered as they will be played.
+/// The open playlist's tracks, in play order.
+///
+/// A smart playlist's rows carry no position controls and no "remove" entry:
+/// its order belongs to the query and its membership is not something the
+/// section holds. Everything else a row can do — play from here, say what the
+/// file is — works on both kinds, so both draw the same rows.
 fn track_rows(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action>) {
     let tracks = app.playlist_tracks();
     let last = tracks.len().saturating_sub(1);
+    let smart = app
+        .selected_playlist_summary()
+        .is_some_and(|summary| summary.smart);
 
     for (index, track) in tracks.iter().enumerate() {
         let (rect, response) =
@@ -223,7 +265,9 @@ fn track_rows(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action
             },
         );
 
-        position_controls(ui, rect, index, last, action);
+        if !smart {
+            position_controls(ui, rect, index, last, action);
+        }
 
         // The gesture the Library's table taught: double-click plays from the
         // row, and so does Enter on the row wearing the focus ring — the one
@@ -235,6 +279,12 @@ fn track_rows(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action
         theme::focus_ring_if_focused(ui, &response);
 
         let track_id = track.id;
+
+        if smart {
+            response.on_hover_text(hover_text(track));
+            continue;
+        }
+
         response
             .on_hover_text(hover_text(track))
             .context_menu(|ui| {
@@ -300,6 +350,9 @@ fn apply(app: &mut MusicCraftApp, action: Action) {
         Action::Delete(id) => app.ask_to_delete_playlist(id),
         Action::Rename(id) => app.start_playlist_edit(PlaylistEditKind::Rename(id)),
         Action::Duplicate(id) => app.start_playlist_edit(PlaylistEditKind::Duplicate(id)),
+        Action::EditRules(id) => {
+            app.start_smart_playlist_edit(id);
+        }
         Action::Play => {
             app.play_playlist();
         }
@@ -621,12 +674,14 @@ mod tests {
             name: "New".to_owned(),
             track_count: 0,
             duration: None,
+            smart: false,
         };
         let one = PlaylistSummary {
             id: PlaylistId(2),
             name: "Evening".to_owned(),
             track_count: 1,
             duration: Some(std::time::Duration::from_secs(61)),
+            smart: false,
         };
 
         assert_eq!(empty.totals(), "No tracks yet");

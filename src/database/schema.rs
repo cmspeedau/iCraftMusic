@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{AppError, Result};
 
 /// The schema version this build writes.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// One step of the schema's history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +52,11 @@ pub fn migrations() -> &'static [Migration] {
             version: 4,
             description: "a track remembers how many times it has been played",
             sql: SQL_V4,
+        },
+        Migration {
+            version: 5,
+            description: "a playlist can carry the rules that fill it",
+            sql: SQL_V5,
         },
     ]
 }
@@ -111,6 +116,10 @@ ALTER TABLE tracks ADD COLUMN tags_dirty INTEGER NOT NULL DEFAULT 0;
 
 const SQL_V4: &str = "
 ALTER TABLE tracks ADD COLUMN play_count INTEGER NOT NULL DEFAULT 0;
+";
+
+const SQL_V5: &str = "
+ALTER TABLE playlists ADD COLUMN definition TEXT;
 ";
 
 /// What `PRAGMA integrity_check` said about a database.
@@ -437,6 +446,46 @@ mod tests {
 
         assert_eq!(title, "Roygbiv");
         assert_eq!(plays, 0, "an unplayed track starts at zero");
+    }
+
+    #[test]
+    fn a_playlist_from_before_smart_playlists_survives_as_a_manual_one() {
+        // Migration 5 adds the definition column, so a playlist written by the
+        // previous build must come back with no rules rather than as a missing-
+        // column error — the absence of a definition is what makes it manual.
+        let directory = scratch("migrate-smart-definition");
+        let path = directory.join("library.sqlite");
+
+        {
+            let connection = Connection::open(&path).expect("open");
+            connection.execute_batch(SQL_V1).expect("first schema");
+            connection.execute_batch(SQL_V2).expect("second schema");
+            connection
+                .execute_batch(
+                    "CREATE TABLE IF NOT EXISTS schema_version (
+                         version    INTEGER PRIMARY KEY,
+                         applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+                     );",
+                )
+                .expect("version table");
+            connection
+                .execute("INSERT INTO schema_version (version) VALUES (4)", [])
+                .expect("record the old version");
+            connection
+                .execute("INSERT INTO playlists (name) VALUES ('Evening')", [])
+                .expect("playlist");
+        }
+
+        let mut connection = Connection::open(&path).expect("reopen");
+        apply(&mut connection).expect("migrations run");
+
+        let definition: Option<String> = connection
+            .query_row("SELECT definition FROM playlists", [], |row| row.get(0))
+            .expect("the playlist survived the migration");
+
+        assert_eq!(definition, None, "an old playlist has no rules");
+
+        std::fs::remove_dir_all(&directory).ok();
     }
 
     #[test]

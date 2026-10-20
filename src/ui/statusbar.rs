@@ -119,12 +119,14 @@ fn counts(app: &MusicCraftApp, ui: &mut egui::Ui) {
     });
 }
 
-/// The `+` at the left end of the bar, which names a new playlist.
+/// The `+` at the left end of the bar, which makes a new playlist — one of
+/// the two kinds.
 ///
-/// It opens the same name editor the Playlists section used to raise, and asks
-/// the library for the same thing; what moved is where the control sits, not
-/// what it does. It carries no highlight, unlike the gear: a new playlist is
-/// something you ask for, not somewhere you are.
+/// It used to open the name editor straight away; with smart playlists there
+/// are now two ways to fill a new playlist, and the bar cannot know which was
+/// meant, so the click asks. The menu is the gear's own habit, one row per
+/// kind. It carries no highlight, unlike the gear: a new playlist is something
+/// you ask for, not somewhere you are.
 fn new_playlist(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let response = ui.put(
         rect_for(ui.max_rect(), End::Left),
@@ -138,15 +140,30 @@ fn new_playlist(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     // The glyph is a cross to the eye and nothing at all to a screen reader;
     // the ring is the only sign Tab has reached it. Both take what the bar
     // already says about the control under the pointer.
-    theme::accessible_name(ui, &response, "New playlist");
+    theme::accessible_name(ui, &response, "Make a new playlist or smart playlist");
     theme::focus_ring_if_focused(ui, &response);
 
-    if response
-        .on_hover_text("Name a playlist, then add tracks to it")
-        .clicked()
-    {
-        app.start_playlist_edit(PlaylistEditKind::Create);
-    }
+    let response = response.on_hover_text("Make a new playlist or smart playlist");
+
+    egui::Popup::menu(&response).show(|ui| {
+        if ui
+            .button("New playlist…")
+            .on_hover_text("Name a playlist, then add tracks to it")
+            .clicked()
+        {
+            app.start_playlist_edit(PlaylistEditKind::Create);
+            ui.close();
+        }
+
+        if ui
+            .button("New smart playlist…")
+            .on_hover_text("Write the rules, and the playlist fills itself")
+            .clicked()
+        {
+            app.start_smart_playlist_create();
+            ui.close();
+        }
+    });
 }
 
 /// The gear at the right end of the bar: the menu that adds music and opens
@@ -1660,9 +1677,10 @@ mod tests {
         );
     }
 
-    /// Clicking the `+` raises the name editor; clicking nothing does not.
+    /// Clicking the `+` raises the menu that names both kinds of new
+    /// playlist, and choosing one opens that kind's editor.
     #[test]
-    fn a_click_on_the_plus_starts_a_new_playlist() {
+    fn the_plus_offers_both_kinds_of_new_playlist() {
         let screen = screen();
         let mut app = app();
         let ctx = egui::Context::default();
@@ -1711,13 +1729,64 @@ mod tests {
         let up = ctx.run_ui(input, |ui| crate::ui::render(&mut app, ui));
         up.drop_without_applying_deltas();
 
-        let draft = app
-            .playlist_draft()
-            .expect("clicking the + did not raise the name editor");
-        assert_eq!(
-            draft.kind(),
-            PlaylistEditKind::Create,
-            "the + opened something other than a new playlist"
+        assert!(
+            app.playlist_draft().is_none() && app.smart_draft().is_none(),
+            "the + itself opens nothing — it asks first"
+        );
+
+        // Frame 3: the menu is up, and it names both kinds.
+        let offered = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| crate::ui::render(&mut app, ui),
+        );
+        assert!(
+            written(&offered.shapes, "New playlist…").is_some(),
+            "the menu did not offer a hand-made playlist"
+        );
+        let smart = written(&offered.shapes, "New smart playlist…")
+            .expect("the menu did not offer a smart playlist");
+        offered.drop_without_applying_deltas();
+
+        // Frames 4 and 5: press and release on the smart entry, which is the
+        // one the old test could not have anticipated.
+        let entry = smart.center();
+        let mut input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        input.events = vec![egui::Event::PointerMoved(entry)];
+        input.events.extend([egui::Event::PointerButton {
+            pos: entry,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+        }]);
+        let down = ctx.run_ui(input, |ui| crate::ui::render(&mut app, ui));
+        down.drop_without_applying_deltas();
+
+        let mut input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        input.events = vec![egui::Event::PointerButton {
+            pos: entry,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::default(),
+        }];
+        let up = ctx.run_ui(input, |ui| crate::ui::render(&mut app, ui));
+        up.drop_without_applying_deltas();
+
+        assert!(
+            app.smart_draft().is_some(),
+            "choosing the smart entry did not raise the rule editor"
+        );
+        assert!(
+            app.playlist_draft().is_none(),
+            "the smart entry opened the wrong editor"
         );
     }
 

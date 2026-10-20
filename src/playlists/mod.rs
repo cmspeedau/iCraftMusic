@@ -6,6 +6,14 @@
 //! of every playlist, which the schema enforces with a foreign key rather than
 //! leaving the interface to remember.
 //!
+//! A smart playlist holds no references at all. It holds a rule set — see
+//! [`smart`] — and its tracks are whatever the library matches when they are
+//! asked for, which is what makes it live: a track indexed ten minutes later is
+//! in the playlist as soon as the library is read again. Everything that edits
+//! membership by hand (`add`, `remove`, `move`, `clear`) refuses a smart
+//! playlist rather than quietly editing rows nothing reads; the edit a smart
+//! playlist has is its rules.
+//!
 //! The manager borrows the one database connection the application owns, so a
 //! playlist edit and a scan can never be in flight against the same file at
 //! once:
@@ -24,9 +32,13 @@
 
 pub mod edit;
 pub mod playlist;
+pub mod smart;
 
-pub use edit::{PlaylistDraft, PlaylistEditKind};
+pub use edit::{PlaylistDraft, PlaylistEditKind, SmartDraft, SmartDraftKind};
 pub use playlist::{Playlist, PlaylistSummary};
+pub use smart::{FieldKind, Limit, LimitOrder, Rule, RuleField, RuleOperator, SmartRules};
+
+use std::time::Duration;
 
 use rusqlite::{OptionalExtension, params};
 
@@ -95,6 +107,12 @@ impl<'a> Playlists<'a> {
 
     /// Every playlist, each with how many tracks it holds and how long it runs.
     ///
+    /// A smart playlist's numbers come from its rules rather than from
+    /// membership rows it never had, so each smart row is asked separately —
+    /// at a handful of smart playlists per library, that is the honest cheap
+    /// way rather than a query generator that tries to fold every rule set
+    /// into one statement.
+    ///
     /// # Errors
     ///
     /// Returns [`AppError::Database`] when the query fails.
@@ -103,7 +121,8 @@ impl<'a> Playlists<'a> {
             .repository
             .connection()
             .prepare(
-                "SELECT p.id, p.name, COUNT(m.track_id), SUM(t.duration_ms) \
+                "SELECT p.id, p.name, COUNT(m.track_id), SUM(t.duration_ms), \
+                        (p.definition IS NOT NULL) \
                  FROM playlists p \
                  LEFT JOIN playlist_tracks m ON m.playlist_id = p.id \
                  LEFT JOIN tracks t ON t.id = m.track_id \
@@ -116,8 +135,19 @@ impl<'a> Playlists<'a> {
             .query_map([], PlaylistSummary::from_row)
             .map_err(AppError::database)?;
 
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(AppError::database)
+        let mut summaries = rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(AppError::database)?;
+
+        for summary in &mut summaries {
+            if summary.smart {
+                let (count, duration) = self.smart_totals(summary.id)?;
+                summary.track_count = count;
+                summary.duration = duration;
+            }
+        }
+
+        Ok(summaries)
     }
 
     /// One playlist, with its tracks in order.
@@ -142,10 +172,12 @@ impl<'a> Playlists<'a> {
     ///
     /// Returns [`AppError::Database`] when the query fails.
     pub fn summary(&self, id: PlaylistId) -> Result<Option<PlaylistSummary>> {
-        self.repository
+        let mut summary = self
+            .repository
             .connection()
             .query_row(
-                "SELECT p.id, p.name, COUNT(m.track_id), SUM(t.duration_ms) \
+                "SELECT p.id, p.name, COUNT(m.track_id), SUM(t.duration_ms), \
+                        (p.definition IS NOT NULL) \
                  FROM playlists p \
                  LEFT JOIN playlist_tracks m ON m.playlist_id = p.id \
                  LEFT JOIN tracks t ON t.id = m.track_id \
@@ -155,15 +187,35 @@ impl<'a> Playlists<'a> {
                 PlaylistSummary::from_row,
             )
             .optional()
-            .map_err(AppError::database)
+            .map_err(AppError::database)?;
+
+        if let Some(summary) = summary.as_mut()
+            && summary.smart
+        {
+            let (count, duration) = self.smart_totals(id)?;
+            summary.track_count = count;
+            summary.duration = duration;
+        }
+
+        Ok(summary)
     }
 
     /// A playlist's tracks, in play order.
     ///
+    /// A smart playlist's tracks are whatever its rules match now — asked of
+    /// the library each time, which is why a track indexed after the playlist
+    /// was made is already here.
+    ///
     /// # Errors
     ///
-    /// Returns [`AppError::Database`] when the query fails.
+    /// Returns [`AppError::Database`] when the query fails, and
+    /// [`AppError::SmartRulesUnreadable`] when a smart playlist's stored rules
+    /// cannot be read back.
     pub fn tracks(&self, id: PlaylistId) -> Result<Vec<Track>> {
+        if let Some(rules) = self.rules(id)? {
+            return self.matching_tracks(&rules);
+        }
+
         let mut statement = self
             .repository
             .connection()
@@ -183,6 +235,184 @@ impl<'a> Playlists<'a> {
 
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(AppError::database)
+    }
+
+    /// Create a playlist that is filled by rules rather than by hand, and
+    /// return its identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::InvalidPlaylistName`] for a blank name and
+    /// [`AppError::Database`] when the name is already taken or the row cannot
+    /// be written.
+    pub fn create_smart(&mut self, name: &str, rules: &SmartRules) -> Result<PlaylistId> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(AppError::InvalidPlaylistName);
+        }
+
+        // Rule sets are plain data — enums, strings and integers — and plain
+        // data serialises; a failure here would mean the type itself changed
+        // into something TOML cannot write.
+        let definition = rules
+            .to_definition()
+            .expect("a rule set of plain data serialises");
+
+        let connection = self.repository.connection_mut();
+        connection
+            .execute(
+                "INSERT INTO playlists (name, definition) VALUES (?1, ?2)",
+                params![name, definition],
+            )
+            .map_err(AppError::database)?;
+
+        let id = PlaylistId(connection.last_insert_rowid());
+        tracing::info!("created smart playlist {id} ({name})");
+
+        Ok(id)
+    }
+
+    /// Replace the rules that fill a smart playlist.
+    ///
+    /// The next read of the playlist answers to the new rules — there is
+    /// nothing else to update, which is the point of keeping no membership.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::PlaylistNotFound`] when the playlist is gone and
+    /// [`AppError::Database`] when the row cannot be written.
+    pub fn set_rules(&mut self, id: PlaylistId, rules: &SmartRules) -> Result<()> {
+        let definition = rules
+            .to_definition()
+            .expect("a rule set of plain data serialises");
+
+        let connection = self.repository.connection_mut();
+        let changed = connection
+            .execute(
+                "UPDATE playlists SET definition = ?2, updated_at = datetime('now') \
+                 WHERE id = ?1",
+                params![id.get(), definition],
+            )
+            .map_err(AppError::database)?;
+
+        if changed == 0 {
+            return Err(AppError::PlaylistNotFound(id));
+        }
+
+        Ok(())
+    }
+
+    /// The rules that fill a smart playlist, or `None` for a hand-made one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::SmartRulesUnreadable`] when the stored text is not
+    /// a rule set this build understands, and [`AppError::Database`] when the
+    /// query fails.
+    pub fn rules(&self, id: PlaylistId) -> Result<Option<SmartRules>> {
+        let Some(Some(definition)) = self.definition_of(id)? else {
+            return Ok(None);
+        };
+
+        match SmartRules::from_definition(&definition) {
+            Ok(rules) => Ok(Some(rules)),
+            Err(error) => {
+                tracing::warn!("smart playlist {id} carries rules this build cannot read: {error}");
+                Err(AppError::SmartRulesUnreadable(id))
+            }
+        }
+    }
+
+    /// Whether a playlist is filled by rules.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::Database`] when the query fails.
+    pub fn is_smart(&self, id: PlaylistId) -> Result<bool> {
+        Ok(self.definition_of(id)?.flatten().is_some())
+    }
+
+    /// The tracks matching a rule set, in the library's own display order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::Database`] when the query fails.
+    pub fn matching_tracks(&self, rules: &SmartRules) -> Result<Vec<Track>> {
+        let (sql, values) = rules.select_query(smart::TRACK_COLUMNS);
+
+        let mut statement = self
+            .repository
+            .connection()
+            .prepare(&sql)
+            .map_err(AppError::database)?;
+
+        let rows = statement
+            .query_map(
+                rusqlite::params_from_iter(values.iter()),
+                crate::database::repository::row_to_track,
+            )
+            .map_err(AppError::database)?;
+
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(AppError::database)
+    }
+
+    /// How many tracks a rule set matches and how long they run, limit
+    /// included — the numbers the sidebar shows for a smart playlist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::Database`] when the query fails.
+    pub fn matching_totals(&self, rules: &SmartRules) -> Result<(usize, Option<Duration>)> {
+        let (sql, values) = rules.totals_query();
+
+        let (count, total): (i64, Option<i64>) = self
+            .repository
+            .connection()
+            .query_row(&sql, rusqlite::params_from_iter(values.iter()), |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .map_err(AppError::database)?;
+
+        Ok((
+            usize::try_from(count).unwrap_or(usize::MAX),
+            total
+                .and_then(|millis| u64::try_from(millis).ok())
+                .map(Duration::from_millis),
+        ))
+    }
+
+    /// The stored rules text of a playlist: `Some(Some(text))` for a smart
+    /// one, `Some(None)` for a hand-made one, `None` when there is no such
+    /// playlist.
+    fn definition_of(&self, id: PlaylistId) -> Result<Option<Option<String>>> {
+        self.repository
+            .connection()
+            .query_row(
+                "SELECT definition FROM playlists WHERE id = ?1",
+                params![id.get()],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .map_err(AppError::database)
+    }
+
+    /// What a smart playlist's totals are, counting its rules.
+    ///
+    /// Rules that cannot be read back count as empty rather than as a failed
+    /// listing: the sidebar shows every playlist the library holds, and one
+    /// corrupt definition is not a reason to lose sight of the others. Opening
+    /// that playlist is where the failure is reported, with [`Playlists::rules`]
+    /// refusing loudly.
+    fn smart_totals(&self, id: PlaylistId) -> Result<(usize, Option<Duration>)> {
+        match self.rules(id) {
+            Ok(Some(rules)) => self.matching_totals(&rules),
+            Ok(None) => Ok((0, None)),
+            Err(error) => {
+                tracing::warn!("smart playlist {id} is shown as empty: {error}");
+                Ok((0, None))
+            }
+        }
     }
 
     /// Whether a playlist is known to the database.
@@ -289,8 +519,10 @@ impl<'a> Playlists<'a> {
     /// # Errors
     ///
     /// Returns [`AppError::PlaylistNotFound`] when the playlist is gone,
-    /// [`AppError::TrackHasNoRow`] when any track has not been stored yet, and
-    /// [`AppError::Database`] when the rows cannot be written.
+    /// [`AppError::PlaylistIsSmart`] when it is filled by rules — there are no
+    /// membership rows to add to, and writing some would be a list nothing
+    /// reads — [`AppError::TrackHasNoRow`] when any track has not been stored
+    /// yet, and [`AppError::Database`] when the rows cannot be written.
     pub fn add_tracks(
         &mut self,
         playlist: PlaylistId,
@@ -298,6 +530,10 @@ impl<'a> Playlists<'a> {
     ) -> Result<(usize, usize)> {
         if !self.exists(playlist)? {
             return Err(AppError::PlaylistNotFound(playlist));
+        }
+
+        if self.is_smart(playlist)? {
+            return Err(AppError::PlaylistIsSmart(playlist));
         }
 
         // Every track is checked before anything is written, so a list with one
@@ -351,8 +587,15 @@ impl<'a> Playlists<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::Database`] when the rows cannot be written.
+    /// Returns [`AppError::PlaylistIsSmart`] when the playlist is filled by
+    /// rules — the honest answer to "take this out of a list that does not
+    /// hold tracks" — and [`AppError::Database`] when the rows cannot be
+    /// written.
     pub fn remove_track(&mut self, playlist: PlaylistId, track: TrackId) -> Result<bool> {
+        if self.is_smart(playlist)? {
+            return Err(AppError::PlaylistIsSmart(playlist));
+        }
+
         let connection = self.repository.connection_mut();
         let transaction = connection.transaction().map_err(AppError::database)?;
 
@@ -411,6 +654,11 @@ impl<'a> Playlists<'a> {
     pub fn move_track(&mut self, playlist: PlaylistId, from: usize, to: usize) -> Result<bool> {
         if !self.exists(playlist)? {
             return Err(AppError::PlaylistNotFound(playlist));
+        }
+
+        // There is no order to rearrange in a list whose order is the query's.
+        if self.is_smart(playlist)? {
+            return Err(AppError::PlaylistIsSmart(playlist));
         }
 
         let connection = self.repository.connection_mut();
@@ -480,6 +728,14 @@ impl<'a> Playlists<'a> {
     /// [`AppError::Database`] when the name is taken or the rows cannot be
     /// written.
     pub fn duplicate(&mut self, id: PlaylistId, name: &str) -> Result<PlaylistId> {
+        // A copy of a smart playlist is the same question asked of the library
+        // tomorrow, so what travels is the rules — freezing today's matching
+        // tracks into a hand-made list would turn the copy into something the
+        // user did not copy.
+        if let Some(rules) = self.rules(id)? {
+            return self.create_smart(name, &rules);
+        }
+
         let tracks = self.tracks(id)?;
         if !self.exists(id)? {
             return Err(AppError::PlaylistNotFound(id));
@@ -520,6 +776,10 @@ impl<'a> Playlists<'a> {
     pub fn clear(&mut self, id: PlaylistId) -> Result<usize> {
         if !self.exists(id)? {
             return Err(AppError::PlaylistNotFound(id));
+        }
+
+        if self.is_smart(id)? {
+            return Err(AppError::PlaylistIsSmart(id));
         }
 
         let connection = self.repository.connection_mut();
@@ -572,7 +832,8 @@ impl<'a> Playlists<'a> {
             .repository
             .connection()
             .prepare(
-                "SELECT p.id, p.name, COUNT(m.track_id), SUM(t.duration_ms) \
+                "SELECT p.id, p.name, COUNT(m.track_id), SUM(t.duration_ms), \
+                        (p.definition IS NOT NULL) \
                  FROM playlists p \
                  LEFT JOIN playlist_tracks m ON m.playlist_id = p.id \
                  LEFT JOIN tracks t ON t.id = m.track_id \
@@ -1041,5 +1302,244 @@ mod tests {
         assert_eq!(tracks[0].title, "Roygbiv");
 
         std::fs::remove_dir_all(&directory).ok();
+    }
+
+    /// A rule set naming the one track the `library` fixture can single out.
+    fn one_track_rules() -> SmartRules {
+        let mut contains = Rule::text(RuleField::Title, "1");
+        contains.operator = RuleOperator::Contains;
+
+        SmartRules {
+            match_all: true,
+            rules: vec![contains],
+            limit: None,
+        }
+    }
+
+    #[test]
+    fn a_smart_playlist_holds_its_rules_and_reads_them_back() {
+        let (mut repository, _) = library(3);
+        let mut playlists = Playlists::new(&mut repository);
+
+        let rules = one_track_rules();
+        let id = playlists.create_smart("Ones", &rules).expect("create");
+
+        assert!(playlists.is_smart(id).expect("smart"));
+        assert_eq!(playlists.rules(id).expect("rules").as_ref(), Some(&rules));
+
+        let manual = playlists.create("Evening").expect("create");
+        assert!(!playlists.is_smart(manual).expect("not smart"));
+        assert_eq!(playlists.rules(manual).expect("no rules"), None);
+    }
+
+    #[test]
+    fn a_smart_playlists_tracks_are_what_the_rules_match() {
+        let (mut repository, _) = library(3);
+        let mut playlists = Playlists::new(&mut repository);
+
+        let id = playlists
+            .create_smart("Ones", &one_track_rules())
+            .expect("create");
+
+        let titles: Vec<String> = playlists
+            .tracks(id)
+            .expect("tracks")
+            .into_iter()
+            .map(|track| track.title)
+            .collect();
+        assert_eq!(titles, vec!["Track 1".to_owned()]);
+    }
+
+    #[test]
+    fn a_smart_playlist_finds_tracks_indexed_after_it_was_made() {
+        // The whole point of not storing membership: the library is asked
+        // again on every read, so there is nothing to refresh.
+        let (mut repository, _) = library(3);
+
+        let id = {
+            let mut playlists = Playlists::new(&mut repository);
+            playlists
+                .create_smart("Ones", &one_track_rules())
+                .expect("create")
+        };
+        assert_eq!(
+            Playlists::new(&mut repository)
+                .tracks(id)
+                .expect("tracks")
+                .len(),
+            1
+        );
+
+        let mut extra = Track::from_path("/music/track-11.mp3");
+        extra.title = "Track 11".to_owned();
+        repository.upsert_track(&extra).expect("index");
+
+        assert_eq!(
+            Playlists::new(&mut repository)
+                .tracks(id)
+                .expect("tracks")
+                .len(),
+            2,
+            "the track indexed after the playlist still answers to its rules"
+        );
+    }
+
+    #[test]
+    fn the_sidebar_counts_a_smart_playlist_from_its_rules() {
+        let (mut repository, _) = library(3);
+        let mut playlists = Playlists::new(&mut repository);
+
+        playlists
+            .create_smart("Ones", &one_track_rules())
+            .expect("create");
+
+        let summary = playlists
+            .list()
+            .expect("list")
+            .into_iter()
+            .find(|summary| summary.name == "Ones")
+            .expect("listed");
+
+        assert!(summary.smart);
+        assert_eq!(summary.track_count, 1, "the count is the query's answer");
+    }
+
+    #[test]
+    fn membership_edits_are_refused_for_a_smart_playlist() {
+        let (mut repository, ids) = library(3);
+        let mut playlists = Playlists::new(&mut repository);
+
+        let id = playlists
+            .create_smart("Ones", &one_track_rules())
+            .expect("create");
+
+        assert!(matches!(
+            playlists.add_track(id, ids[0]),
+            Err(AppError::PlaylistIsSmart(_))
+        ));
+        assert!(matches!(
+            playlists.remove_track(id, ids[0]),
+            Err(AppError::PlaylistIsSmart(_))
+        ));
+        assert!(matches!(
+            playlists.move_track(id, 0, 1),
+            Err(AppError::PlaylistIsSmart(_))
+        ));
+        assert!(matches!(
+            playlists.clear(id),
+            Err(AppError::PlaylistIsSmart(_))
+        ));
+    }
+
+    #[test]
+    fn a_copy_of_a_smart_playlist_copies_the_rules_not_the_answer() {
+        let (mut repository, _) = library(3);
+        let mut playlists = Playlists::new(&mut repository);
+
+        let original = playlists
+            .create_smart("Ones", &one_track_rules())
+            .expect("create");
+        let copy = playlists
+            .duplicate(original, "Ones copy")
+            .expect("duplicate");
+
+        assert!(playlists.is_smart(copy).expect("still smart"));
+        assert_eq!(
+            playlists.rules(copy).expect("rules"),
+            playlists.rules(original).expect("original rules"),
+            "the copy asks the same question, so it keeps answering it live"
+        );
+    }
+
+    #[test]
+    fn a_smart_playlist_can_be_renamed_and_re_ruled() {
+        let (mut repository, _) = library(3);
+        let mut playlists = Playlists::new(&mut repository);
+
+        let id = playlists
+            .create_smart("Ones", &one_track_rules())
+            .expect("create");
+
+        playlists.rename(id, "The One").expect("rename");
+        assert!(playlists.is_smart(id).expect("still smart"));
+
+        let mut everything = Rule::text(RuleField::Title, "Track");
+        everything.operator = RuleOperator::Contains;
+        playlists
+            .set_rules(
+                id,
+                &SmartRules {
+                    match_all: true,
+                    rules: vec![everything],
+                    limit: None,
+                },
+            )
+            .expect("new rules");
+
+        assert_eq!(playlists.tracks(id).expect("tracks").len(), 3);
+
+        let gone = playlists.set_rules(PlaylistId(99), &one_track_rules());
+        assert!(matches!(gone, Err(AppError::PlaylistNotFound(_))));
+    }
+
+    #[test]
+    fn a_smart_playlist_survives_the_library_being_reopened() {
+        let directory = crate::fixtures::scratch("smart-persist");
+        let database = directory.join("library.sqlite");
+
+        let id = {
+            let mut repository = LibraryRepository::open(&database).expect("open");
+            let mut playlists = Playlists::new(&mut repository);
+            playlists
+                .create_smart("Ones", &one_track_rules())
+                .expect("create")
+        };
+
+        let mut repository = LibraryRepository::open(&database).expect("reopen");
+        let playlists = Playlists::new(&mut repository);
+
+        assert_eq!(
+            playlists.rules(id).expect("rules").as_ref(),
+            Some(&one_track_rules())
+        );
+
+        std::fs::remove_dir_all(&directory).ok();
+    }
+
+    #[test]
+    fn unreadable_rules_are_loud_when_opened_and_quiet_in_the_sidebar() {
+        // A definition written by some future build may not parse here. The
+        // sidebar must still list the library; opening is where it is reported.
+        let (mut repository, _) = library(1);
+
+        let id = {
+            let mut playlists = Playlists::new(&mut repository);
+            playlists
+                .create_smart("Ones", &one_track_rules())
+                .expect("create")
+        };
+
+        repository
+            .connection_mut()
+            .execute(
+                "UPDATE playlists SET definition = 'this was never a rule set' WHERE id = ?1",
+                params![id.get()],
+            )
+            .expect("corrupt the definition");
+
+        let playlists = Playlists::new(&mut repository);
+
+        let summaries = playlists.list().expect("the sidebar still lists");
+        let broken = summaries
+            .iter()
+            .find(|summary| summary.id == id)
+            .expect("listed");
+        assert!(broken.smart);
+        assert_eq!(broken.track_count, 0, "shown as empty rather than lost");
+
+        assert!(matches!(
+            playlists.tracks(id),
+            Err(AppError::SmartRulesUnreadable(_))
+        ));
     }
 }

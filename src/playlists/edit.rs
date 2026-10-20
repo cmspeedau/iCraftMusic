@@ -1,13 +1,17 @@
-//! The playlist editor's model: a draft of the name a playlist would take.
+//! The playlist editors' model: what creating, renaming and editing rules
+//! start from, and what they refuse.
 //!
 //! Creating and renaming a playlist are the same edit — the user types a name
 //! and the library either gains a playlist or renames one — so both go through
-//! [`PlaylistDraft`]. Everything here is plain data with no database handle, so
-//! every rule below (a blank name is refused, the list of names a copy can
-//! take) is testable without a window and without a library.
+//! [`PlaylistDraft`]. Editing what fills a smart playlist is a wider edit — a
+//! name *and* rules — so it has its own [`SmartDraft`]. Everything here is
+//! plain data with no database handle, so every rule below (a blank name is
+//! refused, the list of names a copy can take, a half-written rule cannot be
+//! saved) is testable without a window and without a library.
 
 use crate::library::PlaylistId;
 use crate::playlists::PlaylistSummary;
+use crate::playlists::smart::SmartRules;
 
 /// What the playlist editor is doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,9 +142,138 @@ impl PlaylistDraft {
     }
 }
 
+/// What the smart-playlist editor is doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SmartDraftKind {
+    /// Make a new smart playlist with the typed name and rules.
+    Create,
+    /// Replace an existing smart playlist's rules — and its name, since the
+    /// editor carries the field and renaming is the same question there too.
+    EditRules(PlaylistId),
+}
+
+impl SmartDraftKind {
+    /// The heading on the window.
+    #[must_use]
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Create => "New smart playlist",
+            Self::EditRules(_) => "Edit smart playlist",
+        }
+    }
+
+    /// The label on the button that commits the edit.
+    #[must_use]
+    pub fn confirm_label(self) -> &'static str {
+        match self {
+            Self::Create => "Create",
+            Self::EditRules(_) => "Save",
+        }
+    }
+
+    /// The playlist being edited, if any.
+    #[must_use]
+    pub fn target(self) -> Option<PlaylistId> {
+        match self {
+            Self::Create => None,
+            Self::EditRules(id) => Some(id),
+        }
+    }
+}
+
+/// The smart-playlist editor's model: a name and the rules that would fill it.
+///
+/// The rules themselves — fields, operators, values, and the SQL they compile
+/// to — live in [`crate::playlists::smart`]; the draft adds the two things an
+/// editor needs and nothing else: what it is about, and why the last attempt
+/// was refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SmartDraft {
+    kind: SmartDraftKind,
+    name: String,
+    rules: SmartRules,
+    error: Option<String>,
+}
+
+impl SmartDraft {
+    /// Start a draft for `kind`. A creation begins with the empty rule set
+    /// and no name; an edit begins with the playlist's own name and rules, so
+    /// what is on screen is what is stored until something changes it.
+    #[must_use]
+    pub fn new(kind: SmartDraftKind, name: &str, rules: SmartRules) -> Self {
+        Self {
+            kind,
+            name: name.to_owned(),
+            rules,
+            error: None,
+        }
+    }
+
+    /// What the editor is doing.
+    #[must_use]
+    pub fn kind(&self) -> SmartDraftKind {
+        self.kind
+    }
+
+    /// The name as typed.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The name, for the view's text field.
+    pub fn name_mut(&mut self) -> &mut String {
+        &mut self.name
+    }
+
+    /// The rules as edited so far.
+    #[must_use]
+    pub fn rules(&self) -> &SmartRules {
+        &self.rules
+    }
+
+    /// The rules, for the view's rule rows.
+    pub fn rules_mut(&mut self) -> &mut SmartRules {
+        &mut self.rules
+    }
+
+    /// Why the last attempt failed, if it did.
+    #[must_use]
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    /// Say why the last attempt failed.
+    pub fn fail(&mut self, reason: impl Into<String>) {
+        self.error = Some(reason.into());
+    }
+
+    /// The name and rules to store, checked as a whole.
+    ///
+    /// # Errors
+    ///
+    /// Returns the message for a blank name or a rule that cannot compile —
+    /// the failures the editor can spot on its own. A name that is already
+    /// taken is the database's answer, and reaches the draft through
+    /// [`SmartDraft::fail`].
+    pub fn validated(&self) -> Result<(String, SmartRules), String> {
+        let name = self.name.trim();
+        if name.is_empty() {
+            return Err("a smart playlist needs a name".to_owned());
+        }
+
+        if let Some(problem) = self.rules.problem() {
+            return Err(problem.to_owned());
+        }
+
+        Ok((name.to_owned(), self.rules.clone()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::playlists::smart::{Rule, RuleField};
     use std::time::Duration;
 
     fn summary(name: &str) -> PlaylistSummary {
@@ -149,6 +282,7 @@ mod tests {
             name: name.to_owned(),
             track_count: 3,
             duration: Some(Duration::from_secs(180)),
+            smart: false,
         }
     }
 
@@ -226,5 +360,48 @@ mod tests {
             assert!(!kind.title().is_empty(), "{kind:?} has no title");
             assert!(!kind.confirm_label().is_empty(), "{kind:?} has no button");
         }
+    }
+
+    #[test]
+    fn a_smart_draft_refuses_a_blank_name_and_a_half_written_rule() {
+        let mut draft = SmartDraft::new(SmartDraftKind::Create, "", SmartRules::default());
+        assert_eq!(
+            draft.validated().err().as_deref(),
+            Some("a smart playlist needs a name")
+        );
+
+        *draft.name_mut() = "Recent".to_owned();
+        draft.rules_mut().rules.push(Rule::new(RuleField::Artist));
+        assert_eq!(
+            draft.validated().err().as_deref(),
+            Some("needs some text to match against"),
+            "an unfinished rule is refused with the rule's own words"
+        );
+
+        draft.rules_mut().rules[0].value = "Squid".to_owned();
+        let (name, rules) = draft.validated().expect("complete now");
+        assert_eq!(name, "Recent");
+        assert_eq!(rules.rules.len(), 1);
+    }
+
+    #[test]
+    fn a_smart_draft_starts_from_the_rules_the_playlist_already_has() {
+        let rules = SmartRules {
+            match_all: false,
+            rules: vec![Rule::text(RuleField::Genre, "Dub")],
+            limit: None,
+        };
+
+        let draft = SmartDraft::new(
+            SmartDraftKind::EditRules(PlaylistId(7)),
+            "Dubwise",
+            rules.clone(),
+        );
+
+        assert_eq!(draft.name(), "Dubwise");
+        assert_eq!(draft.rules(), &rules);
+        assert_eq!(draft.kind().target(), Some(PlaylistId(7)));
+        assert_eq!(draft.kind().title(), "Edit smart playlist");
+        assert_eq!(draft.kind().confirm_label(), "Save");
     }
 }

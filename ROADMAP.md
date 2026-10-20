@@ -283,7 +283,8 @@ Goal: Extend the application after the core product is stable.
 
 Possible additions:
 
-    Smart playlists and saved filters.
+    Smart playlists and saved filters (the smart half is implemented — see the
+    status below).
     Album detail view below the album grid, as iTunes 11 shows it (design
     agreed — see the status note below).
     Artist master–detail view, as iTunes 11 shows it (design agreed — see the
@@ -305,8 +306,8 @@ Possible additions:
 
 These features are not prerequisites for the initial release. Each must be assessed for technical complexity, dependencies, privacy, licensing, and platform support before implementation.
 
-Status: Partial. Three of the additions are implemented: gapless playback, a
-crossfade, and a graphic equalizer.
+Status: Partial. Four of the additions are implemented: gapless playback, a
+crossfade, a graphic equalizer, and smart playlists.
 
 Gapless playback: the queue chooses the track that follows as a track starts and
 the engine hands that track's decoded audio to the output device behind the
@@ -327,7 +328,27 @@ per sample, and needs a track whose length the decoder reported.
 Equalizer: a ten-band bank of peaking biquads with a preamp, an on/off switch and
 named presets, applied to every track before it reaches the device. Each track
 re-reads the settings as it runs, so moving a slider is heard on the track
-already playing. The remaining additions above are unstarted — with one in
+already playing.
+
+Smart playlists: a playlist can be filled by rules instead of by hand — match
+all or any of the rules on title, artist, album, genre, track number, play
+count, time or date added, optionally held to N tracks selected by most played
+or recently added, which is the shape iTunes 7 taught. What a smart playlist
+holds is its rules and nothing else: its tracks are whatever the library
+matches each time it is read, so a track indexed later is already in the
+playlist when the library is read again, and there is no membership to keep in
+step. A rule set compiles to one SQL query with its values bound, so the
+library answers its own question and typed words never reach the database as
+SQL. A smart playlist takes no hand-added track, has no order to rearrange and
+no track to take out, and the interface withdraws those operations at every
+surface rather than offering and refusing them; the edit it does have — its
+rules — is opened by **Edit rules…** on the section heading. The status bar's
+`+` offers both kinds now, a menu where it used to be a single jump to the
+name editor. Rule fields are limited on purpose to columns the library already
+keeps: year and rating are not offered as rules until the ratings and iTunes
+import notes below bring their columns.
+
+The remaining additions above are unstarted — with one in
 design: the album detail view is agreed and written down below, so the session
 that builds it does not have to re-argue it.
 

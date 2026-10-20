@@ -21,10 +21,16 @@ pub struct PlaylistSummary {
     pub track_count: usize,
     /// Total playing time, or `None` when no entry reports a duration.
     pub duration: Option<Duration>,
+    /// Whether the playlist is filled by rules rather than by hand.
+    ///
+    /// Views read this to decide what to offer: a smart playlist has no
+    /// membership to reorder, remove from, or add to, so those controls give
+    /// way to editing the rules that fill it.
+    pub smart: bool,
 }
 
 impl PlaylistSummary {
-    /// Build a summary from a `(id, name, count, total_ms)` row.
+    /// Build a summary from a `(id, name, count, total_ms, is_smart)` row.
     ///
     /// # Errors
     ///
@@ -39,6 +45,7 @@ impl PlaylistSummary {
             duration: total
                 .and_then(|millis| u64::try_from(millis).ok())
                 .map(Duration::from_millis),
+            smart: row.get::<_, i64>(4)? != 0,
         })
     }
 
@@ -155,6 +162,7 @@ mod tests {
             name: "Evening".to_owned(),
             track_count,
             duration: None,
+            smart: false,
         }
     }
 
