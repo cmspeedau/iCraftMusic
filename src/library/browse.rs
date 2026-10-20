@@ -255,6 +255,10 @@ pub struct LibraryBrowse {
     selection: Selection,
     /// Whether the table is showing only the tracks whose files have vanished.
     missing_only: bool,
+    /// The album or artist name the pointer last clicked. It is a mark, not a
+    /// filter, and it names a tile in one particular list — so switching
+    /// pages lets it go.
+    selected_group: Option<String>,
     tracks: Vec<Track>,
     albums: Vec<AlbumCard>,
     artists: Vec<Artist>,
@@ -286,10 +290,33 @@ impl LibraryBrowse {
 
     /// Switch pages.
     ///
-    /// The selection is kept: a track picked in the table stays picked when the
-    /// user looks at the album it belongs to.
+    /// The track selection is kept: a track picked in the table stays picked
+    /// when the user looks at the album it belongs to. The marked group is
+    /// not, because the mark names a tile in a list that is closing.
     pub fn set_kind(&mut self, kind: BrowseKind) {
         self.kind = kind;
+        self.selected_group = None;
+    }
+
+    /// The album tile or artist row the pointer last clicked, if any.
+    ///
+    /// A mark, not a search: the page stays put and the track table is
+    /// untouched. It only says which sleeve the listener is looking at, the
+    /// way a click in iTunes 7's cover grid marked a sleeve without playing
+    /// it or hunting for it.
+    #[must_use]
+    pub fn selected_group(&self) -> Option<&str> {
+        self.selected_group.as_deref()
+    }
+
+    /// Mark a group as the clicked one. Marking the group already marked lets
+    /// it go, so two clicks on one tile leave the page as they found it.
+    pub fn toggle_selected_group(&mut self, name: &str) {
+        if self.selected_group.as_deref() == Some(name) {
+            self.selected_group = None;
+        } else {
+            self.selected_group = Some(name.to_owned());
+        }
     }
 
     /// The raw text in the search field.
@@ -1104,6 +1131,36 @@ mod tests {
             elapsed < std::time::Duration::from_secs(5),
             "{} tracks took {elapsed:?} to filter, sort, select and refresh",
             TRACKS
+        );
+    }
+
+    /// A click on an album sleeve or artist row marks it rather than searching
+    /// for it, and the mark names a tile in one particular list — so clicking
+    /// the marked item again lets it go, and opening another page lets it go
+    /// too, rather than marking a same-named row somewhere else.
+    #[test]
+    fn a_click_marks_a_group_rather_than_searching_for_it() {
+        let mut browse = LibraryBrowse::new();
+        browse.set_kind(BrowseKind::Albums);
+
+        // The click marks, and marks nothing else: the page stays and the
+        // search field is untouched.
+        browse.toggle_selected_group("Ambient");
+        assert_eq!(browse.selected_group(), Some("Ambient"));
+        assert_eq!(browse.kind(), BrowseKind::Albums, "the mark moved page");
+        assert!(browse.query_text().is_empty(), "the mark searched");
+
+        // Marking the same group again lets it go.
+        browse.toggle_selected_group("Ambient");
+        assert_eq!(browse.selected_group(), None, "a second click held on");
+
+        // The mark belongs to the page it was made on.
+        browse.toggle_selected_group("Ambient");
+        browse.set_kind(BrowseKind::Tracks);
+        assert_eq!(
+            browse.selected_group(),
+            None,
+            "the mark crossed over to a page it never named"
         );
     }
 }

@@ -16,7 +16,8 @@
 use std::collections::BTreeSet;
 
 use egui::{
-    Align2, Color32, CornerRadius, FontId, PointerButton, Pos2, Rect, RichText, Sense, Vec2,
+    Align2, Color32, CornerRadius, FontId, PointerButton, Pos2, Rect, RichText, Sense, Stroke,
+    StrokeKind, Vec2,
 };
 
 use crate::app::MusicCraftApp;
@@ -729,6 +730,8 @@ fn albums_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 
     let mut action: Option<GroupAction> = None;
+    let marked = app.browse().selected_group().map(str::to_owned);
+    let mut mark: Option<String> = None;
 
     ui.horizontal_wrapped(|ui| {
         for card in &cards {
@@ -743,7 +746,26 @@ fn albums_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             if keyboard_activated(&response, ui) || response.double_clicked() {
                 action = Some(GroupAction::PlayAlbum(card.album.name.clone()));
             } else if response.clicked_by(PointerButton::Primary) {
-                action = Some(GroupAction::Filter(card.album.name.clone()));
+                // A click marks the sleeve and stays on the page: the Albums
+                // page is about albums, and jumping to the table to search
+                // the name took the listener somewhere they had not asked to
+                // go. "Show its tracks" in the right-click menu still does
+                // the narrowing, and double-click still plays.
+                mark = Some(card.album.name.clone());
+            }
+
+            if marked.as_deref() == Some(card.album.name.as_str()) {
+                ui.painter().rect_filled(
+                    response.rect,
+                    CornerRadius::same(6),
+                    theme::GROUP_SELECTED_FILL,
+                );
+                ui.painter().rect_stroke(
+                    response.rect,
+                    CornerRadius::same(6),
+                    Stroke::new(1.5, theme::ACCENT),
+                    StrokeKind::Inside,
+                );
             }
 
             response.context_menu(|ui| {
@@ -764,6 +786,9 @@ fn albums_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         }
     });
 
+    if let Some(name) = mark {
+        app.browse_mut().toggle_selected_group(&name);
+    }
     apply_group_action(app, action);
 }
 
@@ -857,6 +882,8 @@ fn artists_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 
     let mut action: Option<GroupAction> = None;
+    let marked = app.browse().selected_group().map(str::to_owned);
+    let mut mark: Option<String> = None;
 
     // Virtualised like the track table: only the rows on screen are drawn, so
     // an artist list of any size costs the same per frame.
@@ -875,6 +902,22 @@ fn artists_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                         rect,
                         CornerRadius::same(4),
                         ui.visuals().widgets.hovered.weak_bg_fill,
+                    );
+                }
+
+                // The same mark the album tiles wear: a click says which
+                // artist the pointer picked, and nothing more.
+                if marked.as_deref() == Some(artist.name.as_str()) {
+                    ui.painter().rect_filled(
+                        rect,
+                        CornerRadius::same(4),
+                        theme::GROUP_SELECTED_FILL,
+                    );
+                    ui.painter().rect_stroke(
+                        rect,
+                        CornerRadius::same(4),
+                        Stroke::new(1.5, theme::ACCENT),
+                        StrokeKind::Inside,
                     );
                 }
 
@@ -911,7 +954,7 @@ fn artists_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 if keyboard_activated(&response, ui) || response.double_clicked() {
                     action = Some(GroupAction::PlayArtist(artist.name.clone()));
                 } else if response.clicked_by(PointerButton::Primary) {
-                    action = Some(GroupAction::Filter(artist.name.clone()));
+                    mark = Some(artist.name.clone());
                 }
 
                 theme::focus_ring_if_focused(ui, &response);
@@ -933,6 +976,9 @@ fn artists_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             }
         });
 
+    if let Some(name) = mark {
+        app.browse_mut().toggle_selected_group(&name);
+    }
     apply_group_action(app, action);
 }
 
@@ -1703,6 +1749,115 @@ mod tests {
         assert!(
             app.playback().current().is_none(),
             "with the ring gone, Enter must play nothing — not the last-clicked row"
+        );
+    }
+
+    /// The shelf the pointer tests browse: names short enough that no page
+    /// truncates them, so a test can click the rectangle of a name and know
+    /// exactly which sleeve or row it hit.
+    fn shelf() -> MusicCraftApp {
+        let library = Library::in_memory(std::env::temp_dir().join("musiccraft-view-shelf"))
+            .expect("an in-memory library");
+
+        let mut app = MusicCraftApp::with_library(startup(), playback(), library);
+
+        let tracks = [
+            tagged(1, "Xtal", "Aphex", "Ambient"),
+            tagged(2, "Roygbiv", "Boards", "Drum"),
+        ];
+        {
+            let library = app.library_mut().expect("a library");
+            let repository = library.repository_mut();
+            for track in &tracks {
+                repository
+                    .upsert_track(track)
+                    .expect("the track should be stored");
+            }
+        }
+
+        app.refresh().expect("the library should refresh");
+
+        app
+    }
+
+    /// Clicking a sleeve marks it and stays put: the page does not move, the
+    /// search field stays empty, and the track table is not touched. The jump
+    /// to the rows belongs to the right-click menu — "Show its tracks" — and
+    /// the playing belongs to the double-click, neither of which a plain
+    /// click may presume.
+    #[test]
+    fn a_click_marks_an_album_sleeve_rather_than_searching_for_it() {
+        let mut app = shelf();
+        app.browse_mut().set_kind(BrowseKind::Albums);
+
+        let ctx = egui::Context::default();
+        paint_frame(&ctx, &mut app, vec![]);
+
+        let shapes = paint_frame(&ctx, &mut app, vec![]);
+        let sleeve = ink_of(&shapes, "Ambient");
+        click_pointer(&ctx, &mut app, sleeve.center());
+        paint_frame(&ctx, &mut app, vec![]);
+
+        assert_eq!(
+            app.browse().selected_group(),
+            Some("Ambient"),
+            "the click did not mark the sleeve it landed on"
+        );
+        assert_eq!(
+            app.browse().kind(),
+            BrowseKind::Albums,
+            "the click left the Albums page for the track table"
+        );
+        assert!(
+            app.browse().query_text().is_empty(),
+            "the click searched the library for the album's name"
+        );
+
+        // And a click on another sleeve takes the mark over: one sleeve at a
+        // time is marked. (Clicking the same sleeve twice in the same breath
+        // is a double-click, which plays — the release click in the unit
+        // test above needs the same two beats the pointer's two clicks would.)
+        let shapes = paint_frame(&ctx, &mut app, vec![]);
+        let sleeve = ink_of(&shapes, "Drum");
+        click_pointer(&ctx, &mut app, sleeve.center());
+        paint_frame(&ctx, &mut app, vec![]);
+
+        assert_eq!(
+            app.browse().selected_group(),
+            Some("Drum"),
+            "the mark did not move to the sleeve last clicked"
+        );
+    }
+
+    /// The Artists rows play by the same rule: the click marks the row and
+    /// stays, because an artist page that hopped to the track table on every
+    /// click would not be an artist page for longer than one click.
+    #[test]
+    fn a_click_marks_an_artist_row_rather_than_searching_for_it() {
+        let mut app = shelf();
+        app.browse_mut().set_kind(BrowseKind::Artists);
+
+        let ctx = egui::Context::default();
+        paint_frame(&ctx, &mut app, vec![]);
+
+        let shapes = paint_frame(&ctx, &mut app, vec![]);
+        let row = ink_of(&shapes, "Aphex");
+        click_pointer(&ctx, &mut app, row.center());
+        paint_frame(&ctx, &mut app, vec![]);
+
+        assert_eq!(
+            app.browse().selected_group(),
+            Some("Aphex"),
+            "the click did not mark the row it landed on"
+        );
+        assert_eq!(
+            app.browse().kind(),
+            BrowseKind::Artists,
+            "the click left the Artists page for the track table"
+        );
+        assert!(
+            app.browse().query_text().is_empty(),
+            "the click searched the library for the artist's name"
         );
     }
 }

@@ -562,6 +562,14 @@ pub fn page_visuals() -> Visuals {
     visuals
 }
 
+/// The tint a marked album tile or artist row wears: [`ACCENT`] at a
+/// transparency that lets the cover beneath it stay the picture.
+///
+/// A click on the group pages marks rather than searches, so the mark has to
+/// read as "this one" over artwork rather than as a row highlight — a flat
+/// opaque bar would hide the sleeve it is pointing at.
+pub const GROUP_SELECTED_FILL: Color32 = Color32::from_rgba_premultiplied(10, 132, 255, 90);
+
 /// Frame used by the navigation sidebar.
 ///
 /// It fills with [`SIDEBAR_FILL`] rather than the theme's panel fill, so it

@@ -172,10 +172,12 @@ keystrokes for the same choices.
 **All Tracks** — the whole library as one sortable, filterable table.
 
 **Albums** — one tile per album, with the cover the scanner cached, the artist
-and the track count.
+and the track count. A click marks a sleeve and stays on the page; double-click
+plays the album, and its right-click menu also offers **Show its tracks**, which
+is where narrowing to the rows belongs.
 
-**Artists** — the artist list, which narrows Music to one name when a row is
-picked, the same way clicking an album tile does.
+**Artists** — the artist list, which marks a row the same way. Double-click
+plays the artist, and **Show their tracks** is in the right-click menu.
 
 Music comes in two ways, both from the gear at the right of the status bar:
 **Add files…** and **Add folder…** open the desktop's choosers, and folders or
