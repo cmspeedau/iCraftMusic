@@ -20,7 +20,7 @@ use egui::{
     StrokeKind, Vec2,
 };
 
-use crate::app::MusicCraftApp;
+use crate::app::{ArtworkNotice, MusicCraftApp};
 use crate::library::browse::{AlbumCard, BrowseKind, ClickMode};
 use crate::library::{Track, TrackId};
 use crate::search::SortKey;
@@ -756,6 +756,7 @@ fn albums_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     // to hang off a double-click belongs to the screen's rows now, and the
     // covers are one press of the disc button again away.
     let mut opened: Option<String> = None;
+    let mut fetched: Option<String> = None;
 
     ui.horizontal_wrapped(|ui| {
         for card in &cards {
@@ -770,11 +771,26 @@ fn albums_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             if keyboard_activated(&response, ui) || response.clicked_by(PointerButton::Primary) {
                 opened = Some(card.album.name.clone());
             }
+
+            // The right ask for a sleeve with no picture: not a hole in the
+            // grid, not a guess, but the question to the archive — one cover
+            // at a time, only while none is already on its way.
+            response.context_menu(|ui| {
+                let button = egui::Button::new("Download artwork");
+                let button = ui.add_enabled(!app.album_artwork_busy(), button);
+                if button.clicked() {
+                    fetched = Some(card.album.name.clone());
+                    ui.close();
+                }
+            });
         }
     });
 
     if let Some(name) = opened {
         app.browse_mut().set_open_album(Some(&name));
+    }
+    if let Some(name) = fetched {
+        app.download_album_artwork(&name);
     }
 }
 
@@ -967,6 +983,36 @@ fn album_screen(app: &mut MusicCraftApp, ui: &mut egui::Ui, name: &str) {
                 ui.add_space(12.0);
                 ui.label(RichText::new(name).strong().size(15.0));
                 ui.label(RichText::new(artist).weak());
+
+                // The record's own answer to a missing sleeve: one button,
+                // the archive's name in its message, and an honest line about
+                // what came back either way.
+                ui.add_space(10.0);
+                if app.album_artwork_pending() == Some(name) {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(RichText::new("Asking the archive…").weak().small());
+                    });
+                } else {
+                    let button = ui.add_enabled(
+                        !app.album_artwork_busy(),
+                        egui::Button::new("Download artwork").small(),
+                    );
+                    let button = button.on_disabled_hover_text("one cover is on its way already");
+                    if button.clicked() {
+                        app.download_album_artwork(name);
+                    }
+
+                    match app.artwork_notice() {
+                        Some(ArtworkNotice::Found { album }) if album == name => {
+                            ui.label(RichText::new("The archive had a cover.").weak().small());
+                        }
+                        Some(ArtworkNotice::Missing { album, reason }) if album == name => {
+                            ui.label(RichText::new(reason).weak().small());
+                        }
+                        _ => {}
+                    }
+                }
             },
         );
 

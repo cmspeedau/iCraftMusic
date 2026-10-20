@@ -33,6 +33,7 @@ use crate::update::{ReleaseCheck, Update};
 
 // The methods live with the surface they serve; each file adds its own
 // `impl MusicCraftApp` block to the type defined here.
+mod artwork;
 mod confirm;
 mod editor;
 mod library;
@@ -132,6 +133,25 @@ pub struct NowPlaying {
     pub artwork: Option<PathBuf>,
 }
 
+/// What a finished cover download came back with, kept for the album's
+/// screen until the next attempt replaces it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ArtworkNotice {
+    /// The archive had a front image and the album now draws it.
+    Found {
+        /// The record the picture was for.
+        album: String,
+    },
+    /// There is no new cover — the archive knows no such release, the network
+    /// refused, or the picture was not a picture. The reason is shown as said.
+    Missing {
+        /// The record that was asked about.
+        album: String,
+        /// Why there is nothing to show, in the words the fetcher chose.
+        reason: String,
+    },
+}
+
 /// Top-level application state.
 pub struct MusicCraftApp {
     config: AppConfig,
@@ -185,6 +205,13 @@ pub struct MusicCraftApp {
     copy: Option<CopySession>,
     /// How far the running copy has got.
     copy_progress: CopyProgress,
+    /// A cover download running on a worker thread, if one is.
+    artwork_job: Option<crate::library::artworkdl::ArtworkSession>,
+    /// The album the running cover download was asked for, so the album's
+    /// screen can say "fetching" about the right record.
+    artwork_pending: Option<String>,
+    /// What the last cover download said, kept until a new one replaces it.
+    artwork_notice: Option<ArtworkNotice>,
     /// Whether the gear on the status bar is showing its menu.
     gear_menu_open: bool,
     /// The output devices the system offered when the list was last read.
@@ -339,6 +366,9 @@ impl MusicCraftApp {
             add_queue: std::collections::VecDeque::new(),
             copy: None,
             copy_progress: CopyProgress::default(),
+            artwork_job: None,
+            artwork_pending: None,
+            artwork_notice: None,
             gear_menu_open: false,
             output_devices: None,
             settings_error: None,
@@ -602,6 +632,11 @@ impl eframe::App for MusicCraftApp {
         self.poll_release_check();
         self.poll_update_install();
 
+        // A cover download asks its question of the archive on a thread of
+        // its own, for the same reason everything above does: the frame loop
+        // collects the picture, or the honest failure, when it arrives.
+        self.poll_album_artwork();
+
         // The progress bar and the elapsed time only move while audio plays, so
         // ask for another frame for exactly as long as that is true. A running
         // scan or copy asks for frames for the same reason: without them the
@@ -613,6 +648,7 @@ impl eframe::App for MusicCraftApp {
             || self.is_scanning()
             || self.is_copying()
             || self.update_job_running()
+            || self.album_artwork_busy()
         {
             ui.ctx().request_repaint();
         }

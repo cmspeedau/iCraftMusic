@@ -261,7 +261,7 @@ impl MusicCraftApp {
 
     /// Where chosen cover art is cached, following the open library when there
     /// is one and falling back to the scratch directory when there is not.
-    fn artwork_directory(&self) -> PathBuf {
+    pub(super) fn artwork_directory(&self) -> PathBuf {
         self.library.as_ref().map_or_else(
             || std::env::temp_dir().join(crate::library::artwork::ARTWORK_DIRECTORY),
             |library| library.artwork_directory().to_path_buf(),

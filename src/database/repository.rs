@@ -537,6 +537,35 @@ impl LibraryRepository {
         Ok(changed > 0)
     }
 
+    /// Record the cached cover the library should show for one row.
+    ///
+    /// The picture itself lives in the artwork cache already; this says which
+    /// file that row's cover now is, and touches nothing else — not the tags,
+    /// and not `tags_dirty`, because a fetched cover is the library's own
+    /// knowledge rather than an edit the file has not caught up with.
+    ///
+    /// Returns whether a row was found and changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::Database`] when the update fails.
+    pub fn set_artwork(&self, id: TrackId, artwork: Option<&Path>) -> Result<bool> {
+        let changed = self
+            .connection
+            .execute(
+                "UPDATE tracks SET
+                     artwork_path = ?2, updated_at = datetime('now')
+                 WHERE id = ?1",
+                params![
+                    id.get(),
+                    artwork.map(|path| path.to_string_lossy().into_owned()),
+                ],
+            )
+            .map_err(AppError::database)?;
+
+        Ok(changed > 0)
+    }
+
     /// How many playlists exist.
     ///
     /// # Errors

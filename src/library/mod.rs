@@ -11,6 +11,7 @@
 //! - [`Library`] ties a scan to the database so a folder can be imported.
 
 pub mod artwork;
+pub mod artworkdl;
 pub mod browse;
 pub mod edit;
 pub mod importer;

@@ -322,6 +322,8 @@ Possible additions:
     Ratings and listening history (play counts are counted already — see the
     Status section below).
     Playlist import and export.
+    Album cover download from MusicBrainz's Cover Art Archive (implemented —
+    see the status below).
     Import from an iTunes library (design agreed — see the status note below).
     External media-key integration.
     Additional audio formats and decoder backends.
@@ -333,8 +335,8 @@ Possible additions:
 
 These features are not prerequisites for the initial release. Each must be assessed for technical complexity, dependencies, privacy, licensing, and platform support before implementation.
 
-Status: Partial. Four of the additions are implemented: gapless playback, a
-crossfade, a graphic equalizer, and smart playlists.
+Status: Partial. Five of the additions are implemented: gapless playback, a
+crossfade, a graphic equalizer, smart playlists, and album cover download.
 
 Gapless playback: the queue chooses the track that follows as a track starts and
 the engine hands that track's decoded audio to the output device behind the
@@ -374,6 +376,24 @@ rules — is opened by **Edit rules…** on the section heading. The status bar'
 name editor. Rule fields are limited on purpose to columns the library already
 keeps: year and rating are not offered as rules until the ratings and iTunes
 import notes below bring their columns.
+
+Album cover download: a record whose files carry no embedded picture can be
+given one from the outside, from MusicBrainz's Cover Art Archive. The ask is
+always the user's — the album screen's **Download artwork** button, or a
+right-click on a sleeve in the grid — and one cover is on its way at a time,
+so the second ask waits while the first is out. The walk is MusicBrainz's
+release search for the exact album by that exact artist, then the archive's
+front image for the release chosen, preferring an official dated release
+credited to the artist so a near-name cannot drop someone else's sleeve on the
+record. What comes back is written where an extracted cover would be — each
+track's cache file at the name the cache already uses, and the row's
+`artwork_path` — so the grid, the album screen, the transport bar and the
+playback bar draw it with no new code path, and no audio file is touched. It
+is the second of the application's exactly two network requests, and it sends
+nothing but the album and artist strings of the one record it was asked about,
+under a user-agent that names the build and gives a page a human can answer
+on. An `#[ignore]`d test walks the real endpoints so the contract is checked
+without a test run depending on a network.
 
 The remaining additions above are unstarted — with one in
 design: the album detail view is agreed and written down below, so the session

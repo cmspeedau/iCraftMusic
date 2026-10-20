@@ -62,6 +62,15 @@ pub enum AppError {
         source: lofty::error::FileEncodingError,
     },
 
+    /// A cover-art lookup came back with nothing usable — a refused request,
+    /// a reply that is not the shape it should be, or a record the archive
+    /// holds no picture for.
+    #[error("the cover-art lookup failed: {reason}")]
+    CoverArt {
+        /// What went wrong, in the words the caller can show.
+        reason: String,
+    },
+
     /// A file's format has no tag block this player knows how to write.
     ///
     /// Nothing is written for such a file, and the user is told so rather than

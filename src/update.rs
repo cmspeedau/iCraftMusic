@@ -1,6 +1,9 @@
 //! Whether a newer iCraftMusic has been published, and how it is taken.
 //!
-//! The player is offline by design, and this is the single exception. The
+//! The player is offline by design, and this and the cover fetch in
+//! [`crate::library::artworkdl`] are the only two exceptions — each starts
+//! from a named user action and neither fetches on the library's own
+//! initiative. The
 //! check is one GET of the releases API for the mirror on GitHub, asking for
 //! the newest published release's tag. Nothing about the library, the
 //! listening history or the machine is sent — the request carries a

@@ -1568,3 +1568,86 @@ fn a_track_can_only_be_in_a_playlist_once_as_a_row_but_twice_as_an_entry() {
         "and one call takes one of them out"
     );
 }
+
+#[test]
+fn a_fetched_cover_lands_on_every_track_of_the_record() {
+    let library = crate::library::Library::in_memory(crate::fixtures::scratch("app-fetched-cover"))
+        .expect("an in-memory library");
+    let mut app = resolve(
+        Startup {
+            config: AppConfig::default(),
+            config_path: None,
+            error: None,
+        },
+        library,
+    );
+
+    // One album, two rows, no covers yet.
+    for (number, title) in [(1, "One"), (2, "Two")] {
+        let mut track = Track::from_path(std::path::Path::new(&format!("/album/{number}.wav")));
+        track.title = title.to_owned();
+        track.album = Some("Low Budget".to_owned());
+        track.album_artist = Some("The Cheap Ones".to_owned());
+        app.library_mut()
+            .expect("a library")
+            .repository_mut()
+            .upsert_track(&track)
+            .expect("the row should be stored");
+    }
+    app.refresh().expect("the library should refresh");
+    assert!(
+        app.album_tracks("Low Budget")
+            .iter()
+            .all(|track| track.artwork_path.is_none()),
+        "the record starts bare"
+    );
+
+    let stored = app.store_album_artwork("Low Budget", &crate::fixtures::png());
+
+    assert_eq!(stored, 2, "both rows got the cover");
+    app.refresh().expect("the library should refresh");
+    for track in app.album_tracks("Low Budget") {
+        let path = track
+            .artwork_path
+            .expect("the fetched cover is the row's now");
+        assert_eq!(
+            std::fs::read(&path).expect("the cache file"),
+            crate::fixtures::png(),
+            "the bytes on disk are the fetched picture"
+        );
+    }
+
+    let card = app
+        .browse()
+        .albums()
+        .iter()
+        .find(|card| card.album.name == "Low Budget")
+        .expect("the shelf card");
+    assert!(card.artwork.is_some(), "the shelf card draws a cover now");
+}
+
+#[test]
+fn a_cover_written_for_a_missing_record_stores_nothing() {
+    let mut app = app();
+    assert_eq!(
+        app.store_album_artwork("Unheard Of", &crate::fixtures::png()),
+        0
+    );
+}
+
+#[test]
+fn the_pending_and_notice_answers_stay_out_of_each_others_way() {
+    let mut app = app();
+
+    assert!(app.album_artwork_pending().is_none());
+    assert!(!app.album_artwork_busy());
+    assert!(app.artwork_notice().is_none());
+
+    app.artwork_notice = Some(ArtworkNotice::Missing {
+        album: "Low Budget".to_owned(),
+        reason: "the archive refused".to_owned(),
+    });
+    assert!(app.artwork_notice().is_some());
+    app.dismiss_artwork_notice();
+    assert!(app.artwork_notice().is_none());
+}

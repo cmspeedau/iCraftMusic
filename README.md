@@ -48,8 +48,8 @@ strip, hairlines and OK/Cancel footer — the Settings window follow, and no 1.0
 release ships until the stage closes.
 
 Stage 10 collects features that are optional rather than prerequisites, and
-four of them have been built: **gapless playback**, **crossfade**, a **graphic
-equalizer** and **smart playlists**. Consecutive tracks whose order the queue
+five of them have been built: **gapless playback**, **crossfade**, a **graphic
+equalizer**, **smart playlists** and **album cover download**. Consecutive tracks whose order the queue
 already knows change over with no silence between them, because the track that
 follows is handed to the audio device before the current one ends and the
 hand-over is reported from the audio itself. A crossfade length above zero
@@ -61,7 +61,10 @@ date added, matched all-or-any with an optional limit by most-played or
 recently-added — and the application turns those rules into one SQL query every
 time the playlist is read, so the list fills itself and stays current: a track
 that begins matching the moment it joins the library is already in the list the
-next time it is opened. The other additions the roadmap lists are not started.
+next time it is opened. And a record whose files carry no picture can be given
+one from MusicBrainz's Cover Art Archive — the album screen asks, one cover at a
+time, and the fetched front lands in the same cache as extracted art without
+touching an audio file. The other additions the roadmap lists are not started.
 See [ROADMAP.md](ROADMAP.md#stage-10--optional-future-enhancements) for the
 detail.
 
@@ -226,6 +229,7 @@ indexed where they stand.
 | Recovery              | A versioned database copied beside itself (`VACUUM INTO`) before a migration rewrites it                             |
 | Packaging             | Release profile, desktop entry and SVG icon under `packaging/`; `linuxdeploy` bundles them with the release binary into a single-file AppImage |
 | Updates               | One check of the releases API at startup; when a newer release than this build exists, the centre box says so and the gear menu carries the row that installs it — which swaps the running file only when the application is running from an AppImage, and downloads nothing until it is asked |
+| Cover art download    | The album screen (and a right-click on any sleeve in the grid) asks MusicBrainz's Cover Art Archive for that record's front image — one at a time, only when asked, never automatically; the fetched cover lands in the same cache as extracted art and no audio file is touched |
 
 Known limitations: a scan can be stopped but is not resumed after the application
 exits. Editing a track's details keeps them in the library until the file changes
@@ -243,8 +247,10 @@ Smart playlists rule over the fields the database has columns for; year and
 rating join the rule fields the day those columns exist. The theme follows the
 system's light/dark setting — `theme` can be set in the settings file, but there
 is no control for it in the interface yet. There is no published release yet:
-the update check is the only network request the application makes — it sends
-nothing but this build's own name and version to the releases API — and while no
+only two requests ever leave the machine, and only when the user asks — the
+update check, which sends nothing but this build's own name and version to the
+releases API, and a cover download, which sends nothing but the album and
+artist strings of the one record it was asked about to MusicBrainz. While no
 release has been published it stays silent, no notice at all. Nothing about the
 library, the listening history or the machine is sent. These are deliberate and
 tracked in the roadmap, not presented as finished features.
@@ -452,6 +458,7 @@ src/
 │   ├── release.rs     #   the update check and the install, as the shell holds them
 │   ├── playlists.rs   #   opened playlists and their editing
 │   ├── playback.rs    #   the transport, the queue, and how tracks enter them
+│   ├── artwork.rs     #   the cover download's shell state: pending, busy, notice
 │   ├── library.rs     #   watched folders, scans, imports, copies, the media home
 │   ├── editor.rs      #   the track tag editor
 │   ├── confirm.rs     #   the one pending confirmation the views may ask for
@@ -464,7 +471,7 @@ src/
 ├── logging.rs         # tracing subscriber: stderr and a rotated log file
 ├── update.rs          # the releases check and the AppImage swap
 ├── audio/             # output device, queue, transport, equalizer
-├── library/           # models, scanning, tag reading and writing, browse state
+├── library/           # models, scanning, tag reading and writing, browse state, cover fetching
 ├── database/          # SQLite schema and repository
 ├── playlists/         # playlists, their membership, and smart rules
 ├── search/            # pure query, sort and filtering over library rows
