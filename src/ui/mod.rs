@@ -280,10 +280,10 @@ mod tests {
 
         // "Evening" is on screen twice — the sidebar entry and the heading —
         // and the sidebar comes first, so the heading is the one in the
-        // content area, past the sidebar's width.
+        // content area, from the sidebar's edge out.
         let heading = texts(&shapes, "Evening")
             .into_iter()
-            .find(|rect| rect.left() > 208.0)
+            .find(|rect| rect.left() >= theme::SIDEBAR_WIDTH)
             .expect("the heading");
         let counts = named(&shapes, "1 track").expect("the count line");
         let play = named(&shapes, "Play").expect("the Play button");

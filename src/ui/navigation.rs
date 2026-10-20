@@ -23,17 +23,20 @@
 //! action here that is not just a section switch, so the list reports what was
 //! clicked and the sidebar applies it once it has finished reading the app.
 //!
-//! The list wears iTunes 7's source-list dress: grey capital headings, a flat
-//! blue bar — lit along its top, deepening downward — across the panel's whole
-//! width for whichever row is open and a paler one under the pointer's row, a
-//! note for the music row, ruled cards for the playlists, and a hairline
-//! between the panel and the page beside it. The dress is hand-painted; the
+//! The list wears the reference's source-list dress, measured off it: slate
+//! capital headings, a flat full-bleed bar across the panel — a pale slate
+//! deepening to shade, with one darker row of pixels seating it at the top —
+//! for whichever row is open and a paler one under the pointer's row, a note
+//! for the music row, ruled cards and smart badges for the playlists, and a
+//! near-black hairline between the panel and the page beside it. The
+//! "Playlists" heading carries the one disclosure triangle the reference
+//! shows, and it collapses the list it heads. The dress is hand-painted; the
 //! clicks, Tab stops and spoken names stay with the egui widgets underneath
 //! it.
 
 use egui::{
-    Button, Color32, CornerRadius, Panel, Pos2, Rect, RichText, ScrollArea, Sense, Stroke,
-    StrokeKind, Vec2,
+    Button, Color32, CornerRadius, Id, Panel, Pos2, Rect, RichText, ScrollArea, Sense, Stroke,
+    StrokeKind, Vec2, vec2,
 };
 
 use crate::app::MusicCraftApp;
@@ -112,10 +115,12 @@ pub fn sidebar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     // The source list's one divider: a hairline drawn over the panel's own
     // right edge after the panel has painted, so it stands on the fill rather
     // than under it. Without a line the pale panel and the page beside it end
-    // in nothing.
+    // in nothing. The panel is `exact_size` wide against the window's left
+    // edge, so that edge is the sidebar's width — drawn there rather than off
+    // the response so the page panel, painted later, can never paint over it.
     let edge = panel.response.rect;
     ui.painter().vline(
-        edge.right() - 0.5,
+        theme::SIDEBAR_WIDTH - 0.5,
         edge.y_range(),
         Stroke::new(1.0, theme::SIDEBAR_EDGE),
     );
@@ -144,7 +149,7 @@ fn sidebar_items(
     dropped: &mut Option<(PlaylistId, DraggedTracks)>,
 ) {
     ui.add_space(2.0);
-    heading(ui, "Library");
+    heading(ui, "Library", None);
 
     // Read once: a click below is about to change it, and the playlists are
     // drawn from the section that was showing while this frame was composed.
@@ -176,21 +181,81 @@ fn sidebar_items(
     playlist_items(app, ui, open, dropped, section);
 }
 
-/// A group's heading: grey capitals, level with the rows under it.
+/// A group's heading: slate capitals, level with the rows under it.
 ///
-/// iTunes 7 named its source-list groups — "LIBRARY", "DEVICES" — in grey
-/// capitals rather than in the list's own ink, so a heading reads as a name
-/// for what follows and not as one more row waiting to be clicked. The
-/// player's headings also wore a disclosure triangle; none is worn here
-/// because a triangle would promise a collapse this sidebar does not do.
-fn heading(ui: &mut egui::Ui, word: &str) {
-    ui.label(
-        RichText::new(word.to_uppercase())
-            .small()
-            .strong()
-            .color(theme::SIDEBAR_HEADING),
-    );
+/// The reference named its source-list groups — "LIBRARY", "PLAYLISTS" — in
+/// slate capitals rather than in the list's own ink, so a heading reads as a
+/// name for what follows and not as one more row waiting to be clicked. It
+/// wore exactly one disclosure triangle, on the group that could fold; a
+/// heading that passes a `disclosure` id wears the same mark and the same
+/// fold, and a heading without one — "Library" — keeps the triangle off,
+/// because a triangle would promise a collapse this group does not do.
+fn heading(ui: &mut egui::Ui, word: &str, disclosure: Option<Id>) -> bool {
+    let mut collapsed = false;
+    ui.horizontal(|ui| {
+        if let Some(key) = disclosure {
+            // The fold mark hangs six pixels from the panel's edge where the
+            // reference hung its triangles, and the heading's word follows —
+            // so the foldable group's word stands a little deeper in than the
+            // fixed one's, exactly as "PLAYLISTS" does under it.
+            ui.add_space(6.0);
+            collapsed = disclosure_triangle(ui, key);
+        } else {
+            // The reference's fixed heading text stands twelve pixels from
+            // the panel's edge.
+            ui.add_space(12.0);
+        }
+        ui.label(
+            RichText::new(word.to_uppercase())
+                .small()
+                .strong()
+                .color(theme::SIDEBAR_HEADING),
+        );
+    });
     ui.add_space(4.0);
+    collapsed
+}
+
+/// The fold mark on a heading that can fold, and the click that folds it.
+///
+/// A plain triangle — down while the list shows, to the right while it is
+/// folded — in the heading's own slate, at the left of the heading's text,
+/// where the reference hung its source-list triangles. The folded state rides
+/// in egui's per-session data under the heading's id: it belongs to the
+/// window's look, not to the library, and the library must not remember
+/// where a person left a triangle.
+fn disclosure_triangle(ui: &mut egui::Ui, key: Id) -> bool {
+    let collapsed = ui.data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(8.0, 14.0), Sense::click());
+    if response.clicked() {
+        let now = !collapsed;
+        ui.data_mut(|d| d.insert_temp(key, now));
+    }
+    let tip = if collapsed {
+        "Show the playlist list"
+    } else {
+        "Hide the playlist list"
+    };
+    response.on_hover_text(tip);
+
+    let middle = rect.center();
+    let ink = theme::SIDEBAR_HEADING;
+    let triangle = if collapsed {
+        vec![
+            middle + vec2(-3.0, -4.5),
+            middle + vec2(-3.0, 4.5),
+            middle + vec2(4.5, 0.0),
+        ]
+    } else {
+        vec![
+            middle + vec2(-4.5, -3.0),
+            middle + vec2(4.5, -3.0),
+            middle + vec2(0.0, 4.0),
+        ]
+    };
+    ui.painter()
+        .add(egui::Shape::convex_polygon(triangle, ink, Stroke::NONE));
+    collapsed
 }
 
 /// The playlists, under a heading that sits level with "Library".
@@ -216,7 +281,11 @@ fn playlist_items(
     section: NavSection,
 ) {
     ui.add_space(12.0);
-    heading(ui, "Playlists");
+    if heading(ui, "Playlists", Some(Id::new("sidebar-playlists-fold"))) {
+        // Folded away: the triangle already recorded the click, and the list
+        // waits for the next one before it takes the panel's room again.
+        return;
+    }
 
     if app.playlists().is_empty() {
         // The placeholder is a row that is not there, so its line begins
@@ -250,7 +319,11 @@ fn playlist_items(
                 if source_row(
                     ui,
                     playlist.display_name(),
-                    RowIcon::Card,
+                    if playlist.smart {
+                        RowIcon::Smart
+                    } else {
+                        RowIcon::Card
+                    },
                     &playlist.totals(),
                     selected,
                     theme::PLAYLIST_ITEM_HEIGHT,
@@ -266,9 +339,10 @@ fn playlist_items(
 }
 
 /// One row of the source list, painted by hand the way the playback bar's
-/// buttons are: whichever row is open wears a flat blue bar lit along its
-/// top and spanning the panel's whole width, the pointer's row wears a paler
-/// one, and an icon at the left carries the label's column.
+/// buttons are: whichever row is open wears the reference's full-bleed bar —
+/// pale slate deepening to shade, with one darker row of pixels seating it at
+/// the panel — the pointer's row wears a paler one, and an icon at the left
+/// carries the label's column.
 ///
 /// The click, the Tab stop and the spoken name stay egui's: a full-width
 /// button lies over the painted surface with its fill and stroke overridden to
@@ -305,25 +379,42 @@ fn source_row(
 ) -> bool {
     let (row, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::hover());
 
+    // The band is full-bleed, the way the reference's is: its bar runs edge
+    // to edge of the panel. The rows already fill the panel's width, so the
+    // band is the row clamped to the panel — the clamp matters only inside the
+    // playlist scroll area, whose rows lay out a few points wide of an edge
+    // their own bars are meant to stop at.
+    let band = Rect::from_min_max(
+        egui::pos2(row.left().max(0.0), row.top()),
+        egui::pos2(row.right().min(theme::SIDEBAR_WIDTH), row.bottom()),
+    );
+
     let hovered = ui
         .input(|input| input.pointer.hover_pos())
-        .is_some_and(|pos| row.contains(pos));
+        .is_some_and(|pos| band.contains(pos));
 
     if selected {
         ui.painter().add(egui::epaint::Shape::gradient_rect(
-            row,
+            band,
             egui::epaint::Direction::TopDown,
             [theme::SIDEBAR_SELECTED_TOP, theme::SIDEBAR_SELECTED_BOTTOM],
         ));
+        // One darker row of pixels along the bar's top, which is what seats
+        // it in the panel rather than leaving it floating.
+        ui.painter().rect_filled(
+            Rect::from_min_size(band.left_top(), vec2(band.width(), 1.0)),
+            0.0,
+            theme::SIDEBAR_SELECTED_EDGE,
+        );
     } else if hovered {
         ui.painter().add(egui::epaint::Shape::gradient_rect(
-            row,
+            band,
             egui::epaint::Direction::TopDown,
             [theme::SIDEBAR_HOVER_TOP, theme::SIDEBAR_HOVER_BOTTOM],
         ));
     }
 
-    icon.paint(ui, row, selected);
+    icon.paint(ui, band, selected);
 
     // The label steps onto white exactly when the blue arrives under it, the
     // way the source list's did.
@@ -339,7 +430,7 @@ fn source_row(
 
     let response = ui
         .put(
-            row,
+            band,
             Button::selectable(selected, ())
                 .left_text(RichText::new(name).color(ink))
                 .fill(Color32::TRANSPARENT)
@@ -360,7 +451,7 @@ fn source_row(
         Landing::Open(carried_row) => {
             if response.dnd_hover_payload::<DraggedTracks>().is_some() {
                 ui.painter().rect_stroke(
-                    row.shrink(1.0),
+                    band.shrink(1.0),
                     CornerRadius::same(4),
                     Stroke::new(1.5, theme::ACCENT),
                     StrokeKind::Inside,
@@ -376,22 +467,25 @@ fn source_row(
     response.clicked()
 }
 
-/// The two marks the sidebar paints where the player's icon artwork sat: a
-/// note for the library itself, and a ruled card for each playlist — the same
-/// two ideas its source list carried, without its bitmaps.
+/// The three marks the sidebar paints where the player's icon artwork sat: a
+/// note for the library itself, a ruled card for each hand-made playlist, and
+/// a badge with a lens for each smart one — the reference's source list told
+/// the two kinds of playlist apart at a glance, and its smart icon was the
+/// one piece of its iconography worth the pixels.
 enum RowIcon {
     Note,
     Card,
+    Smart,
 }
 
 impl RowIcon {
     /// Paint the mark in the row's icon column.
     ///
-    /// The note takes the row's ink, which turns it white on the selection
-    /// bar: the blue it is drawn in would sink into the blue of the bar, and
-    /// the player kept its note readable there with a white edge that the
-    /// same swap stands in for. The card's paper stays paper — white with
-    /// blue ruling reads on the pale panel and on the deep bar alike.
+    /// The note takes the icon blue, and on the selection bar it deepens to
+    /// the navy the reference's icon shows there — the reference keeps its
+    /// icons in their own colours on the bar, and only the text turns white.
+    /// The card's paper stays paper, and the badge keeps its own blue: white
+    /// with blue ruling reads on the pale panel and on the deep bar alike.
     fn paint(self, ui: &mut egui::Ui, row: Rect, selected: bool) {
         let painter = ui.painter();
         let left = row.left() + theme::SIDEBAR_ICON_INSET;
@@ -400,7 +494,7 @@ impl RowIcon {
         match self {
             RowIcon::Note => {
                 let ink = if selected {
-                    theme::SIDEBAR_INK_SELECTED
+                    theme::SIDEBAR_ICON_SELECTED
                 } else {
                     theme::SIDEBAR_ICON
                 };
@@ -442,6 +536,22 @@ impl RowIcon {
                         Stroke::new(1.0, theme::SIDEBAR_ICON),
                     );
                 }
+            }
+            RowIcon::Smart => {
+                // The smart playlist's badge: a blue tile with a white lens
+                // on it — the reference's own sign that a list's rules, not
+                // a person, chose its songs. Same tile blue as the ink, so
+                // the bar below changes nothing about it.
+                let tile =
+                    Rect::from_min_size(Pos2::new(left, middle - 7.2), Vec2::new(12.0, 14.4));
+                painter.rect_filled(tile, 2.0, theme::SIDEBAR_ICON);
+
+                let lens = Pos2::new(tile.center().x - 1.2, tile.center().y - 1.6);
+                painter.circle_stroke(lens, 2.8, Stroke::new(1.4, Color32::WHITE));
+                painter.line_segment(
+                    [lens + vec2(2.1, 2.1), tile.center() + vec2(3.2, 4.4)],
+                    Stroke::new(1.6, Color32::WHITE),
+                );
             }
         }
     }
@@ -665,10 +775,10 @@ mod tests {
         );
     }
 
-    /// The selection is not a button inset in the panel but a bar across it:
-    /// as wide as the panel's inside, both ends of the ramp on it, and under
-    /// the open row's label. And it is the open row's alone — nothing is lit
-    /// without a selection or a pointer.
+    /// The selection is not a button inset in the panel but a bar across the
+    /// whole of it — edge to edge, under the frame's margins — both ends of
+    /// the ramp on it, and under the open row's label. And it is the open
+    /// row's alone — nothing is lit without a selection or a pointer.
     #[test]
     fn the_open_row_wears_a_bar_across_the_whole_panel() {
         let mut app = imported(); // Music is the open row
@@ -681,12 +791,18 @@ mod tests {
 
         assert_eq!(selected.len(), 1, "the open row wears exactly one bar");
 
-        // The panel's inside: its width less the frame's eight-point margins.
-        let inside = theme::SIDEBAR_WIDTH - 16.0;
+        // Full-bleed: the panel's own width, from its left edge to the
+        // divider, not the margin-narrowed inside the buttons are laid out in.
         assert!(
-            (selected[0].width() - inside).abs() <= 2.0,
-            "the bar spans {:.1} points instead of the panel's {inside}-point inside",
+            (selected[0].width() - theme::SIDEBAR_WIDTH).abs() <= 2.0,
+            "the bar spans {:.1} points instead of the panel's {:#?}",
             selected[0].width(),
+            theme::SIDEBAR_WIDTH,
+        );
+        assert!(
+            selected[0].left() <= 1.0,
+            "the bar starts {:.1} in from the panel's edge instead of on it",
+            selected[0].left(),
         );
 
         let label = painted_name(&shapes, "Music").expect("the Music row");
@@ -762,14 +878,17 @@ mod tests {
 
     /// The music row carries a note and a playlist's a ruled card, each in
     /// the column left for icons — before the labels' line, level with its
-    /// row — and the note turns white on the bar the label's white steps onto,
-    /// back to its own blue when the row rests.
+    /// row — and on the bar the note does not turn white: the reference's
+    /// icons keep their own colours there, deepening to navy. A smart
+    /// playlist carries the badge with a lens, and the reference's icon for
+    /// it kept its blue on the bar too.
     #[test]
     fn each_row_kind_carries_its_mark() {
         let mut app = imported();
         app.add_tracks_to_playlist("Evening", &library_ids(&app));
 
-        // Music open: the note is on the bar, so it wears white.
+        // Music open: the note is on the bar, where the reference's icon
+        // deepens to navy rather than stepping onto the label's white.
         let shapes = frame(&mut app, None);
         let library = painted_name(&shapes, "Music").expect("the Music row");
         let note = shapes
@@ -781,8 +900,8 @@ mod tests {
             .expect("the library row carries no note");
         assert_eq!(
             note.fill,
-            theme::SIDEBAR_INK_SELECTED,
-            "the note on the bar is not white"
+            theme::SIDEBAR_ICON_SELECTED,
+            "the note on the bar did not deepen to the navy the reference shows there"
         );
         assert!(
             note.center.x < library.left(),
@@ -824,6 +943,46 @@ mod tests {
         assert!(
             (card.center().y - evening.center().y).abs() <= 3.0,
             "the card is not level with its label"
+        );
+
+        // A smart playlist carries the badge with a lens, not the card: its
+        // songs are chosen by rules, and the reference said so at a glance.
+        {
+            use crate::playlists::{Playlists, SmartRules};
+
+            let library = app.library_mut().expect("a library");
+            Playlists::new(library.repository_mut())
+                .create_smart("Loud", &SmartRules::default())
+                .expect("a smart playlist");
+        }
+        app.refresh().expect("the playlist reaches the summaries");
+
+        let resting = frame(&mut app, None);
+        let loud = painted_name(&resting, "Loud").expect("the smart playlist row");
+        let tile = resting
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(rect)
+                    if rect.fill == theme::SIDEBAR_ICON
+                        && (8.0..14.0).contains(&rect.rect.width()) =>
+                {
+                    Some(rect.rect)
+                }
+                _ => None,
+            })
+            .expect("the smart playlist row carries no badge");
+        assert!(
+            tile.right() <= loud.left(),
+            "the badge sits on the label's side of the row"
+        );
+        assert!(
+            resting.iter().any(|clipped| matches!(
+                &clipped.shape,
+                egui::Shape::Circle(circle)
+                    if circle.stroke.color == egui::Color32::WHITE
+                        && tile.expand(2.0).contains(circle.center)
+            )),
+            "the smart badge carries no white lens"
         );
     }
 
@@ -984,6 +1143,132 @@ mod tests {
         assert!(
             !barred.is_empty(),
             "the open playlist's row wears no bar in its own section"
+        );
+    }
+
+    /// The triangle on the "Playlists" heading folds its list away and back.
+    ///
+    /// The reference's one disclosure mark is honest only if it actually
+    /// folds: a click must take the rows out of the panel and a second must
+    /// bring them back, without touching what is open — the section and its
+    /// playlist keep their place through the fold, because the fold is the
+    /// window's look and not the library's business.
+    #[test]
+    fn the_playlists_heading_folds_its_list_away_and_back() {
+        let mut app = imported();
+        app.add_tracks_to_playlist("Evening", &library_ids(&app));
+
+        let context = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 600.0));
+        let mut input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+
+        // Find the fold mark the way a pointer does: it sits left of the
+        // heading's word, one triangle-column wide.
+        let first = context.run_ui(input.clone(), |ui| sidebar(&mut app, ui));
+        let heading = painted_name(&first.shapes, "PLAYLISTS").expect("the heading");
+        first.drop_without_applying_deltas();
+        let mark = egui::pos2(heading.left() - 12.0, heading.center().y);
+
+        // Fold.
+        input.events = vec![egui::Event::PointerMoved(mark)];
+        input.events.push(egui::Event::PointerButton {
+            pos: mark,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+        });
+        let down = context.run_ui(input.clone(), |ui| sidebar(&mut app, ui));
+        down.drop_without_applying_deltas();
+        input.events = vec![egui::Event::PointerButton {
+            pos: mark,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::default(),
+        }];
+        let up = context.run_ui(input.clone(), |ui| sidebar(&mut app, ui));
+        up.drop_without_applying_deltas();
+
+        // The list is gone and the heading is not.
+        let folded = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| sidebar(&mut app, ui),
+        );
+        let words: Vec<String> = folded
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+        folded.drop_without_applying_deltas();
+        assert!(
+            !words.iter().any(|word| word == "Evening"),
+            "the fold left the list standing: {words:?}"
+        );
+        assert!(
+            words.iter().any(|word| word == "PLAYLISTS"),
+            "the fold took the heading with it: {words:?}"
+        );
+        assert_eq!(
+            app.section(),
+            NavSection::Library,
+            "the fold moved the section"
+        );
+
+        // Unfold: the click is one frame later, at the same mark.
+        let find_mark = |shapes: &[egui::epaint::ClippedShape]| {
+            let heading = painted_name(shapes, "PLAYLISTS").expect("the heading");
+            egui::pos2(heading.left() - 12.0, heading.center().y)
+        };
+        let base = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        let shown = context.run_ui(base.clone(), |ui| sidebar(&mut app, ui));
+        let mark = find_mark(&shown.shapes);
+        shown.drop_without_applying_deltas();
+
+        let mut input = base.clone();
+        input.events = vec![
+            egui::Event::PointerMoved(mark),
+            egui::Event::PointerButton {
+                pos: mark,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+        ];
+        let down = context.run_ui(input.clone(), |ui| sidebar(&mut app, ui));
+        down.drop_without_applying_deltas();
+        input.events = vec![egui::Event::PointerButton {
+            pos: mark,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::default(),
+        }];
+        let up = context.run_ui(input, |ui| sidebar(&mut app, ui));
+        up.drop_without_applying_deltas();
+
+        let shown = context.run_ui(base, |ui| sidebar(&mut app, ui));
+        let words: Vec<String> = shown
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+        shown.drop_without_applying_deltas();
+        assert!(
+            words.iter().any(|word| word == "Evening"),
+            "the second click left the list folded: {words:?}"
         );
     }
 

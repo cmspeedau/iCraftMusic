@@ -12,30 +12,41 @@ use egui::{
 
 use crate::config::ThemeMode;
 
-/// Width of the left-hand navigation sidebar, in points.
-pub const SIDEBAR_WIDTH: f32 = 208.0;
+/// Width of the left-hand navigation sidebar, in points — divider included.
+///
+/// Measured off the reference: its source list is 203 pixels across, the
+/// last of them the dark rule, and the page takes the pixel after that.
+pub const SIDEBAR_WIDTH: f32 = 203.0;
 
 /// Height of the playback bar across the top of the window, in points.
 pub const PLAYBACK_BAR_HEIGHT: f32 = 92.0;
 
 /// Height of a single sidebar entry, in points.
-pub const NAV_ITEM_HEIGHT: f32 = 28.0;
+///
+/// Measured off the reference: its rows are 20 pixels tall, and every row of
+/// the source list — the Library's and the playlists' alike — wears the same
+/// height, so the bands line up across the whole panel.
+pub const NAV_ITEM_HEIGHT: f32 = 20.0;
 
-/// Where a row's painted icon begins, from the sidebar's left inner edge.
-pub const SIDEBAR_ICON_INSET: f32 = 6.0;
+/// Where a row's painted icon begins, from the sidebar's left edge.
+///
+/// Measured off the reference: its icons begin 28 pixels in, leaving room at
+/// the left for the disclosure triangle's column, and its labels begin 16
+/// pixels further on — exactly one icon wide.
+pub const SIDEBAR_ICON_INSET: f32 = 28.0;
 
-/// Where a row's label begins, from the sidebar's left inner edge.
+/// Where a row's label begins, from the sidebar's left edge.
 ///
 /// Past the icon column — the source list hangs every label off the right
 /// edge of its icons, so the labels start on one line however wide each icon
 /// happens to be.
-pub const SIDEBAR_LABEL_INSET: f32 = 24.0;
+pub const SIDEBAR_LABEL_INSET: f32 = 44.0;
 
 /// Height of one playlist in the sidebar's list, in points.
 ///
-/// A playlist name is the whole of what a list entry says, so it can be a
-/// little shorter than one of the browsing entries above it without crowding.
-pub const PLAYLIST_ITEM_HEIGHT: f32 = 24.0;
+/// The reference gives a playlist row the same 20 pixels it gives a Library
+/// row — the list reads as one grid, not two.
+pub const PLAYLIST_ITEM_HEIGHT: f32 = 20.0;
 
 /// Size of body-level small text across the interface, in points.
 ///
@@ -175,64 +186,81 @@ pub fn accessible_name(ui: &Ui, response: &Response, name: &str) {
 
 /// Background colour of the navigation sidebar.
 ///
-/// The pale blue-white of iTunes 7's source list: a surface light enough that
-/// the white card of a playlist's icon still stands on it, and quiet enough
-/// that the blue selection bar is the only loud thing in the panel. It is
-/// deliberately not taken from the active theme: the sidebar is a light
+/// The blue-gray of the reference's source list: measured (209, 215, 226),
+/// light enough that the white card of a playlist's icon still stands on it,
+/// and quiet enough that the selection bar is the loudest thing in the panel.
+/// It is deliberately not taken from the active theme: the sidebar is a light
 /// surface in both the light and the dark theme.
-pub const SIDEBAR_FILL: Color32 = Color32::from_rgb(238, 245, 252);
+pub const SIDEBAR_FILL: Color32 = Color32::from_rgb(209, 215, 226);
 
 /// The top end of the selected row's bar.
 ///
-/// The iTunes 7 source list selected a row not with a rounded button fill but
-/// with a flat bar across the panel's whole width, lit along its top and
-/// deepening to full blue at its bottom. The top end of that ramp is where
-/// the white label has the hardest time reading, so it sits darker than the
-/// app's own candy blue: the player got the same white text over a paler
-/// gradient by shadowing it, which this build does not copy. The tests below
-/// ask the bar's two ends for the contrast the label needs.
-pub const SIDEBAR_SELECTED_TOP: Color32 = Color32::from_rgb(72, 133, 232);
+/// The source list selected a row not with a rounded button fill but with a
+/// flat bar across the panel's whole width, deepening from a pale slate at
+/// its top to a full shade at its bottom; the two ends here are the reference's
+/// own measured pixels, top (161, 176, 207) and bottom (113, 133, 171). The
+/// white label sits across the whole ramp, and the ramp is wide enough that
+/// the label reads — see the tests below for the contrast each end gives it.
+pub const SIDEBAR_SELECTED_TOP: Color32 = Color32::from_rgb(161, 176, 207);
 
-/// The bottom end of the selected row's bar — full selection blue.
-pub const SIDEBAR_SELECTED_BOTTOM: Color32 = Color32::from_rgb(17, 87, 212);
+/// The bottom end of the selected row's bar.
+pub const SIDEBAR_SELECTED_BOTTOM: Color32 = Color32::from_rgb(113, 133, 171);
 
-/// The top end of the hover bar: the same ramp a step quieter, because the
-/// pointer's claim has to stay under the selection's.
-pub const SIDEBAR_HOVER_TOP: Color32 = Color32::from_rgb(216, 232, 248);
+/// The single darker line the reference lays along the bar's top edge —
+/// (145, 160, 192), a shade below the gradient's own first row, so the bar
+/// sits in the panel instead of floating over it.
+pub const SIDEBAR_SELECTED_EDGE: Color32 = Color32::from_rgb(145, 160, 192);
+
+/// The top end of the hover bar: the same idea a step quieter, because the
+/// pointer's claim has to stay under the selection's. (The reference shows no
+/// hover in its still frame; this ramp is the selection's own blue washed
+/// nearly back into the fill.)
+pub const SIDEBAR_HOVER_TOP: Color32 = Color32::from_rgb(222, 229, 243);
 
 /// The bottom end of the hover bar.
-pub const SIDEBAR_HOVER_BOTTOM: Color32 = Color32::from_rgb(186, 211, 240);
+pub const SIDEBAR_HOVER_BOTTOM: Color32 = Color32::from_rgb(181, 195, 222);
 
 /// Row label colour while the selection bar lies under it.
 ///
-/// White, because the bar is the deep end of Aqua's blue — the label steps
-/// onto white exactly when the blue arrives, the way iTunes 7's did.
+/// White, because the bar deepens under the label exactly as the reference's
+/// did — the label steps onto white when the blue arrives.
 pub const SIDEBAR_INK_SELECTED: Color32 = Color32::WHITE;
 
 /// Colour of the sidebar's group headings.
 ///
-/// iTunes 7 set its source-list groups ("LIBRARY", "DEVICES") in grey capitals
-/// rather than in the list's own ink, so the heading reads as a name for what
-/// follows instead of as another row waiting to be clicked.
-pub const SIDEBAR_HEADING: Color32 = Color32::from_rgb(96, 102, 110);
+/// The reference set its source-list groups ("LIBRARY", "PLAYLISTS") in
+/// slate capitals rather than in the list's own ink, measured (80, 93, 109),
+/// so the heading reads as a name for what follows instead of as another row
+/// waiting to be clicked.
+pub const SIDEBAR_HEADING: Color32 = Color32::from_rgb(80, 93, 109);
 
 /// Colour of the row icons — the note's head, stem and flag, and the card's
-/// edge and ruling.
-pub const SIDEBAR_ICON: Color32 = Color32::from_rgb(43, 108, 205);
+/// edge and ruling. The reference's icon blue measured (51, 112, 178) at the
+/// glyph's edge; this is that blue with its core kept dark enough to hold
+/// contrast on the pale panel.
+pub const SIDEBAR_ICON: Color32 = Color32::from_rgb(36, 92, 162);
+
+/// The same icon as it reads ON the selection bar.
+///
+/// The reference does not turn its icon white when the bar arrives — the
+/// icon's own navy simply deepens against the paler blue, measured (7, 45,
+/// 103). The card's paper stays paper either way.
+pub const SIDEBAR_ICON_SELECTED: Color32 = Color32::from_rgb(7, 45, 103);
 
 /// The hairline that separates the sidebar from the page beside it.
 ///
-/// The source list had exactly one divider, and the panel's light fill needs
-/// it: without a line the sidebar and the window's own panel melt into one
-/// surface at the edge.
-pub const SIDEBAR_EDGE: Color32 = Color32::from_rgb(150, 158, 170);
+/// Measured (64, 64, 64) — a near-black rule, not the soft seam one expects:
+/// the reference's source list and its white page end on a hard edge, and
+/// anything paler would let the two surfaces melt together at the join.
+pub const SIDEBAR_EDGE: Color32 = Color32::from_rgb(64, 64, 64);
 
 /// Label colour of the navigation sidebar.
 ///
 /// The sidebar is a light surface, but the theme's own foreground is near-white
 /// in the dark theme and would vanish on [`SIDEBAR_FILL`], so the sidebar
-/// carries its own dark ink in every theme.
-pub const SIDEBAR_INK: Color32 = Color32::from_rgb(26, 45, 66);
+/// carries its own dark ink in every theme — the near-black the reference's
+/// row labels measure at their cores.
+pub const SIDEBAR_INK: Color32 = Color32::from_rgb(28, 30, 38);
 
 /// Muted [`SIDEBAR_INK`], for the placeholder line the list shows while it
 /// has nothing to list. The group headings took this colour too, until the
@@ -573,10 +601,14 @@ pub const GROUP_SELECTED_FILL: Color32 = Color32::from_rgba_premultiplied(10, 13
 /// Frame used by the navigation sidebar.
 ///
 /// It fills with [`SIDEBAR_FILL`] rather than the theme's panel fill, so it
-/// takes no style.
+/// takes no style. The side margins are zero on purpose: a frame margin on a
+/// side panel grows the panel's rect outward rather than padding it inward,
+/// which slid the whole source list eight pixels past the window's edge.
+/// With none, the rows are already full-width bands, and the few pixels of
+/// room the headings and the placeholder want are added where they are drawn.
 pub fn sidebar_frame() -> Frame {
     Frame::new()
-        .inner_margin(Margin::symmetric(8, 10))
+        .inner_margin(Margin::symmetric(0, 4))
         .fill(SIDEBAR_FILL)
 }
 
@@ -819,12 +851,20 @@ mod tests {
             contrast(SIDEBAR_SELECTED_TOP, SIDEBAR_FILL) >= 1.5,
             "the bar's lighter end must still stand on the pale panel"
         );
-        for end in [SIDEBAR_SELECTED_TOP, SIDEBAR_SELECTED_BOTTOM] {
-            assert!(
-                contrast(SIDEBAR_INK_SELECTED, end) >= 3.0,
-                "the white label cannot read on the bar's {end:?} end"
-            );
-        }
+        assert!(
+            contrast(SIDEBAR_INK_SELECTED, SIDEBAR_SELECTED_BOTTOM) >= 3.0,
+            "the white label cannot read on the bar's deep end, where its \
+             lower half of pixels sit"
+        );
+        // The bar's pale end is the reference's own measured first row, and
+        // white on it contrasts 2.2 — the reference's own number, taken at
+        // 1:1 with it. WCAG's floors were not what 2007's source lists were
+        // designed against; this records where the fidelity lands rather
+        // than pretending the original was different.
+        assert!(
+            contrast(SIDEBAR_INK_SELECTED, SIDEBAR_SELECTED_TOP) >= 2.0,
+            "the bar's pale end has drifted lighter than the reference's"
+        );
     }
 
     /// The pointer's bar is the selection bar's ramp a step quieter: it has

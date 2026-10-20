@@ -160,10 +160,11 @@ are written down in
 ## The source list and the three pages
 
 The left panel is a source list in the old sense: under the **LIBRARY** heading
-sits **Music**, and under a **PLAYLISTS** heading the playlists themselves, the
-open one marked by the blue bar that runs the panel's whole width. Clicking a
-playlist opens the Playlists page on it; there is no separate Playlists row
-because the list under the heading already is that page.
+sits **Music**, and under a **PLAYLISTS** heading — which folds away with its
+own disclosure triangle — the playlists themselves, the open one marked by a
+full-bleed slate-to-shade bar with a single darker row seating it at the top.
+Clicking a playlist opens the Playlists page on it; there is no separate
+Playlists row because the list under the heading already is that page.
 
 Music browses the same rows three ways. The three page buttons — a note, a jewel
 case, a person — sit on the playback bar, and `Ctrl/⌘ 1`, `2` and `3` are the
@@ -242,9 +243,12 @@ tracked in the roadmap, not presented as finished features.
 ## iTunes 7, and the source list
 
 The reference is **iTunes 7** — the October 2006 release that introduced the
-source list. That is what the left panel copies: grey capital group headings,
-the flat blue bar with its lit top edge across the open row, a paler one under
-the pointer's row, and a note or a disc beside each name. The rest of the window
+source list. That is what the left panel copies, measured pixel-for-pixel off a
+running copy: slate capital group headings with the fold triangle on the
+playlists, the full-bleed selection bar (pale slate deepening to shade, seated
+by a darker row of pixels at its top), a paler one under the pointer's row, a
+note or a ruled card or a lensed badge beside each name, and a near-black hairline
+where the panel meets the page. The rest of the window
 follows the same year's idiom: the bevelled, slightly glossy chrome of the
 centre box, the rounded groove of the progress bar, the jewel-case page icons.
 What the era really stands for, and what this project follows, is the shape of
