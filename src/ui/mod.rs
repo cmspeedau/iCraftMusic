@@ -69,42 +69,51 @@ pub fn render(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// The Library's search field is not here either: it rides at the right end of
 /// the playback bar, which is on screen in every section.
 fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    CentralPanel::default().show(ui, |ui| {
-        ui.add_space(4.0);
+    // The page sits on a white sheet in every theme — iTunes 7's source
+    // pages painted their lists on white and left the grey to the chrome —
+    // so the whole page area takes `page_frame`'s fill and `page_visuals`'
+    // light inks and widget fills together. Text, buttons and combo boxes
+    // on the sheet stay the light theme's even when the rest of the style
+    // is dark; a dark button on a white page is neither theme's.
+    CentralPanel::default_margins()
+        .frame(theme::page_frame())
+        .show(ui, |ui| {
+            ui.style_mut().visuals = theme::page_visuals();
+            ui.add_space(4.0);
 
-        // Only the Playlists section takes the open playlist's name: a playlist
-        // left open in the sidebar must not come up over the Library. The two
-        // strings are taken off the app before the closure opens, so the
-        // buttons inside it can borrow the app in turn.
-        let section = app.section();
-        let open = app.selected_playlist_summary();
-        let (heading, counts) = match (section, open) {
-            (NavSection::Playlists, Some(summary)) => (
-                Some(summary.display_name().to_owned()),
-                Some(summary.totals()),
-            ),
-            _ => (None, None),
-        };
+            // Only the Playlists section takes the open playlist's name: a playlist
+            // left open in the sidebar must not come up over the Library. The two
+            // strings are taken off the app before the closure opens, so the
+            // buttons inside it can borrow the app in turn.
+            let section = app.section();
+            let open = app.selected_playlist_summary();
+            let (heading, counts) = match (section, open) {
+                (NavSection::Playlists, Some(summary)) => (
+                    Some(summary.display_name().to_owned()),
+                    Some(summary.totals()),
+                ),
+                _ => (None, None),
+            };
 
-        if let Some(heading) = heading {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(heading).heading());
-                if let Some(counts) = counts {
-                    ui.label(RichText::new(counts).small().weak());
-                }
-                playlistview::controls(app, ui);
-            });
-            ui.add_space(10.0);
-        }
+            if let Some(heading) = heading {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(heading).heading());
+                    if let Some(counts) = counts {
+                        ui.label(RichText::new(counts).small().weak());
+                    }
+                    playlistview::controls(app, ui);
+                });
+                ui.add_space(10.0);
+            }
 
-        ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| match app.section() {
-                NavSection::Library => libraryview::show(app, ui),
-                NavSection::Playlists => playlistview::show(app, ui),
-                NavSection::Settings => settingsview::show(app, ui),
-            });
-    });
+            ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| match app.section() {
+                    NavSection::Library => libraryview::show(app, ui),
+                    NavSection::Playlists => playlistview::show(app, ui),
+                    NavSection::Settings => settingsview::show(app, ui),
+                });
+        });
 }
 
 /// Enter on the control that wears the focus ring.
@@ -286,6 +295,62 @@ mod tests {
 
     /// The tokens are changed on the shapes directly: what is on the screen is
     /// the pixels, not the string parameter that was passed in.
+    /// The page sits on a white sheet in every theme: the fill under the
+    /// content area is `PAGE_FILL` whether the style around it is light or
+    /// dark, because the sheet is what the pale chrome is built around.
+    #[test]
+    fn the_page_sits_on_a_white_sheet_in_every_theme() {
+        use crate::config::ThemeMode;
+
+        let point = egui::pos2(600.0, 400.0);
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            let mut app = imported();
+            app.set_theme(mode);
+
+            let shapes = frame(&mut app);
+
+            assert!(
+                shapes.iter().any(|clipped| match &clipped.shape {
+                    egui::Shape::Rect(rect) => {
+                        rect.fill == theme::PAGE_FILL && rect.rect.contains(point)
+                    }
+                    _ => false,
+                }),
+                "the page at {point:?} is not on a white sheet in {mode:?}"
+            );
+        }
+    }
+
+    /// And the words on the sheet are the light style's dark ink even when
+    /// the rest of the style is dark — the sheet and its ink travel together,
+    /// because near-white ink on a white page is nothing at all.
+    #[test]
+    fn the_page_wears_dark_ink_even_in_the_dark_theme() {
+        use crate::config::ThemeMode;
+
+        let mut app = imported();
+        app.set_theme(ThemeMode::Dark);
+        app.set_section(NavSection::Settings);
+
+        let shapes = frame(&mut app);
+
+        let ink = shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) if text.galley.text() == "Playback" => {
+                    Some(text.galley.job.sections[0].format.color)
+                }
+                _ => None,
+            })
+            .expect("the Settings page names its Playback pane");
+
+        let (r, g, b, _) = ink.to_tuple();
+        assert!(
+            r < 128 && g < 128 && b < 128,
+            "the dark theme's near-white ink reached the white page: {ink:?}"
+        );
+    }
+
     fn frame(app: &mut MusicCraftApp) -> Vec<egui::epaint::ClippedShape> {
         let ctx = egui::Context::default();
         // The application applies the theme when it draws; a bare context has

@@ -523,6 +523,45 @@ fn customise(style: &mut Style) {
     }
 }
 
+/// The content page's sheet: white in every theme.
+///
+/// iTunes 7's source pages painted their lists on a white sheet and left the
+/// grey to the chrome around them, and this window follows it: the page is
+/// the one surface that does not change with the theme, which is also what
+/// keeps the fixed pale chrome — the source list's wash, the bar's gray, the
+/// centre box's cream — from having a dark square punched through it when
+/// the system asks for a dark theme. The widgets that sit on it come from
+/// [`page_visuals`], not from the theme.
+pub const PAGE_FILL: Color32 = Color32::WHITE;
+
+/// Frame used by the content page.
+///
+/// It fills with [`PAGE_FILL`] rather than the theme's panel fill, so the
+/// page's ink has to come from [`page_visuals`] rather than from the theme
+/// either. The margin is the one a default central panel carries, so nothing
+/// on the page shifts when the sheet arrives.
+pub fn page_frame() -> Frame {
+    Frame::new().inner_margin(Margin::same(8)).fill(PAGE_FILL)
+}
+
+/// The visuals for the page area, the same in every theme.
+///
+/// Because the page paints [`PAGE_FILL`] in both themes, it takes the light
+/// visuals whole rather than ink alone: a page's buttons, combo boxes,
+/// check boxes and sliders are surfaces as much as its labels are, and a
+/// dark widget floating on a white sheet is neither theme's. The ink that
+/// comes with the light visuals is already the dark ink a white sheet
+/// needs. The accent — selection and links — matches what `customise` gives
+/// both themes; spacing and rounding stay as the shared style set them,
+/// since this replaces only the visuals.
+pub fn page_visuals() -> Visuals {
+    let mut visuals = Visuals::light();
+    visuals.hyperlink_color = ACCENT;
+    visuals.selection.bg_fill = ACCENT;
+    visuals.window_corner_radius = CornerRadius::same(10);
+    visuals
+}
+
 /// Frame used by the navigation sidebar.
 ///
 /// It fills with [`SIDEBAR_FILL`] rather than the theme's panel fill, so it
@@ -1212,7 +1251,7 @@ mod tests {
 
     /// The focus ring is the only sign the keyboard is on something, so it has
     /// to clear the 3:1 an indicator owes the surface it sits on. It does that
-    /// with two bands because no single colour clears it on all five: the
+    /// with two bands because no single colour clears it on all six: the
     /// accent band shows on the dark panel, the hairline shows on the light
     /// surfaces where the accent sinks in. The test asks of each surface only
     /// that ONE band stands out from it.
@@ -1225,6 +1264,7 @@ mod tests {
             SIDEBAR_FILL,
             STATUS_BAR_FILL,
             CENTRE_BOX_FILL,
+            PAGE_FILL,
             light_panel,
             dark_panel,
         ] {
