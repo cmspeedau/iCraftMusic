@@ -13,12 +13,14 @@
 pub mod artwork;
 pub mod browse;
 pub mod edit;
+pub mod importer;
 pub mod metadata;
 pub mod scanner;
 pub mod track;
 
 pub use browse::{AlbumCard, BrowseKind, ClickMode, LibraryBrowse, Selection};
 pub use edit::{Field, FieldError, MetadataDraft, Outcome, TrackEditor};
+pub use importer::{CopyProgress, CopyReport, CopyRequest, CopySession, copy, copy_with_cancel};
 pub use metadata::AudioTags;
 pub use scanner::{
     FoundFiles, PROGRESS_INTERVAL, ScanError, ScanProgress, ScanReport, ScanRequest, ScanSession,
