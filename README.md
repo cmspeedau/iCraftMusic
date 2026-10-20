@@ -446,7 +446,17 @@ packaging/             # desktop entry and icon — the pieces the installer and
 src/
 ├── main.rs            # binary entry point
 ├── lib.rs             # library root
-├── app.rs             # application state and eframe glue
+├── app/               # application state, methods grouped by the surface they serve
+│   ├── mod.rs         #   the struct, the constructors, the eframe glue
+│   ├── windows.rs     #   which panes are open: section, queue, Settings, equalizer, gear
+│   ├── release.rs     #   the update check and the install, as the shell holds them
+│   ├── playlists.rs   #   opened playlists and their editing
+│   ├── playback.rs    #   the transport, the queue, and how tracks enter them
+│   ├── library.rs     #   watched folders, scans, imports, copies, the media home
+│   ├── editor.rs      #   the track tag editor
+│   ├── confirm.rs     #   the one pending confirmation the views may ask for
+│   ├── settings.rs    #   theme, volume, equalizer, output device, diagnostics
+│   └── tests.rs       #   the window-level behaviour tests
 ├── config.rs          # settings model and persistence
 ├── diagnostics.rs     # what the installation looks like, and the integrity report
 ├── error.rs           # typed errors (thiserror) and Result alias
