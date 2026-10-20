@@ -5,6 +5,8 @@ Build a native desktop music player inspired by classic iTunes: a music library,
 
 The application will be developed incrementally, with each stage delivering a working and testable result.
 
+Scope of 1.0 is music, and only music. Films, TV shows, podcasts and device synchronisation live in ROADMAP-MEDIA.md and belong to later versions: nothing in the music roadmap waits for them, and nothing in 1.0 grows a control that gestures at them.
+
 Core constraints
 
     Rust-only application code.
@@ -261,7 +263,7 @@ Deliverables
     Track table: measured striping, 17px rows, gradient header band with its bottom rule, flat selected row.
     Transport bar and centre chrome: measured top gradient, pale-green disc panel and border, dark rule under the chrome, toolbar strip. The centre button keeps our house disc — the Apple logo is not ours to ship.
     Status bar: measured height, gradient, top divider and centred text colour.
-    Every row and control painted here must also be wired: nothing is added to look right that does nothing.
+    Every row and control painted here must also be wired: nothing is added to look right that does nothing. This rules out the reference's Movies, TV Shows, Podcasts and Store rows — 1.0 is music, so those rows arrive with the later versions that give them something to open.
 
 Acceptance criteria
 

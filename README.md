@@ -65,7 +65,8 @@ See [ROADMAP.md](ROADMAP.md#stage-10--optional-future-enhancements) for the
 detail.
 
 Beyond music, five further stages are recorded in
-[ROADMAP-MEDIA.md](ROADMAP-MEDIA.md):
+[ROADMAP-MEDIA.md](ROADMAP-MEDIA.md) — later versions, after 1.0, which is
+music and only music:
 
 | Stage | Description                          | State   |
 | ----- | ------------------------------------ | ------- |

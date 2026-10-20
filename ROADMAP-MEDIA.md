@@ -4,7 +4,9 @@ The second roadmap. [ROADMAP.md](ROADMAP.md) covers the music player, stages 0
 to 10; this file carries stages **11 to 15**, which turn iCraftMusic from a music
 player into a media player: movies, TV shows, and podcasts with gPodder
 synchronization — and, with their approaches still undecided, Apple iPod
-synchronization and Rockbox device synchronization.
+synchronization and Rockbox device synchronization. All of them are later
+versions: 1.0 is music and only music, and no stage here is a prerequisite for
+it.
 
 It is deliberately separate. The music stages are finished and their acceptance
 criteria were verified against the running application; the stages below are
