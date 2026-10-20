@@ -156,7 +156,8 @@ pub fn handle(app: &mut MusicCraftApp, ui: &egui::Ui) {
 ///
 /// One key, and the levels come off innermost first: a question the user is
 /// being asked outranks the editor that asked it, the floating Settings and
-/// Equalizer windows outrank the queue popover, and the queue is last.
+/// Equalizer windows outrank the queue popover, the queue outranks an opened
+/// album screen, and falling out of that screen back to the covers is last.
 fn dismiss(app: &mut MusicCraftApp) {
     if app.pending_confirmation().is_some() {
         app.cancel_confirmation();
@@ -174,7 +175,13 @@ fn dismiss(app: &mut MusicCraftApp) {
         app.close_equalizer();
         return;
     }
-    app.close_queue();
+    if app.queue_open() {
+        app.close_queue();
+        return;
+    }
+    if app.browse().open_album().is_some() {
+        app.browse_mut().set_open_album(None);
+    }
 }
 
 /// Move the volume by `delta`, clamped to the range the player accepts.
@@ -481,6 +488,34 @@ mod tests {
 
         press(&mut app, vec![key(Key::Escape, Modifiers::NONE)]);
         assert!(!app.equalizer_open(), "Esc let the equalizer stay");
+    }
+
+    /// The album screen sits at the bottom of the `Esc` ladder: with a queue
+    /// over it the queue goes first, and the next press falls out of the
+    /// record back to the covers.
+    #[test]
+    fn the_escape_key_falls_out_of_an_opened_album_last() {
+        let mut app = app();
+        app.browse_mut().set_kind(BrowseKind::Albums);
+        app.browse_mut().set_open_album(Some("Ambient"));
+        app.toggle_queue();
+
+        press(&mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(
+            !app.queue_open() && app.browse().open_album().is_some(),
+            "Esc skipped the queue for the album screen"
+        );
+
+        press(&mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(
+            app.browse().open_album().is_none(),
+            "Esc left the album screen open"
+        );
+        assert_eq!(
+            app.browse().kind(),
+            BrowseKind::Albums,
+            "falling out of the album left the Albums page"
+        );
     }
 
     #[test]

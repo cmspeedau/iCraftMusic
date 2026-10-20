@@ -172,12 +172,15 @@ keystrokes for the same choices.
 **All Tracks** — the whole library as one sortable, filterable table.
 
 **Albums** — one tile per album, with the cover the scanner cached, the artist
-and the track count. A click marks a sleeve and stays on the page; double-click
-plays the album, and its right-click menu also offers **Show its tracks**, which
-is where narrowing to the rows belongs.
+and the track count. A click opens the album: the page becomes the record —
+cover art with the album's name and artist at the left, its tracks listed in
+track-number order at the right, where a row plays from that song and can be
+dragged onto a playlist. Pressing the jewel-case button again (or `Esc`) falls
+back to the covers.
 
-**Artists** — the artist list, which marks a row the same way. Double-click
-plays the artist, and **Show their tracks** is in the right-click menu.
+**Artists** — the artist list; a click marks a row and stays on the page.
+Double-click plays the artist, and **Show their tracks** is in the right-click
+menu.
 
 Music comes in three ways: **Add files…** and **Add folder…** open the
 desktop's choosers from the gear at the right of the status bar, and folders or
@@ -197,7 +200,7 @@ indexed where they stand.
 | Gapless playback      | The queue lines up the next track's audio behind the current one, so consecutive tracks change over with no silence between them; the change-over is reported from the audio, not a frame late |
 | Queue                 | Move a track earlier or later, remove it, clear the list, jump to any entry; shuffle and repeat                       |
 | Music — All Tracks    | Sortable table (title, artist, album, genre, duration, plays) with click, ctrl-click and shift-click selection        |
-| Music — Albums        | Album grid with cover art, decoded once per album and re-decoded when the texture cache fills                         |
+| Music — Albums        | Album grid with cover art, decoded once per album and re-decoded when the texture cache fills; clicking a sleeve opens the album's screen — cover, name and artist beside its track list |
 | Music — Artists       | Artist list, virtualised like the track table                                                                        |
 | Search                | Live filtering as the query is typed, over the rows already in memory; typing never touches the database              |
 | Playlists             | Create, rename, copy and delete; add tracks from the Music list's context menu or by dragging a track row (or the whole selection) onto a playlist's row in the sidebar; reorder entries; play the whole list, or from any row by double-click |

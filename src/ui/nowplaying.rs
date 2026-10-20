@@ -529,7 +529,10 @@ fn page_buttons(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         theme::focus_ring_if_focused(ui, &response);
 
         if response.clicked() {
-            app.browse_mut().set_kind(kind);
+            // Pressing the button of the page already showing steps out of
+            // its screen rather than re-arriving: the disc twice falls from
+            // an opened album back to the covers.
+            app.browse_mut().press_page(kind);
         }
     }
 }

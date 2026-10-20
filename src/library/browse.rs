@@ -255,10 +255,15 @@ pub struct LibraryBrowse {
     selection: Selection,
     /// Whether the table is showing only the tracks whose files have vanished.
     missing_only: bool,
-    /// The album or artist name the pointer last clicked. It is a mark, not a
-    /// filter, and it names a tile in one particular list — so switching
-    /// pages lets it go.
+    /// The artist row the pointer last clicked. It is a mark, not a filter,
+    /// and it names a row in one particular list — so switching pages lets
+    /// it go. (Albums need no mark: a clicked sleeve opens its screen.)
     selected_group: Option<String>,
+    /// The album whose screen the Albums page is drawing, if a sleeve was
+    /// opened. Like the mark beside it, it names a tile in one list, so
+    /// switching pages lets it go — and pressing the Albums button again
+    /// falls back from the screen to the covers.
+    open_album: Option<String>,
     tracks: Vec<Track>,
     albums: Vec<AlbumCard>,
     artists: Vec<Artist>,
@@ -296,14 +301,38 @@ impl LibraryBrowse {
     pub fn set_kind(&mut self, kind: BrowseKind) {
         self.kind = kind;
         self.selected_group = None;
+        self.open_album = None;
     }
 
-    /// The album tile or artist row the pointer last clicked, if any.
+    /// The page buttons' press. Arriving from another page always means
+    /// landing fresh; pressing the button of the page already showing steps
+    /// out of whatever screen that page was holding — the disc pressed
+    /// twice falls back from an opened album to the covers.
+    pub fn press_page(&mut self, kind: BrowseKind) {
+        if kind == self.kind && kind == BrowseKind::Albums {
+            self.open_album = None;
+            return;
+        }
+        self.set_kind(kind);
+    }
+
+    /// The album whose screen the Albums page is drawing, if one is open.
+    #[must_use]
+    pub fn open_album(&self) -> Option<&str> {
+        self.open_album.as_deref()
+    }
+
+    /// Open an album's screen, or fall back to the covers with `None`.
+    pub fn set_open_album(&mut self, album: Option<&str>) {
+        self.open_album = album.map(str::to_owned);
+    }
+
+    /// The artist row the pointer last clicked, if any.
     ///
     /// A mark, not a search: the page stays put and the track table is
-    /// untouched. It only says which sleeve the listener is looking at, the
-    /// way a click in iTunes 7's cover grid marked a sleeve without playing
-    /// it or hunting for it.
+    /// untouched. It only says which artist the listener is looking at, the
+    /// way a click in iTunes 7's lists marked a row without playing it or
+    /// hunting for it.
     #[must_use]
     pub fn selected_group(&self) -> Option<&str> {
         self.selected_group.as_deref()
@@ -1134,10 +1163,10 @@ mod tests {
         );
     }
 
-    /// A click on an album sleeve or artist row marks it rather than searching
-    /// for it, and the mark names a tile in one particular list — so clicking
-    /// the marked item again lets it go, and opening another page lets it go
-    /// too, rather than marking a same-named row somewhere else.
+    /// A click on an artist row marks it rather than searching for it, and
+    /// the mark names a row in one particular list — so clicking the marked
+    /// row again lets it go, and opening another page lets it go too, rather
+    /// than marking a same-named row somewhere else.
     #[test]
     fn a_click_marks_a_group_rather_than_searching_for_it() {
         let mut browse = LibraryBrowse::new();
@@ -1161,6 +1190,38 @@ mod tests {
             browse.selected_group(),
             None,
             "the mark crossed over to a page it never named"
+        );
+    }
+
+    /// A sleeve click opens the album's screen, and the two ways out are the
+    /// two the pointer has: pressing the disc button again — the `press_page`
+    /// the page buttons call — falls back to the covers, and so does moving
+    /// to another page. A press of a different page's button arrives fresh,
+    /// screen closed.
+    #[test]
+    fn an_opened_album_screen_falls_back_to_the_covers() {
+        let mut browse = LibraryBrowse::new();
+        browse.set_kind(BrowseKind::Albums);
+
+        browse.set_open_album(Some("Ambient"));
+        assert_eq!(browse.open_album(), Some("Ambient"));
+
+        // The disc pressed again: the screen goes, the page stays.
+        browse.press_page(BrowseKind::Albums);
+        assert!(
+            browse.open_album().is_none(),
+            "the disc pressed twice kept the screen open"
+        );
+        assert_eq!(browse.kind(), BrowseKind::Albums, "the page itself moved");
+
+        // Another album, then a different page's button: the arrival is
+        // fresh, with nothing remembered from the Albums page.
+        browse.set_open_album(Some("Drum"));
+        browse.press_page(BrowseKind::Tracks);
+        assert_eq!(browse.kind(), BrowseKind::Tracks);
+        assert!(
+            browse.open_album().is_none(),
+            "the opened album followed the listener to another page"
         );
     }
 }

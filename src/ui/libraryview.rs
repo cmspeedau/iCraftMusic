@@ -101,9 +101,7 @@ enum RowAction {
 
 /// What a click on an album or artist asked for.
 enum GroupAction {
-    PlayAlbum(String),
     PlayArtist(String),
-    QueueAlbum(String),
     QueueArtist(String),
     Filter(String),
 }
@@ -738,16 +736,26 @@ fn hover_text(track: &Track) -> String {
 }
 
 /// The album grid.
+/// The Albums page: the covers, or the screen of the one album a sleeve
+/// click opened.
 fn albums_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    if let Some(album) = app.browse().open_album().map(str::to_owned) {
+        album_screen(app, ui, &album);
+        return;
+    }
+
     let cards: Vec<AlbumCard> = app.browse().visible_albums().into_iter().cloned().collect();
 
     if cards.is_empty() {
         return no_matches(app, ui);
     }
 
-    let mut action: Option<GroupAction> = None;
-    let marked = app.browse().selected_group().map(str::to_owned);
-    let mut mark: Option<String> = None;
+    // A sleeve answers the pointer's click the way the players of the day
+    // answered it: it opens, and the page becomes the album — cover and name
+    // at the left, the record's tracks at the right. The playing that used
+    // to hang off a double-click belongs to the screen's rows now, and the
+    // covers are one press of the disc button again away.
+    let mut opened: Option<String> = None;
 
     ui.horizontal_wrapped(|ui| {
         for card in &cards {
@@ -759,53 +767,15 @@ fn albums_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
             let response = album_tile(ui, texture, card);
 
-            if keyboard_activated(&response, ui) || response.double_clicked() {
-                action = Some(GroupAction::PlayAlbum(card.album.name.clone()));
-            } else if response.clicked_by(PointerButton::Primary) {
-                // A click marks the sleeve and stays on the page: the Albums
-                // page is about albums, and jumping to the table to search
-                // the name took the listener somewhere they had not asked to
-                // go. "Show its tracks" in the right-click menu still does
-                // the narrowing, and double-click still plays.
-                mark = Some(card.album.name.clone());
+            if keyboard_activated(&response, ui) || response.clicked_by(PointerButton::Primary) {
+                opened = Some(card.album.name.clone());
             }
-
-            if marked.as_deref() == Some(card.album.name.as_str()) {
-                ui.painter().rect_filled(
-                    response.rect,
-                    CornerRadius::same(6),
-                    theme::GROUP_SELECTED_FILL,
-                );
-                ui.painter().rect_stroke(
-                    response.rect,
-                    CornerRadius::same(6),
-                    Stroke::new(1.5, theme::ACCENT),
-                    StrokeKind::Inside,
-                );
-            }
-
-            response.context_menu(|ui| {
-                if ui.button("Play album").clicked() {
-                    action = Some(GroupAction::PlayAlbum(card.album.name.clone()));
-                    ui.close();
-                }
-                if ui.button("Add album to queue").clicked() {
-                    action = Some(GroupAction::QueueAlbum(card.album.name.clone()));
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button("Show its tracks").clicked() {
-                    action = Some(GroupAction::Filter(card.album.name.clone()));
-                    ui.close();
-                }
-            });
         }
     });
 
-    if let Some(name) = mark {
-        app.browse_mut().toggle_selected_group(&name);
+    if let Some(name) = opened {
+        app.browse_mut().set_open_album(Some(&name));
     }
-    apply_group_action(app, action);
 }
 
 /// One album: cover art, name, and the artist it is credited to.
@@ -882,6 +852,221 @@ fn album_tile(
     theme::focus_ring_if_focused(ui, &response);
 
     response
+}
+
+/// The screen of one album, in the shape the players of the day drew it:
+/// the cover at the left with the record's name and artist under it, and
+/// the album's tracks — in the order the record itself has them — down the
+/// right.
+///
+/// The rows are the track table's own rows, so they read alike anywhere in
+/// the player; what differs is the list. It is one album, ordered by track
+/// number and fixed: the headings name the columns and sort nothing, for a
+/// record has an order and this screen keeps it. A click marks a row, a
+/// double-click — or Enter on the row the ring rests on — plays the album
+/// from that song, and a row can be picked up and carried to a playlist's
+/// row down the sidebar.
+fn album_screen(app: &mut MusicCraftApp, ui: &mut egui::Ui, name: &str) {
+    let tracks: Vec<Track> = app.album_tracks(name);
+
+    if tracks.is_empty() {
+        // The record emptied out from under its own screen — its tracks
+        // left the library while it was open. Saying so beats a shelf of
+        // nothing.
+        return empty_state(
+            ui,
+            "This album has no tracks",
+            &format!("Nothing in the library answers to {name:?} any more."),
+            &["Press Albums to go back to the covers"],
+        );
+    }
+
+    // The credit and the cover come from the shelf's card while it is still
+    // there, and from the tracks themselves when the search has hidden it.
+    let card = app
+        .browse()
+        .albums()
+        .iter()
+        .find(|card| card.album.name == name)
+        .cloned();
+    let artist = card
+        .as_ref()
+        .and_then(|card| card.album.album_artist.clone())
+        .or_else(|| {
+            tracks
+                .iter()
+                .find_map(|track| track.album_artist.clone())
+                .or_else(|| tracks.first().and_then(|track| track.artist.clone()))
+        })
+        .unwrap_or_else(|| name.to_owned());
+    let artwork = card
+        .as_ref()
+        .and_then(|card| card.artwork.clone())
+        .or_else(|| tracks.iter().find_map(|track| track.artwork_path.clone()));
+
+    let texture = artwork
+        .as_deref()
+        .and_then(|path| app.artwork_mut().texture(ui.ctx(), path))
+        .map(|texture| texture.id());
+
+    let playing = app
+        .playback()
+        .current()
+        .map(|item| item.path().to_path_buf());
+    let selection: BTreeSet<TrackId> = app.browse().selection().ids().collect();
+    let visible: Vec<TrackId> = tracks.iter().filter_map(|track| track.id).collect();
+
+    let region_width = ui.available_width();
+    let height = ui.available_height();
+    let pane_width = (region_width * 0.32).clamp(180.0, 280.0);
+    let gap = 14.0;
+
+    ui.horizontal(|ui| {
+        // The left pane: the sleeve, then what it is — the telling iTunes put
+        // beside the rows so the table never had to say which album it was.
+        ui.allocate_ui_with_layout(
+            Vec2::new(pane_width, height),
+            egui::Layout::top_down(egui::Align::Center),
+            |ui| {
+                ui.add_space(6.0);
+                let art_side = (pane_width - 32.0).min(height * 0.6);
+                let (art, _) =
+                    ui.allocate_exact_size(Vec2::new(art_side, art_side), Sense::hover());
+
+                match texture {
+                    Some(texture) => {
+                        ui.painter().image(
+                            texture,
+                            art,
+                            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
+                    }
+                    None => {
+                        // The tile's own placeholder, grown: the initial of the
+                        // record standing where its cover would hang.
+                        ui.painter().rect_filled(
+                            art,
+                            CornerRadius::same(6),
+                            ui.visuals().faint_bg_color,
+                        );
+                        let initial = name.chars().next().map_or_else(
+                            || "?".to_owned(),
+                            |letter| letter.to_uppercase().to_string(),
+                        );
+                        ui.painter().text(
+                            art.center(),
+                            Align2::CENTER_CENTER,
+                            initial,
+                            FontId::proportional(56.0),
+                            ui.visuals().weak_text_color(),
+                        );
+                    }
+                }
+
+                ui.add_space(12.0);
+                ui.label(RichText::new(name).strong().size(15.0));
+                ui.label(RichText::new(artist).weak());
+            },
+        );
+
+        ui.add_space(gap);
+
+        // The right pane: the record's rows.
+        let table_width = (region_width - pane_width - gap).max(200.0);
+        ui.allocate_ui_with_layout(
+            Vec2::new(table_width, height),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                let columns = Columns::for_width(ui.available_width());
+                static_header(ui, &columns);
+
+                let rows_height = ui.available_height();
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .max_height(rows_height)
+                    .show_rows(ui, ROW_HEIGHT, tracks.len(), |ui, range| {
+                        let mut select: Option<(usize, ClickMode)> = None;
+                        let mut play: Option<usize> = None;
+
+                        for index in range {
+                            let track = &tracks[index];
+                            let selected = track.id.is_some_and(|id| selection.contains(&id));
+                            let is_current = playing.as_deref() == Some(track.path.as_path());
+
+                            let response =
+                                track_row(ui, &columns, index + 1, track, selected, is_current);
+
+                            // The rows can be picked up like the library's and the
+                            // playlists': the pointer may carry this song to a
+                            // playlist's row across the sidebar.
+                            if response.drag_started()
+                                && let Some(id) = track.id
+                            {
+                                response.dnd_set_drag_payload(DraggedTracks(vec![id]));
+                            }
+
+                            if keyboard_activated(&response, ui)
+                                || response.double_clicked_by(PointerButton::Primary)
+                            {
+                                play = Some(index);
+                            } else if response.clicked_by(PointerButton::Primary) {
+                                select = Some((index, click_mode(ui)));
+                            }
+                        }
+
+                        if let Some((index, mode)) = select
+                            && let Some(id) = tracks[index].id
+                        {
+                            app.browse_mut().selection_mut().apply(&visible, id, mode);
+                        }
+                        if let Some(index) = play {
+                            app.play_tracks(&tracks, index);
+                        }
+                    });
+            },
+        );
+    });
+}
+
+/// The album screen's headings: the columns by their names, and nothing to
+/// click on them. The library's headings sort the table; this screen shows
+/// one record, and a record's order is its own.
+fn static_header(ui: &mut egui::Ui, columns: &Columns) {
+    let (rect, _) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width(), HEADER_HEIGHT),
+        Sense::hover(),
+    );
+
+    let font = FontId::proportional(12.0);
+    let color = ui.visuals().weak_text_color();
+    let painter = ui.painter().with_clip_rect(rect);
+
+    painter.text(
+        Pos2::new(rect.left() + CELL_PADDING, rect.center().y),
+        Align2::LEFT_CENTER,
+        "#",
+        font.clone(),
+        color,
+    );
+
+    for key in SortKey::ALL {
+        let width = columns.width_for(key);
+        if width < 1.0 {
+            continue;
+        }
+
+        painter.text(
+            Pos2::new(
+                rect.left() + columns.offset_for(key) + CELL_PADDING,
+                rect.center().y,
+            ),
+            Align2::LEFT_CENTER,
+            key.label(),
+            font.clone(),
+            color,
+        );
+    }
 }
 
 /// The artist list.
@@ -1001,14 +1186,8 @@ fn artists_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// Run whatever an album or artist click asked for.
 fn apply_group_action(app: &mut MusicCraftApp, action: Option<GroupAction>) {
     match action {
-        Some(GroupAction::PlayAlbum(name)) => {
-            app.play_album(&name);
-        }
         Some(GroupAction::PlayArtist(name)) => {
             app.play_artist(&name);
-        }
-        Some(GroupAction::QueueAlbum(name)) => {
-            app.queue_album(&name);
         }
         Some(GroupAction::QueueArtist(name)) => {
             app.queue_artist(&name);
@@ -1547,6 +1726,15 @@ mod tests {
             .unwrap_or_else(|| panic!("nothing painted reads {needle:?}"))
     }
 
+    /// Whether any painted text reads exactly `needle`. The doubting twin of
+    /// `ink_of`, which insists a thing was drawn; this asks whether it was.
+    fn was_painted(shapes: &[egui::epaint::ClippedShape], needle: &str) -> bool {
+        shapes.iter().any(|clipped| match &clipped.shape {
+            egui::Shape::Text(text) => text.galley.text() == needle,
+            _ => false,
+        })
+    }
+
     /// Tab until something in the table wears the focus ring, returning how
     /// many Tabs it took and the ring's rectangle.
     ///
@@ -1796,13 +1984,13 @@ mod tests {
         app
     }
 
-    /// Clicking a sleeve marks it and stays put: the page does not move, the
-    /// search field stays empty, and the track table is not touched. The jump
-    /// to the rows belongs to the right-click menu — "Show its tracks" — and
-    /// the playing belongs to the double-click, neither of which a plain
-    /// click may presume.
+    /// Clicking a sleeve opens its record: the page becomes the album — the
+    /// name and artist at the left, that record's songs at the right — and
+    /// does not search the library for the name or hop to the track table.
+    /// Pressing the disc again, the button's own step, falls back to the
+    /// covers.
     #[test]
-    fn a_click_marks_an_album_sleeve_rather_than_searching_for_it() {
+    fn a_click_opens_the_album_the_sleeve_named() {
         let mut app = shelf();
         app.browse_mut().set_kind(BrowseKind::Albums);
 
@@ -1812,12 +2000,12 @@ mod tests {
         let shapes = paint_frame(&ctx, &mut app, vec![]);
         let sleeve = ink_of(&shapes, "Ambient");
         click_pointer(&ctx, &mut app, sleeve.center());
-        paint_frame(&ctx, &mut app, vec![]);
+        let shapes = paint_frame(&ctx, &mut app, vec![]);
 
         assert_eq!(
-            app.browse().selected_group(),
+            app.browse().open_album(),
             Some("Ambient"),
-            "the click did not mark the sleeve it landed on"
+            "the click did not open the album its sleeve named"
         );
         assert_eq!(
             app.browse().kind(),
@@ -1829,51 +2017,99 @@ mod tests {
             "the click searched the library for the album's name"
         );
 
-        // And a click on another sleeve takes the mark over: one sleeve at a
-        // time is marked. (Clicking the same sleeve twice in the same breath
-        // is a double-click, which plays — the release click in the unit
-        // test above needs the same two beats the pointer's two clicks would.)
-        let shapes = paint_frame(&ctx, &mut app, vec![]);
-        let sleeve = ink_of(&shapes, "Drum");
-        click_pointer(&ctx, &mut app, sleeve.center());
-        paint_frame(&ctx, &mut app, vec![]);
+        // And the page now draws the record: its song at the right, the
+        // artist's name under the cover, and the other album's sleeve gone —
+        // the page is this album and nothing else.
+        ink_of(&shapes, "Xtal");
+        ink_of(&shapes, "Aphex");
+        assert!(
+            !was_painted(&shapes, "Roygbiv"),
+            "the opened screen listed another album's song"
+        );
+        assert!(
+            !was_painted(&shapes, "Drum"),
+            "the covers were still on the page beside the opened album"
+        );
 
-        assert_eq!(
-            app.browse().selected_group(),
-            Some("Drum"),
-            "the mark did not move to the sleeve last clicked"
+        // The disc pressed twice: the screen falls back and the sleeves are
+        // drawn again.
+        app.browse_mut().press_page(BrowseKind::Albums);
+        let shapes = paint_frame(&ctx, &mut app, vec![]);
+
+        assert!(
+            app.browse().open_album().is_none(),
+            "the disc pressed twice kept the screen open"
+        );
+        ink_of(&shapes, "Ambient");
+        assert!(
+            !was_painted(&shapes, "Xtal"),
+            "the covers came back still hiding the opened record"
         );
     }
 
-    /// The Artists rows play by the same rule: the click marks the row and
-    /// stays, because an artist page that hopped to the track table on every
-    /// click would not be an artist page for longer than one click.
+    /// Two songs on one record: the screen's rows are worth counting, and
+    /// playing one of them proves where a double-click landed.
+    fn pair() -> MusicCraftApp {
+        let library = Library::in_memory(std::env::temp_dir().join("musiccraft-view-pair"))
+            .expect("an in-memory library");
+        let mut app = MusicCraftApp::with_library(startup(), playback(), library);
+
+        let mut first = tagged(1, "Vitrine", "Aphex", "Ambient");
+        first.track_number = Some(1);
+        let mut second = tagged(2, "Rhythm", "Aphex", "Ambient");
+        second.track_number = Some(2);
+        {
+            let library = app.library_mut().expect("a library");
+            let repository = library.repository_mut();
+            for track in [&second, &first] {
+                repository
+                    .upsert_track(track)
+                    .expect("the track should be stored");
+            }
+        }
+
+        app.refresh().expect("the library should refresh");
+        app
+    }
+
+    /// A row of the screen plays like a row of the table: the ring Tab
+    /// leaves on a row and Enter answer with that song first, the rest of
+    /// the record queued behind it. (The harness cannot drive egui's mouse
+    /// double-click — the very same check rides in the shipped table and is
+    /// pinned here by its keyboard twin.)
     #[test]
-    fn a_click_marks_an_artist_row_rather_than_searching_for_it() {
-        let mut app = shelf();
-        app.browse_mut().set_kind(BrowseKind::Artists);
+    fn enter_on_a_row_of_the_screen_plays_from_that_song() {
+        let mut app = pair();
+        app.browse_mut().set_kind(BrowseKind::Albums);
+        app.browse_mut().set_open_album(Some("Ambient"));
 
         let ctx = egui::Context::default();
-        paint_frame(&ctx, &mut app, vec![]);
-
         let shapes = paint_frame(&ctx, &mut app, vec![]);
-        let row = ink_of(&shapes, "Aphex");
-        click_pointer(&ctx, &mut app, row.center());
-        paint_frame(&ctx, &mut app, vec![]);
+
+        // The rows come in the record's order, not the order the files were
+        // stored in: Vitrine stands over Rhythm.
+        let first_row = ink_of(&shapes, "Vitrine");
+        let second_row = ink_of(&shapes, "Rhythm");
+        assert!(
+            first_row.top() < second_row.top(),
+            "the screen listed the record out of its own order"
+        );
+
+        // Tab the ring onto the first row — the screen has nothing else to
+        // stop on before it — and press Enter.
+        let (_tabs, ring) = tab_until_ring(&ctx, &mut app);
+        assert!(
+            ring.contains(first_row.center()),
+            "the ring stopped somewhere other than the first row"
+        );
+        press_enter(&ctx, &mut app);
 
         assert_eq!(
-            app.browse().selected_group(),
-            Some("Aphex"),
-            "the click did not mark the row it landed on"
-        );
-        assert_eq!(
-            app.browse().kind(),
-            BrowseKind::Artists,
-            "the click left the Artists page for the track table"
-        );
-        assert!(
-            app.browse().query_text().is_empty(),
-            "the click searched the library for the artist's name"
+            app.playback()
+                .current()
+                .map(|item| item.path().to_path_buf()),
+            Some(std::path::PathBuf::from("/music/Vitrine.mp3")),
+            "Enter on the ringed row did not start the record at that row"
         );
     }
 }
