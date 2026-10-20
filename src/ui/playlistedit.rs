@@ -92,7 +92,7 @@ fn body(app: &mut MusicCraftApp, ui: &mut egui::Ui) -> (&'static str, Option<Str
 
     ui.add_space(4.0);
     ui.label(
-        RichText::new("Tracks are added to it from the Library's right-click menu.")
+        RichText::new("Tracks are added to it from the Music list's right-click menu.")
             .small()
             .weak(),
     );

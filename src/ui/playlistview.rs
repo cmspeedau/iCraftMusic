@@ -201,7 +201,7 @@ fn detail_column(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Act
             ui.add_space(4.0);
             ui.label(
                 RichText::new(
-                    "Open the Library, select tracks, and use \"Add to playlist\" on the \
+                    "Open Music, select tracks, and use \"Add to playlist\" on the \
                      right-click menu.",
                 )
                 .small()

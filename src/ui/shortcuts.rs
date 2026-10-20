@@ -33,7 +33,7 @@ pub enum Command {
     VolumeUp,
     /// Turn the volume down one step.
     VolumeDown,
-    /// Open the Library section.
+    /// Open the Music section (the sidebar's "Music" row).
     Library,
     /// Open the Playlists section.
     Playlists,
@@ -102,7 +102,7 @@ impl Command {
             Self::Previous => "Previous track",
             Self::VolumeUp => "Louder",
             Self::VolumeDown => "Quieter",
-            Self::Library => "Go to the library",
+            Self::Library => "Go to the music",
             Self::Playlists => "Go to the playlists",
             Self::Settings => "Go to settings",
             Self::Tracks => "Show all tracks",

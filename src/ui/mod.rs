@@ -182,7 +182,7 @@ mod tests {
             !painted.iter().any(|text| text == "Edit details"),
             "no editor is open: {painted:?}"
         );
-        assert!(painted.iter().any(|text| text == "Library"));
+        assert!(painted.iter().any(|text| text == "Music"));
     }
 
     #[test]

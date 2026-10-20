@@ -1,15 +1,16 @@
 //! Left-hand navigation sidebar and the list of top-level sections.
 //!
-//! The sidebar holds the places you browse. Under the 'Browse' heading is the
-//! Library; under a 'Playlists' heading of its own, level with it, are the
-//! playlists themselves. There is no Playlists *entry*: the
+//! The sidebar holds the places you browse. Under the 'Library' heading — the
+//! source list's own word for the group — is Music; under a 'Playlists'
+//! heading of its own, level with it, are the playlists themselves. There is
+//! no Playlists *entry*: the
 //! section is about one of the user's lists at a time and nothing else, so a
 //! row for it led to an empty page whose only content was a line asking you to
 //! choose one — which is the list drawn right under the row. The heading stays
 //! because a list of names needs a name; what went is the row.
 //!
 //! The Library's three pages — Tracks, Albums and Artists — used to hang here,
-//! indented under the Library entry, and they no longer do: they are buttons on
+//! indented under the Music entry, and they no longer do: they are buttons on
 //! the playback bar now, where the icons that tell them apart (a note, a jewel
 //! case, a person) have the room the sidebar's rows did not. The sidebar keeps
 //! the one row that is a place rather than a page.
@@ -25,9 +26,10 @@
 //! The list wears iTunes 7's source-list dress: grey capital headings, a flat
 //! blue bar — lit along its top, deepening downward — across the panel's whole
 //! width for whichever row is open and a paler one under the pointer's row, a
-//! note for the library, ruled cards for the playlists, and a hairline between
-//! the panel and the page beside it. The dress is hand-painted; the clicks,
-//! Tab stops and spoken names stay with the egui widgets underneath it.
+//! note for the music row, ruled cards for the playlists, and a hairline
+//! between the panel and the page beside it. The dress is hand-painted; the
+//! clicks, Tab stops and spoken names stay with the egui widgets underneath
+//! it.
 
 use egui::{Button, Color32, Panel, Pos2, Rect, RichText, ScrollArea, Sense, Stroke, Vec2};
 
@@ -52,7 +54,8 @@ impl NavSection {
     /// Every section, in the order shown in the sidebar.
     pub const ALL: [NavSection; 3] = [Self::Library, Self::Playlists, Self::Settings];
 
-    /// Sections pinned to the top of the sidebar, under the "Browse" heading.
+    /// Sections pinned to the top of the sidebar, under the "Library"
+    /// heading.
     ///
     /// Settings is not among them: it is opened from the gear in the status
     /// bar, and `ALL` is what the app can be in rather than what is listed.
@@ -61,10 +64,13 @@ impl NavSection {
     /// the lists themselves are the way in, along with the `+` that makes one.
     pub const TOP: [NavSection; 1] = [Self::Library];
 
-    /// Name shown in the sidebar.
+    /// Name shown in the sidebar. The Library section is the source list's
+    /// "Music" row — the group heading above it carries the word "Library",
+    /// so the row names what the row holds rather than saying the heading
+    /// twice.
     pub fn label(self) -> &'static str {
         match self {
-            Self::Library => "Library",
+            Self::Library => "Music",
             Self::Playlists => "Playlists",
             Self::Settings => "Settings",
         }
@@ -120,7 +126,7 @@ pub fn sidebar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// heading of their own.
 fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<PlaylistId>) {
     ui.add_space(2.0);
-    heading(ui, "Browse");
+    heading(ui, "Library");
 
     // Read once: a click below is about to change it, and the playlists are
     // drawn from the section that was showing while this frame was composed.
@@ -165,7 +171,7 @@ fn heading(ui: &mut egui::Ui, word: &str) {
     ui.add_space(4.0);
 }
 
-/// The playlists, under a heading that sits level with "Browse".
+/// The playlists, under a heading that sits level with "Library".
 ///
 /// A click on one reports the playlist through `open`; switching to the section
 /// and opening it happens once the sidebar has finished reading the app. The
@@ -532,7 +538,7 @@ mod tests {
         app.set_section(NavSection::Playlists);
         let from_playlists = painted(&mut app);
 
-        for (section, painted) in [("Library", from_library), ("Playlists", from_playlists)] {
+        for (section, painted) in [("Music", from_library), ("Playlists", from_playlists)] {
             assert!(
                 painted.iter().any(|text| text == "Evening"),
                 "no playlist in the sidebar while {section} is open: {painted:?}"
@@ -561,10 +567,9 @@ mod tests {
 
         let shapes = frame(&mut app, None);
 
-        // The Library is the one entry left under the Browse heading; a
-        // playlist's label has to line up with it rather than with the
-        // heading over it.
-        let section = painted_name(&shapes, "Library").expect("no Library entry");
+        // Music is the one entry under the Library heading; a playlist's
+        // label has to line up with it rather than with the heading over it.
+        let section = painted_name(&shapes, "Music").expect("no Music entry");
         let entry = painted_name(&shapes, "Evening").expect("no playlist entry");
 
         // The source list hangs every label off the same line, at the right
@@ -586,7 +591,7 @@ mod tests {
     /// without a selection or a pointer.
     #[test]
     fn the_open_row_wears_a_bar_across_the_whole_panel() {
-        let mut app = imported(); // the Library is the open row
+        let mut app = imported(); // Music is the open row
 
         let shapes = frame(&mut app, None);
         let selected = bars(
@@ -604,7 +609,7 @@ mod tests {
             selected[0].width(),
         );
 
-        let label = painted_name(&shapes, "Library").expect("the Library row");
+        let label = painted_name(&shapes, "Music").expect("the Music row");
         assert!(
             selected[0].contains(label.center()),
             "the bar is not under the row it selects"
@@ -661,10 +666,10 @@ mod tests {
         let mut app = imported();
         app.add_tracks_to_playlist("Evening", &library_ids(&app));
 
-        let shapes = frame(&mut app, None); // the Library is the open row
+        let shapes = frame(&mut app, None); // Music is the open row
 
         assert_eq!(
-            label_colour(&shapes, "Library"),
+            label_colour(&shapes, "Music"),
             theme::SIDEBAR_INK_SELECTED,
             "the open row's label did not turn white on the blue"
         );
@@ -675,7 +680,7 @@ mod tests {
         );
     }
 
-    /// The library's row carries a note and a playlist's a ruled card, each in
+    /// The music row carries a note and a playlist's a ruled card, each in
     /// the column left for icons — before the labels' line, level with its
     /// row — and the note turns white on the bar the label's white steps onto,
     /// back to its own blue when the row rests.
@@ -684,9 +689,9 @@ mod tests {
         let mut app = imported();
         app.add_tracks_to_playlist("Evening", &library_ids(&app));
 
-        // Library open: the note is on the bar, so it wears white.
+        // Music open: the note is on the bar, so it wears white.
         let shapes = frame(&mut app, None);
-        let library = painted_name(&shapes, "Library").expect("the Library row");
+        let library = painted_name(&shapes, "Music").expect("the Music row");
         let note = shapes
             .iter()
             .find_map(|clipped| match &clipped.shape {
@@ -750,7 +755,7 @@ mod tests {
 
         let shapes = frame(&mut app, None);
 
-        for word in ["BROWSE", "PLAYLISTS"] {
+        for word in ["LIBRARY", "PLAYLISTS"] {
             assert_eq!(
                 label_colour(&shapes, word),
                 theme::SIDEBAR_HEADING,
