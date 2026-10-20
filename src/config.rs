@@ -209,6 +209,84 @@ impl AppConfig {
 
         self.library_folders.len() != before
     }
+
+    /// The media home a brand-new install starts watching, if the platform
+    /// reports a home directory.
+    ///
+    /// This is `~/iCraftMusic` — the folder the application owns, the way
+    /// iTunes owns *iTunes Media*. It is computed rather than stored, which is
+    /// what lets the Settings **Reset** button return the library to it no
+    /// matter where the user had moved the home.
+    pub fn default_media_home() -> Option<PathBuf> {
+        directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(crate::APP_NAME))
+    }
+
+    /// The library's media home: its first watched folder, if it has one.
+    ///
+    /// The home is always element zero of [`AppConfig::library_folders`], so
+    /// the Settings page can show one "Media folder location" while the list
+    /// beneath it names the extra folders added alongside it.
+    #[must_use]
+    pub fn media_home(&self) -> Option<&Path> {
+        self.library_folders.first().map(PathBuf::as_path)
+    }
+
+    /// Make `folder` the library's media home, keeping other watched folders.
+    ///
+    /// The old home stops being watched (it becomes the moved-from folder the
+    /// move either re-points away from or, once files have been copied, can
+    /// offer to clean up), and any copy of the new home that was watched as an
+    /// extra folder is folded into the home so the list stays unique.
+    pub fn set_media_home(&mut self, folder: PathBuf) {
+        if self.library_folders.is_empty() {
+            self.library_folders.push(folder);
+            return;
+        }
+
+        self.library_folders[0] = folder.clone();
+        let mut unique: Vec<PathBuf> = Vec::with_capacity(self.library_folders.len());
+        for watched in self.library_folders.drain(..) {
+            if !unique.contains(&watched) {
+                unique.push(watched);
+            }
+        }
+        self.library_folders = unique;
+    }
+
+    /// Return the media home to where a first boot would have placed it.
+    ///
+    /// Returns `false` when the platform has no home directory to return to;
+    /// the watched folders are then left exactly as they were.
+    pub fn reset_media_home(&mut self) -> bool {
+        match Self::default_media_home() {
+            Some(home) => {
+                self.set_media_home(home);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Seed the media home on a brand-new install, returning whether it seeded.
+    ///
+    /// Only an empty list is seeded: a user who has already chosen folders —
+    /// or who deliberately watches nothing — is left exactly as they are. The
+    /// folder itself is created later, by the application, and only when it is
+    /// still this default (a folder the user picked that is missing is a
+    /// mistake to report, not a thing to `mkdir` behind their back).
+    pub fn ensure_media_home(&mut self) -> bool {
+        if !self.library_folders.is_empty() {
+            return false;
+        }
+
+        match Self::default_media_home() {
+            Some(home) => {
+                self.library_folders.push(home);
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -228,6 +306,82 @@ mod tests {
         assert_eq!(config.theme, ThemeMode::Dark);
         assert_eq!(config.volume, DEFAULT_VOLUME);
         assert!(config.library_folders.is_empty());
+    }
+
+    #[test]
+    fn the_media_home_is_a_folder_called_after_the_application_in_the_home() {
+        let Some(home) = AppConfig::default_media_home() else {
+            return; // a platform with no home directory says so, and that is fine
+        };
+
+        assert_eq!(
+            home.file_name().and_then(|name| name.to_str()),
+            Some(crate::APP_NAME),
+            "the default home is ~/{}",
+            crate::APP_NAME
+        );
+    }
+
+    #[test]
+    fn a_first_boot_is_seeded_with_the_home_only_where_one_exists() {
+        let mut config = AppConfig::default();
+
+        let seeded = config.ensure_media_home();
+
+        assert_eq!(seeded, AppConfig::default_media_home().is_some());
+        if seeded {
+            assert_eq!(
+                config.media_home(),
+                AppConfig::default_media_home().as_deref()
+            );
+        } else {
+            assert!(config.library_folders.is_empty());
+        }
+    }
+
+    #[test]
+    fn seeding_leaves_a_config_that_already_watches_a_folder_alone() {
+        let mut config = AppConfig::default();
+        config.add_library_folder("/music/chosen");
+
+        assert!(
+            !config.ensure_media_home(),
+            "a returning user is never re-seeded"
+        );
+        assert_eq!(config.media_home(), Some(Path::new("/music/chosen")));
+    }
+
+    #[test]
+    fn setting_the_media_home_moves_it_and_keeps_the_other_folders() {
+        let mut config = AppConfig::default();
+        config.add_library_folder("/first/home");
+        config.add_library_folder("/extra/folder");
+
+        config.set_media_home(PathBuf::from("/second/home"));
+
+        assert_eq!(config.media_home(), Some(Path::new("/second/home")));
+        assert!(
+            !config
+                .library_folders
+                .contains(&PathBuf::from("/first/home")),
+            "the old home stops being watched when the home moves"
+        );
+        assert!(
+            config
+                .library_folders
+                .contains(&PathBuf::from("/extra/folder"))
+        );
+    }
+
+    #[test]
+    fn setting_the_media_home_folds_in_a_folder_already_watched() {
+        let mut config = AppConfig::default();
+        config.add_library_folder("/first/home");
+        config.add_library_folder("/new/home");
+
+        config.set_media_home(PathBuf::from("/new/home"));
+
+        assert_eq!(config.library_folders, vec![PathBuf::from("/new/home")]);
     }
 
     #[test]

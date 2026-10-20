@@ -36,6 +36,14 @@ pub struct ScanProgress {
     pub processed: usize,
     /// Files branded as broken.
     pub failed: usize,
+    /// Files the walk expects to read, or `0` until the walk has finished
+    /// counting. It is what lets the progress bar proportion itself; without
+    /// it the bar slides and promises no number.
+    pub total: usize,
+    /// Music found in formats this build cannot decode. The walk knows them
+    /// before the first file is read, so what is left out of the library can
+    /// be stated from the first frame rather than guessed at the last.
+    pub unreadable: usize,
     /// The file currently being read, when the scan is mid-file.
     pub current: Option<PathBuf>,
 }
@@ -155,6 +163,13 @@ pub fn scan_with_cancel(
 
     let found = find_files(&request.folders);
     report.unreadable = found.unreadable;
+
+    // The walk has ended before the reading begins, so the totals the bar is
+    // drawn from are real before a single file is opened — and the first
+    // observer call carries them, not an empty struct.
+    progress.total = found.audio.len();
+    progress.unreadable = report.unreadable.len();
+    observer(&progress);
 
     for path in found.audio {
         if cancel.load(Ordering::Relaxed) {
@@ -485,6 +500,24 @@ mod tests {
     }
 
     #[test]
+    fn a_lone_file_named_as_an_entry_is_found_by_itself() {
+        // The add dialog's "Add" button indexes a chosen file where it lives,
+        // so the file's own path arrives as a watch entry. A walk of a file
+        // yields the file, which is what makes that work.
+        let library = scratch("lone-file", &["song.mp3", "notes.txt"]);
+
+        let found = collect_audio_files(std::slice::from_ref(&library.join("song.mp3")));
+
+        assert_eq!(found, vec![library.join("song.mp3")]);
+        assert!(
+            collect_audio_files(std::slice::from_ref(&library.join("notes.txt"))).is_empty(),
+            "a named non-audio file indexes nothing"
+        );
+
+        fs::remove_dir_all(&library).ok();
+    }
+
+    #[test]
     fn music_in_a_format_the_engine_cannot_read_is_reported_by_its_extension() {
         let library = scratch(
             "formats-unreadable",
@@ -579,6 +612,38 @@ mod tests {
         assert!(!updates.is_empty());
         assert_eq!(updates.last().unwrap().current, None);
         assert_eq!(updates.last().unwrap().processed, 2);
+
+        fs::remove_dir_all(&library).ok();
+    }
+
+    /// The walk finishes counting before the reading begins, and the first
+    /// report carries what it counted: the bar can proportion itself and name
+    /// the formats it cannot read from the very first frame, rather than
+    /// only once some files have already been read.
+    #[test]
+    fn the_walk_reports_its_totals_before_the_first_file_is_read() {
+        let odd = format!("m.{}", crate::audio::UNREADABLE_EXTENSIONS[0]);
+        let library = scratch("totals", &["a.mp3", "b.mp3", &odd]);
+        let mut updates = Vec::new();
+
+        let report = scan(&request(&[&library]), |progress| {
+            updates.push(progress.clone());
+        });
+
+        assert_eq!(report.discovered, 2);
+        assert_eq!(report.unreadable_count(), 1);
+
+        let first = updates
+            .first()
+            .expect("the walk reports before the reading");
+        assert_eq!(first.total, 2, "two files the engine can read");
+        assert_eq!(first.unreadable, 1, "and one format it cannot");
+        assert_eq!(first.processed, 0, "the totals arrive ahead of the reads");
+
+        let last = updates.last().expect("the scan reports at the end too");
+        assert_eq!(last.total, 2);
+        assert_eq!(last.unreadable, 1);
+        assert_eq!(last.processed, 2);
 
         fs::remove_dir_all(&library).ok();
     }
