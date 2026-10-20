@@ -244,11 +244,13 @@ fn empty_library(app: &MusicCraftApp, ui: &mut egui::Ui) {
         empty_state(
             ui,
             "Your library is empty",
-            "Add a folder under Settings → Library management and the tracks inside it are indexed.",
+            "Add music from the gear at the corner of the bar — Add files… or Add folder… — \
+             or drag it onto the window; you are asked whether to index it where it is or \
+             copy it into your media folder first.",
             &[
-                "Every supported audio file under the folder is imported",
+                "Every supported audio file under a watched folder is indexed",
                 "Tags, durations and cover art are read where the file has them",
-                "Re-importing a folder updates what changed instead of duplicating",
+                "Re-adding a folder updates what changed instead of duplicating",
             ],
         );
     } else {
@@ -258,7 +260,7 @@ fn empty_library(app: &MusicCraftApp, ui: &mut egui::Ui) {
             "The folders you watch hold no supported audio files.",
             &[
                 "Press Rescan under Settings → Library management to read them again",
-                "Only mp3, flac, wav, ogg, m4a, mp4 and aac files are imported",
+                "Only mp3, flac, wav, ogg, m4a, mp4 and aac files are indexed",
                 "Sub-folders are scanned as well",
             ],
         );

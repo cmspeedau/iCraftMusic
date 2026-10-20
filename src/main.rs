@@ -45,7 +45,11 @@ fn run() -> anyhow::Result<()> {
             .with_title(APP_NAME)
             .with_app_id("musiccraft")
             .with_inner_size([INITIAL_WIDTH, INITIAL_HEIGHT])
-            .with_min_inner_size([MIN_WIDTH, MIN_HEIGHT]),
+            .with_min_inner_size([MIN_WIDTH, MIN_HEIGHT])
+            // Dropping files on the window is a way to add music, so the
+            // window has to accept them: asking for this is what makes the
+            // desktop tell egui about a drop at all.
+            .with_drag_and_drop(true),
         ..Default::default()
     };
 

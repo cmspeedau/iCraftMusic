@@ -6,8 +6,8 @@
 //! place.
 
 use egui::{
-    Color32, Context, CornerRadius, FontFamily, FontId, Frame, Margin, Painter, Rect, Response,
-    Stroke, StrokeKind, Style, TextStyle, ThemePreference, Ui, Visuals, vec2,
+    Color32, Context, CornerRadius, FontFamily, FontId, Frame, Margin, Painter, Pos2, Rect,
+    Response, Stroke, StrokeKind, Style, TextStyle, ThemePreference, Ui, Vec2, Visuals, vec2,
 };
 
 use crate::config::ThemeMode;
@@ -266,6 +266,137 @@ pub const CENTRE_BOX_INK_MUTED: Color32 = Color32::from_rgb(92, 84, 62);
 /// A step of the box's own cream rather than the bar's gray, so a control on
 /// the box stays part of the box.
 pub const CENTRE_BOX_CONTROL: Color32 = Color32::from_rgb(226, 214, 180);
+
+/// The centre box's rim: a warm dark cream, darker than the bar's gray and
+/// far darker than the box's own fill.
+///
+/// The player drew everything as an object — no edge-less fields — and on a
+/// gray bar a cream field with no edge dissolves into it. One hairline is
+/// what makes the box a thing sitting ON the bar rather than a hole in it.
+pub const CENTRE_BOX_EDGE: Color32 = Color32::from_rgb(150, 140, 114);
+
+/// The light that gathers on raised edges: the inner line just inside the
+/// rim, and the lit top half of a push button.
+pub const CENTRE_BOX_GLOSS: Color32 = Color32::from_rgb(252, 247, 231);
+
+/// A control pushed in: the box's cream sunk a step below its resting
+/// [`CENTRE_BOX_CONTROL`], the way a button goes dark where it has been
+/// pressed and stays dark while it is held.
+pub const CENTRE_BOX_PRESSED: Color32 = Color32::from_rgb(213, 199, 163);
+
+/// Paint the centre box's surface the way those panels were drawn: the fill,
+/// a hairline rim so it stands off the bar, and a lighter line just inside
+/// the rim — the edge catching the light, which is what makes a flat shape
+/// read as raised.
+///
+/// The fill is painted first and alone in its colour, so whatever looks the
+/// box up by its fill — tests and callers alike — still finds it.
+pub fn centre_box_surface(painter: &Painter, rect: Rect) {
+    let radius = CornerRadius::same(CENTRE_BOX_RADIUS);
+    painter.rect_filled(rect, radius, CENTRE_BOX_FILL);
+    painter.rect_stroke(
+        rect,
+        radius,
+        Stroke::new(1.0, CENTRE_BOX_EDGE),
+        StrokeKind::Inside,
+    );
+    painter.rect_stroke(
+        rect.shrink(1.0),
+        CornerRadius::same(CENTRE_BOX_RADIUS - 1),
+        Stroke::new(1.0, CENTRE_BOX_GLOSS),
+        StrokeKind::Inside,
+    );
+}
+
+/// Height of the Indexing bar drawn inside the centre box, in points.
+///
+/// The old iTunes encoding sheet's bar was slim — a line of work, not a
+/// panel — and the centre box's cover row has exactly this much to spare
+/// under the wording.
+pub const CANDY_BAR_HEIGHT: f32 = 12.0;
+
+/// The groove the Indexing bar fills: a step darker than the cream, so the
+/// empty part of the bar reads as cut into the box rather than printed on it.
+pub const CANDY_GROOVE_FILL: Color32 = Color32::from_rgb(206, 199, 185);
+
+/// The groove's hairline border — iTunes drew its tracks rimmed, the way a
+/// real inset one is.
+pub const CANDY_GROOVE_EDGE: Color32 = Color32::from_rgb(164, 156, 141);
+
+/// The fill's top, and its bottom: one gradient from pale blue to the app's
+/// own accent, which is how the glossy blue of a Aqua-era progress bar got
+/// its depth without any actual glass.
+pub const CANDY_TOP: Color32 = Color32::from_rgb(126, 180, 255);
+pub const CANDY_BOTTOM: Color32 = Color32::from_rgb(10, 132, 255);
+
+/// The single light line along the fill's top edge — the reflection.
+pub const CANDY_HIGHLIGHT: Color32 = Color32::from_rgb(235, 245, 255);
+
+/// Draw a progress bar the way the iTunes 7 encoding sheet drew its one: a
+/// slim inset groove with a glossy gradient fill.
+///
+/// `fraction` is how much of the groove belongs to the work done, or `None`
+/// while the total is not yet known — then the gloss becomes a short stripe
+/// that slides across the groove, the way those sheets said "working" without
+/// promising a number it did not have. The stripe's position reads the clock
+/// off the frame input, which is why the frame loop repaints while a job runs.
+pub fn candy_progress(ui: &Ui, rect: Rect, fraction: Option<f32>) {
+    let radius = CornerRadius::same(3);
+    let stroke = Stroke::new(1.0, CANDY_GROOVE_EDGE);
+    ui.painter()
+        .rect(rect, radius, CANDY_GROOVE_FILL, stroke, StrokeKind::Inside);
+
+    let inner = rect.shrink(1.0);
+
+    let stripe: Rect = match fraction {
+        Some(fraction) => {
+            let fraction = fraction.clamp(0.0, 1.0);
+            if fraction <= 0.0 {
+                return;
+            }
+            Rect::from_min_max(
+                inner.left_center(),
+                Pos2::new(inner.left() + inner.width() * fraction, inner.bottom()),
+            )
+        }
+        None => {
+            let width = 26.0;
+            let span = inner.width() + 2.0 * width;
+            let travelled = (ui.input(|input| input.time) as f32 * 90.0) % span;
+            Rect::from_min_size(
+                Pos2::new(inner.left() - width + travelled, inner.top()),
+                Vec2::new(width, inner.height()),
+            )
+            .intersect(inner)
+        }
+    };
+
+    if stripe.width() <= 0.0 {
+        return;
+    }
+
+    // The gloss is a mesh gradient, so it is square where the groove is
+    // rounded; the groove's rim is stroked again over it, which is what keeps
+    // the fill inside the rounded ends no matter how far the stripe has run.
+    ui.painter().add(egui::epaint::Shape::gradient_rect(
+        stripe,
+        egui::epaint::Direction::TopDown,
+        [CANDY_TOP, CANDY_BOTTOM],
+    ));
+
+    // The reflection only reads as one on a stretch wide enough to hold a
+    // line; on a sliver it would just be the sliver's top edge twice.
+    if stripe.width() > 6.0 {
+        ui.painter().hline(
+            stripe.x_range().shrink(2.0),
+            stripe.top() + 1.0,
+            Stroke::new(1.0, CANDY_HIGHLIGHT),
+        );
+    }
+
+    ui.painter()
+        .rect_stroke(rect, radius, stroke, StrokeKind::Inside);
+}
 
 /// Color used for non-fatal warnings, such as a settings file that failed to
 /// load.
@@ -1029,6 +1160,233 @@ mod tests {
                 "a band painted outside the control it marks: {band:?} vs {rect:?}"
             );
         }
+    }
+
+    /// Everything one frame of [`candy_progress`] painted, sorted into the
+    /// shapes the assertions read: the groove's rectangle, the gloss's mesh,
+    /// and the reflection's line.
+    fn paint_candy(
+        fraction: Option<f32>,
+    ) -> (Rect, Vec<Rect>, Vec<egui::epaint::Mesh>, Vec<Color32>) {
+        let rect = Rect::from_min_size(egui::Pos2::ZERO, vec2(200.0, CANDY_BAR_HEIGHT));
+        let ctx = Context::default();
+
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 200.0))),
+                ..Default::default()
+            },
+            |ui| candy_progress(ui, rect, fraction),
+        );
+
+        let mut grooves = Vec::new();
+        let mut glosses = Vec::new();
+        let mut reflections = Vec::new();
+        for clipped in &output.shapes {
+            match &clipped.shape {
+                egui::Shape::Rect(boxed) if boxed.fill == CANDY_GROOVE_FILL => {
+                    grooves.push(boxed.rect);
+                }
+                egui::Shape::Mesh(mesh) => glosses.push((**mesh).clone()),
+                egui::Shape::LineSegment { stroke, .. } => reflections.push(stroke.color),
+                _ => {}
+            }
+        }
+        output.textures_delta.clear();
+
+        (rect, grooves, glosses, reflections)
+    }
+
+    /// The groove is the bar's promise and it holds whatever the job's state:
+    /// rimmed in its own darker shade, drawn even when there is nothing to
+    /// fill it with — and with nothing to fill it, nothing is painted in it.
+    #[test]
+    fn the_candy_bar_carries_its_groove_whatever_the_fraction() {
+        for fraction in [Some(0.0), None] {
+            let (rect, grooves, glosses, _) = paint_candy(fraction);
+
+            assert!(
+                grooves.contains(&rect),
+                "no groove the width of the bar: {grooves:?}"
+            );
+
+            if fraction == Some(0.0) {
+                assert!(
+                    glosses.is_empty(),
+                    "an empty job paints no gloss: {glosses:?}"
+                );
+            }
+        }
+
+        // And the rim is its own hairline, drawn over the fill so a gloss run
+        // to the ends stays inside the rounded groove.
+        let rect = Rect::from_min_size(egui::Pos2::ZERO, vec2(200.0, CANDY_BAR_HEIGHT));
+        let ctx = Context::default();
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 200.0))),
+                ..Default::default()
+            },
+            |ui| candy_progress(ui, rect, Some(1.0)),
+        );
+        let rims = output
+            .shapes
+            .iter()
+            .filter(|clipped| {
+                matches!(&clipped.shape, egui::Shape::Rect(boxed)
+                    if boxed.stroke.color == CANDY_GROOVE_EDGE && boxed.rect == rect)
+            })
+            .count();
+        output.textures_delta.clear();
+
+        assert!(
+            rims >= 2,
+            "the rim should be drawn under the gloss and again over it, got {rims}"
+        );
+    }
+
+    /// A known total fills the groove from the left with the gradient — pale
+    /// at the top, the accent's own blue at the bottom — and the proportion
+    /// drawn is the proportion reported, not a decoration.
+    #[test]
+    fn the_candy_bar_fills_its_groove_in_proportion_and_top_down() {
+        let (rect, _, glosses, reflections) = paint_candy(Some(0.5));
+
+        let gloss = glosses.first().expect("a half-done job paints its fill");
+        let bounds = gloss.calc_bounds();
+        let inner = rect.shrink(1.0);
+
+        assert!(
+            (bounds.width() - inner.width() * 0.5).abs() <= 1.0,
+            "half done drew {:?} of a {:?} groove",
+            bounds.width(),
+            inner.width()
+        );
+        assert!(
+            inner.contains_rect(bounds),
+            "the fill ran outside the groove: {bounds:?} in {inner:?}"
+        );
+
+        let first = gloss
+            .vertices
+            .first()
+            .expect("a gradient is at least one vertex");
+        let last = gloss
+            .vertices
+            .last()
+            .expect("a gradient is at least two vertices");
+        assert_eq!(first.color, CANDY_TOP, "the fill's top is not the pale end");
+        assert_eq!(
+            last.color, CANDY_BOTTOM,
+            "the fill's bottom is not the accent end"
+        );
+
+        assert!(
+            reflections.contains(&CANDY_HIGHLIGHT),
+            "no reflection on a fill this wide: {reflections:?}"
+        );
+    }
+
+    /// While the walk is still counting, the bar says "working" and nothing
+    /// more: one short stripe inside the groove, never a full band — a full
+    /// band would read as finished.
+    #[test]
+    fn the_candy_bar_slides_a_stripe_while_the_total_is_unknown() {
+        let (rect, _, glosses, _) = paint_candy(None);
+
+        let stripe = glosses.first().expect("an unknown job still shows work");
+        let bounds = stripe.calc_bounds();
+        let inner = rect.shrink(1.0);
+
+        assert!(
+            inner.contains_rect(bounds),
+            "the stripe left the groove: {bounds:?} in {inner:?}"
+        );
+        assert!(
+            bounds.width() < inner.width() / 2.0,
+            "a stripe filling {}/{:?} of the groove is not a stripe",
+            bounds.width(),
+            inner.width()
+        );
+    }
+
+    /// The stripe is a clock, not a counter: it has to be somewhere else when
+    /// the clock has moved on, or the barber pole would hang and the sheet
+    /// would look finished while it worked.
+    #[test]
+    fn the_unknown_stripe_moves_with_the_clock() {
+        let rect = Rect::from_min_size(egui::Pos2::ZERO, vec2(200.0, CANDY_BAR_HEIGHT));
+
+        let at = |time: f64| {
+            let ctx = Context::default();
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 200.0))),
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ui| candy_progress(ui, rect, None),
+            );
+            let bounds = output
+                .shapes
+                .iter()
+                .find_map(|clipped| match &clipped.shape {
+                    egui::Shape::Mesh(mesh) => Some(mesh.calc_bounds()),
+                    _ => None,
+                })
+                .expect("the stripe is painted");
+            output.textures_delta.clear();
+            bounds
+        };
+
+        let start = at(0.01).max.x;
+        let later = at(0.35).max.x;
+
+        assert!(
+            (start - later).abs() > 0.5,
+            "the stripe sat still between two frames: {start} then {later}"
+        );
+    }
+
+    /// The centre box's surface is three bands, and all three are painted:
+    /// the fill that every caller looks the box up by, the rim that stands
+    /// it off the bar, and the lighter line just inside the rim that is the
+    /// raised edge catching the light.
+    #[test]
+    fn the_centre_box_surface_paints_its_three_bands() {
+        let rect = Rect::from_min_size(egui::Pos2::ZERO, vec2(304.0, 64.0));
+        let ctx = Context::default();
+
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(rect.expand(8.0)),
+                ..Default::default()
+            },
+            |ui| centre_box_surface(ui.painter(), rect),
+        );
+
+        let mut fills = Vec::new();
+        let mut rims = Vec::new();
+        for clipped in &output.shapes {
+            if let egui::Shape::Rect(boxed) = &clipped.shape {
+                fills.push((boxed.rect, boxed.fill));
+                rims.push((boxed.rect, boxed.stroke.color));
+            }
+        }
+        output.textures_delta.clear();
+
+        assert!(
+            fills.contains(&(rect, CENTRE_BOX_FILL)),
+            "the box's fill is not painted, or not first-class: {fills:?}"
+        );
+        assert!(
+            rims.contains(&(rect, CENTRE_BOX_EDGE)),
+            "no rim on the box's own edge: {rims:?}"
+        );
+        assert!(
+            rims.contains(&(rect.shrink(1.0), CENTRE_BOX_GLOSS)),
+            "no light along the inner edge: {rims:?}"
+        );
     }
 
     /// Naming a control is the cheap half of accessibility and must never be

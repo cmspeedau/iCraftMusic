@@ -3,8 +3,9 @@
 //! One line saying how much music the library holds — songs, albums and artists
 //! — centred on a gray strip that spans the window, with controls at its ends:
 //! at the left the `+` that names a new playlist and, beside it, the shuffle
-//! and repeat switches; at the right the gear that opens Settings. The bar
-//! reports, and those are what it holds; what is playing is the transport's
+//! and repeat switches; at the right the gear whose menu adds music and opens
+//! Settings. The bar reports, and those are what it holds; what is playing is
+//! the transport's
 //! business at the top of the window, and what can be done to a selection is
 //! the library's.
 //!
@@ -18,13 +19,13 @@
 
 use egui::{Button, Panel, Rect, RichText};
 
-use crate::app::MusicCraftApp;
+use crate::app::{MusicCraftApp, UpdateStatus};
 use crate::playlists::PlaylistEditKind;
 use crate::ui::navigation::NavSection;
 use crate::ui::theme;
 use crate::update;
 
-/// The gear drawn at the right end of the bar, opening Settings.
+/// The gear drawn at the right end of the bar, opening its menu.
 const GEAR_GLYPH: &str = "⚙";
 
 /// The plus drawn at the left end of the bar, naming a new playlist.
@@ -57,7 +58,7 @@ enum End {
     LeftBeside,
     /// The repeat switch, immediately right of the shuffle.
     LeftThird,
-    /// The gear that opens Settings.
+    /// The gear, whose menu adds music and opens Settings.
     Right,
 }
 
@@ -97,15 +98,11 @@ pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
 /// The bar's one line, centred in it.
 ///
-/// The counts normally; the update notice in their place when the release check
-/// found a newer build, because the bar has one line and news of a new version
-/// outranks the library's totals until it has been read.
+/// The counts, always. The news of a newer release used to take this line
+/// when the check found one, but a notice the whole bar revolves around is
+/// one notice too many: the news now speaks from the centre box, where the
+/// eye already goes to be told things, and the bar goes on counting.
 fn counts(app: &MusicCraftApp, ui: &mut egui::Ui) {
-    if let Some(update::Update::Available { version, url }) = app.release_update() {
-        update_notice(ui, version, url);
-        return;
-    }
-
     let browse = app.browse();
     let line = line_text(
         browse.track_count(),
@@ -119,32 +116,6 @@ fn counts(app: &MusicCraftApp, ui: &mut egui::Ui) {
     // over, so neither button is placed by taking a row.
     ui.centered_and_justified(|ui| {
         ui.label(RichText::new(line).small().weak());
-    });
-}
-
-/// The line shown in the counts' place when a newer release exists.
-///
-/// It names the version and opens the release's page when it is clicked, which
-/// is the one thing to do about it. Drawn `.strong` where the counts are
-/// `.weak`: this is news, not a count.
-fn update_notice(ui: &mut egui::Ui, version: &str, url: &str) {
-    let words = format!("Update available: {version}");
-    let text = RichText::new(format!("{words} — click to open the release page"))
-        .small()
-        .strong();
-
-    ui.centered_and_justified(|ui| {
-        let response = ui
-            .add(egui::Label::new(text).sense(egui::Sense::click()))
-            .on_hover_text(url);
-        // The line is a clickable thing now, so it takes the ring and a name
-        // the way every other control on the bar does.
-        theme::accessible_name(ui, &response, &words);
-        theme::focus_ring_if_focused(ui, &response);
-
-        if response.clicked() {
-            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
-        }
     });
 }
 
@@ -178,34 +149,174 @@ fn new_playlist(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// The gear at the right end of the bar, which opens Settings.
+/// The gear at the right end of the bar: the menu that adds music and opens
+/// Settings.
 ///
-/// It carries the highlight while Settings is open, the same way the sidebar
-/// entries did — the gear is now the only place that shows where you are when
-/// you are there.
+/// It is how music comes in from anywhere: the menu offers the file and folder
+/// choosers, so adding does not wait on a page you have to find first. Clicking
+/// opens the menu rather than jumping straight to Settings — the destination
+/// that was the gear's only job is now one of three. The gear still carries the
+/// highlight while Settings is open, the same way the sidebar entries did — the
+/// gear is now the only place that shows where you are when you are there.
 ///
 /// Every glyph on the bar is drawn at [`theme::STATUS_BAR_BUTTON_GLYPH_SIZE`]
 /// rather than at the bar's line size: each is a control to aim at, so each is
 /// drawn as tall as the bar has room for.
 fn settings(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    let rect = rect_for(ui.max_rect(), End::Right);
     let response = ui.put(
-        rect_for(ui.max_rect(), End::Right),
+        rect,
         Button::selectable(
-            app.section() == NavSection::Settings,
+            app.section() == NavSection::Settings || app.gear_menu_open(),
             RichText::new(GEAR_GLYPH)
                 .size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)
                 .strong(),
         ),
     );
 
-    theme::accessible_name(ui, &response, NavSection::Settings.label());
+    theme::accessible_name(ui, &response, "Add music or open Settings");
     theme::focus_ring_if_focused(ui, &response);
 
     if response
-        .on_hover_text(NavSection::Settings.label())
+        .on_hover_text("Add music or open Settings")
         .clicked()
     {
-        app.set_section(NavSection::Settings);
+        app.toggle_gear_menu();
+    }
+
+    if !app.gear_menu_open() {
+        return;
+    }
+
+    // The queue taught the shape: an open flag in the app, a floating window
+    // parked by the button that opened it. The pivot puts the window's top at
+    // the gear's top and its right edge at the gear's left, so the menu opens
+    // up and in from the corner instead of off the bottom of the window.
+    let mut open = true;
+
+    egui::Window::new("Add music")
+        .collapsible(false)
+        .resizable(false)
+        .fixed_pos(rect.left_top())
+        .pivot(egui::Align2::RIGHT_TOP)
+        .open(&mut open)
+        .show(ui.ctx(), |ui| {
+            ui.set_min_width(190.0);
+
+            if ui.button(RichText::new("Add files…").strong()).clicked() {
+                app.close_gear_menu();
+                app.add_files();
+            }
+            if ui.button(RichText::new("Add folder…").strong()).clicked() {
+                app.close_gear_menu();
+                app.add_folder();
+            }
+
+            ui.separator();
+
+            update_item(app, ui);
+
+            ui.separator();
+
+            if ui.button("Settings").clicked() {
+                app.close_gear_menu();
+                app.set_section(NavSection::Settings);
+            }
+        });
+
+    if !open {
+        app.close_gear_menu();
+    }
+}
+
+/// The menu's one update row: whatever the updater knows says what the item
+/// says, and pressing it does the one thing that state has left to do.
+///
+/// It is always on the menu — "Check for updates…" when nothing is known —
+/// because the gear is where a user who wonders comes to be told; and it is
+/// never a dead row. An update the app cannot install itself — a release with
+/// no image for this machine, or a build that is not an AppImage and so has
+/// no file to replace — opens the release page instead of failing with a
+/// button, and says so in its hover text before it is pressed.
+fn update_item(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    match app.update_status() {
+        None => {
+            if ui.button("Check for updates…").clicked() {
+                app.close_gear_menu();
+                app.check_for_release();
+            }
+        }
+        Some(UpdateStatus::Checking) => {
+            ui.add_enabled(
+                false,
+                Button::new(RichText::new("Checking for updates…").weak()),
+            );
+        }
+        Some(UpdateStatus::Available {
+            version,
+            can_install,
+        }) => {
+            if can_install {
+                let button = ui.button(RichText::new(format!("Update to {version}…")).strong());
+                if button
+                    .on_hover_text(
+                        "downloads the new version beside this file, then swaps it in; \
+                         nothing running changes until you restart",
+                    )
+                    .clicked()
+                {
+                    app.close_gear_menu();
+                    app.start_update();
+                }
+            } else if ui
+                .button(format!("See {version} on GitHub…"))
+                .on_hover_text(
+                    "this build cannot replace its own file, so the release page \
+                     opens instead",
+                )
+                .clicked()
+            {
+                app.close_gear_menu();
+                if let Some(url) = app.release_url() {
+                    let url = url.to_owned();
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                }
+            }
+        }
+        Some(UpdateStatus::Downloading { done, total, .. }) => {
+            // The centre box carries the bar and the Cancel; the menu only
+            // says the job is running, so it cannot be started twice.
+            let words = if total == 0 {
+                "Downloading update…".to_owned()
+            } else {
+                format!(
+                    "Downloading… {} of {}",
+                    update::format_bytes(done),
+                    update::format_bytes(total)
+                )
+            };
+            ui.add_enabled(false, Button::new(RichText::new(words).weak()));
+        }
+        Some(UpdateStatus::Installed { version }) => {
+            let button = ui.button(RichText::new(format!("Restart to run {version}…")).strong());
+            if button
+                .on_hover_text(
+                    "the new version is installed already; this copy closes and a new one starts",
+                )
+                .clicked()
+            {
+                app.close_gear_menu();
+                app.relaunch();
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+        Some(UpdateStatus::Failed { reason }) => {
+            let button = ui.button(RichText::new("Try the update again").strong());
+            if button.on_hover_text(reason).clicked() {
+                app.close_gear_menu();
+                app.start_update();
+            }
+        }
     }
 }
 
@@ -400,27 +511,28 @@ mod tests {
         assert_eq!(line_text(1, 1, 1), "1 song · 1 album · 1 artist");
     }
 
-    /// When the release check has found a newer build, the bar's one line is
-    /// the notice rather than the counts: same line, carrying news instead.
+    /// The news of a newer release used to take the bar's one line; it moved
+    /// to the centre box, where things the user must read are said, and the
+    /// bar went back to what a status bar is for. The notice being pending
+    /// changes nothing here.
     #[test]
-    fn a_newer_release_takes_the_counts_place_on_the_bar() {
+    fn a_pending_update_leaves_the_counting_to_the_bar() {
         let mut app = app();
         app.set_release_update(update::Update::Available {
             version: "v9.9.9".to_owned(),
             url: "https://github.com/cmspeedau/iCraftMusic/releases/tag/v9.9.9".to_owned(),
+            asset: None,
         });
 
         let lines = draw(&mut app, bar).glyphs;
 
         assert!(
-            lines
-                .iter()
-                .any(|line| line.contains("Update available: v9.9.9")),
-            "the bar does not carry the update notice: {lines:?}"
+            lines.iter().any(|line| line.contains("songs")),
+            "the counts left their bar for a notice: {lines:?}"
         );
         assert!(
-            !lines.iter().any(|line| line.contains("songs")),
-            "the counts are still on the bar beside the notice: {lines:?}"
+            !lines.iter().any(|line| line.contains("Update available")),
+            "the notice still sits on the bar: {lines:?}"
         );
     }
 
@@ -453,6 +565,180 @@ mod tests {
             app.section(),
             NavSection::Library,
             "drawing is not clicking: the gear leaves the section alone"
+        );
+    }
+
+    /// The menu's lines, given its window frames enough to measure itself and
+    /// fade in — the patience the queue popup taught — and read from the last.
+    fn menu_lines(app: &mut MusicCraftApp) -> Vec<String> {
+        let ctx = egui::Context::default();
+        let mut lines = Vec::new();
+
+        for _ in 0..40 {
+            let mut run = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1180.0, 808.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| bar(app, ui),
+            );
+            run.textures_delta.clear();
+
+            let mut drawn = Drawn::default();
+            for clipped in &run.shapes {
+                collect(&clipped.shape, &mut drawn);
+            }
+            lines = drawn.glyphs;
+        }
+
+        lines
+    }
+
+    #[test]
+    fn the_gear_menu_offers_the_ways_to_add_music_and_the_way_to_settings() {
+        let mut app = app();
+        app.toggle_gear_menu();
+
+        let lines = menu_lines(&mut app);
+
+        for wanted in [
+            "Add music",
+            "Add files…",
+            "Add folder…",
+            "Settings",
+            "Check for updates…",
+        ] {
+            assert!(
+                lines.iter().any(|line| line.contains(wanted)),
+                "{wanted} did not draw: {lines:?}"
+            );
+        }
+
+        assert_eq!(
+            app.section(),
+            NavSection::Library,
+            "the menu is open, but no section has been opened"
+        );
+    }
+
+    /// A release this copy cannot install itself — no image for it, or a
+    /// build that is not an AppImage and has no file to swap — is offered as
+    /// a page to open, never as an update button that could only fail.
+    #[test]
+    fn the_menu_offers_an_uninstallable_release_as_a_page() {
+        let mut app = app();
+        app.set_release_update(update::Update::Available {
+            version: "v9.9.9".to_owned(),
+            url: "https://github.com/cmspeedau/iCraftMusic/releases/tag/v9.9.9".to_owned(),
+            asset: None,
+        });
+        app.toggle_gear_menu();
+
+        let lines = menu_lines(&mut app);
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("See v9.9.9 on GitHub…")),
+            "the release drew no way to see it: {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("Update to v9.9.9…")),
+            "the menu promised a swap this build cannot perform: {lines:?}"
+        );
+    }
+
+    /// The same release, and this copy knows its own AppImage file: the row
+    /// becomes the update itself, and the pointer is put away.
+    #[test]
+    fn the_menu_offers_the_update_when_the_app_can_install_it() {
+        let mut app = app();
+        app.set_release_update(update::Update::Available {
+            version: "v9.9.9".to_owned(),
+            url: "https://github.com/cmspeedau/iCraftMusic/releases/tag/v9.9.9".to_owned(),
+            asset: Some("https://e/iCraftMusic-9.9.9-x86_64.AppImage".to_owned()),
+        });
+        app.set_app_image(Some(std::env::temp_dir().join("iCraftMusic-test.AppImage")));
+        app.toggle_gear_menu();
+
+        let lines = menu_lines(&mut app);
+
+        assert!(
+            lines.iter().any(|line| line.contains("Update to v9.9.9…")),
+            "an installable release drew no update button: {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("on GitHub")),
+            "the fallback vied with the real thing: {lines:?}"
+        );
+    }
+
+    /// A download running says so in the menu — so it cannot be started
+    /// twice — and counts the bytes it has sent to the centre box's bar.
+    #[test]
+    fn the_menu_says_so_while_an_update_downloads() {
+        let mut app = app();
+        app.set_install(
+            Some("v9.9.9"),
+            Some(update::Install::Running {
+                done: 1024 * 1024,
+                total: 4 * 1024 * 1024,
+            }),
+        );
+        app.toggle_gear_menu();
+
+        let lines = menu_lines(&mut app);
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Downloading… 1.0 MB of 4.0 MB")),
+            "the running download is not on the menu: {lines:?}"
+        );
+    }
+
+    /// Once the image is in, the menu's row is the restart — the installed
+    /// version does not run itself, and saying "installed" without an on-ramp
+    /// to running it is half a message.
+    #[test]
+    fn the_menu_asks_for_a_restart_when_the_update_is_in() {
+        let mut app = app();
+        app.set_install(
+            Some("v9.9.9"),
+            Some(update::Install::Installed {
+                version: "v9.9.9".to_owned(),
+            }),
+        );
+        app.toggle_gear_menu();
+
+        let lines = menu_lines(&mut app);
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Restart to run v9.9.9")),
+            "the installed update drew no way to run it: {lines:?}"
+        );
+    }
+
+    /// While the check is on its way the menu says the plain truth and goes
+    /// on with the rest of its business.
+    #[test]
+    fn the_menu_says_so_while_it_checks() {
+        let mut app = app();
+        app.set_check_pending();
+        app.toggle_gear_menu();
+
+        let lines = menu_lines(&mut app);
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Checking for updates…")),
+            "the pending check drew no word of itself: {lines:?}"
         );
     }
 

@@ -26,12 +26,13 @@ use crate::error::{AppError, Result};
 use crate::library::browse::LibraryBrowse;
 use crate::library::edit::{Outcome, field_errors};
 use crate::library::{
-    ImportSummary, Library, PlaylistId, ScanProgress, ScanSession, Track, TrackEditor, TrackId,
+    CopyProgress, CopyRequest, CopySession, ImportSummary, Library, PlaylistId, ScanProgress,
+    ScanSession, Track, TrackEditor, TrackId,
 };
 use crate::playlists::{PlaylistDraft, PlaylistEditKind, PlaylistSummary, Playlists};
 use crate::ui;
 use crate::ui::artwork::ArtworkCache;
-use crate::ui::dialog::Confirmation;
+use crate::ui::dialog::{Confirmation, PendingAdd};
 use crate::ui::navigation::NavSection;
 use crate::update::{ReleaseCheck, Update};
 
@@ -56,7 +57,16 @@ impl Startup {
     pub fn load() -> Self {
         match AppConfig::default_path() {
             Ok(path) => {
-                let (config, error) = AppConfig::load_or_default(&path);
+                // Whether a settings file was there at all is what separates a
+                // first boot from a returning user. A first boot is given the
+                // default media home (`~/iCraftMusic`) to watch; anyone whose
+                // file loads is left exactly as they left it, including someone
+                // who deliberately watches no folder.
+                let first_boot = !path.exists();
+                let (mut config, error) = AppConfig::load_or_default(&path);
+                if first_boot {
+                    config.ensure_media_home();
+                }
                 Self {
                     config,
                     config_path: Some(path),
@@ -154,6 +164,19 @@ pub struct MusicCraftApp {
     editor: Option<TrackEditor>,
     /// A destructive library action waiting for the user to agree to it.
     pending: Option<Confirmation>,
+    /// Chosen music waiting to hear whether it is watched in place or copied
+    /// into the media home first.
+    pending_add: Option<PendingAdd>,
+    /// Further add questions waiting behind the open one. A drop of folders
+    /// and loose files asks two honest questions in turn rather than one
+    /// umbrella that quietly reclassifies one of them.
+    add_queue: std::collections::VecDeque<PendingAdd>,
+    /// A copy into the media home running on a worker thread, if one is.
+    copy: Option<CopySession>,
+    /// How far the running copy has got.
+    copy_progress: CopyProgress,
+    /// Whether the gear on the status bar is showing its menu.
+    gear_menu_open: bool,
     /// The output devices the system offered when the list was last read.
     ///
     /// Kept between frames because enumerating devices asks the audio backend,
@@ -190,6 +213,17 @@ pub struct MusicCraftApp {
     release_check: Option<ReleaseCheck>,
     /// What the last finished release check found, once it has answered.
     release_update: Option<Update>,
+    /// This process's own AppImage file, when it is running from one — the
+    /// file an update would replace. `None` for every development run, and
+    /// the updater says so rather than pretending.
+    app_image: Option<std::path::PathBuf>,
+    /// The installer's worker, while the download runs.
+    update_install: Option<crate::update::InstallSession>,
+    /// What the installer last said, kept after it ends: the centre box
+    /// keeps telling the user the update is in until they restart.
+    install_state: Option<crate::update::Install>,
+    /// The version the running install is carrying, for the bar's wording.
+    install_version: Option<String>,
 }
 
 impl MusicCraftApp {
@@ -286,6 +320,11 @@ impl MusicCraftApp {
             folder_input: String::new(),
             editor: None,
             pending: None,
+            pending_add: None,
+            add_queue: std::collections::VecDeque::new(),
+            copy: None,
+            copy_progress: CopyProgress::default(),
+            gear_menu_open: false,
             output_devices: None,
             settings_error: None,
             integrity: None,
@@ -298,6 +337,10 @@ impl MusicCraftApp {
             playlist_pending: Vec::new(),
             release_check: None,
             release_update: None,
+            app_image: crate::update::app_image(),
+            update_install: None,
+            install_state: None,
+            install_version: None,
         };
 
         if let Some(library) = app.library.as_ref() {
@@ -374,6 +417,180 @@ impl MusicCraftApp {
     #[cfg(test)]
     pub(crate) fn set_release_update(&mut self, update: Update) {
         self.release_update = Some(update);
+    }
+
+    /// Take the newest release into this AppImage's place.
+    ///
+    /// The worker starts only when there is something to take and a file to
+    /// put it in: an update is AppImage business, and a build run from a
+    /// shell has no image to swap — the gear menu offers that release as a
+    /// page to open instead, and never calls this with nowhere to go. Pressing
+    /// twice while a download runs changes nothing: one image at a time.
+    pub fn start_update(&mut self) {
+        if self.update_install.is_some() {
+            return;
+        }
+
+        self.install_state = None;
+
+        let (
+            Some(Update::Available {
+                version,
+                asset: Some(url),
+                ..
+            }),
+            Some(target),
+        ) = (self.release_update.clone(), self.app_image.clone())
+        else {
+            return;
+        };
+
+        self.install_version = Some(version.clone());
+        self.install_state = Some(crate::update::Install::Running { done: 0, total: 0 });
+        self.update_install = Some(crate::update::InstallSession::spawn(target, url, version));
+    }
+
+    /// Ask a running download to stop before its next chunk. The partial file
+    /// is deleted and the image the user is running stays exactly as it was.
+    pub fn cancel_update(&mut self) {
+        if let Some(session) = self.update_install.as_ref() {
+            session.cancel();
+        }
+    }
+
+    /// Where this process's own AppImage is, if it is running from one.
+    #[must_use]
+    pub fn app_image_path(&self) -> Option<&std::path::Path> {
+        self.app_image.as_deref()
+    }
+
+    /// The release page of the newest available release — the fallback for a
+    /// build that cannot replace its own file.
+    #[must_use]
+    pub fn release_url(&self) -> Option<&str> {
+        match self.release_update.as_ref() {
+            Some(Update::Available { url, .. }) => Some(url),
+            _ => None,
+        }
+    }
+
+    /// Start the newly-installed image as a second process.
+    ///
+    /// Closing this window is the view's doing — it holds the viewport — and
+    /// it is what makes the two not fight over the single-instance life of a
+    /// player: the new copy is up and loading before this one lets go.
+    pub fn relaunch(&self) {
+        if let Some(path) = self.app_image.as_ref() {
+            let _ = std::process::Command::new(path).spawn();
+        }
+    }
+
+    /// The release check's answer and the installer's state, said as one
+    /// thing for the centre box and the gear menu to draw.
+    ///
+    /// The installer outranks the check: once a download is running or has
+    /// finished, that is the news, whatever the check had found before it.
+    /// `None` is the silence neither has anything to show — up to date,
+    /// unknown, or nothing asked.
+    #[must_use]
+    pub fn update_status(&self) -> Option<UpdateStatus> {
+        match &self.install_state {
+            Some(crate::update::Install::Running { done, total }) => {
+                return Some(UpdateStatus::Downloading {
+                    version: self.install_version.clone().unwrap_or_default(),
+                    done: *done,
+                    total: *total,
+                });
+            }
+            Some(crate::update::Install::Installed { version }) => {
+                return Some(UpdateStatus::Installed {
+                    version: version.clone(),
+                });
+            }
+            Some(crate::update::Install::Failed { reason }) => {
+                return Some(UpdateStatus::Failed {
+                    reason: reason.clone(),
+                });
+            }
+            None => {}
+        }
+
+        if self.release_check.is_some() {
+            return Some(UpdateStatus::Checking);
+        }
+
+        match self.release_update.as_ref() {
+            Some(Update::Available { version, asset, .. }) => Some(UpdateStatus::Available {
+                version: version.clone(),
+                can_install: asset.is_some() && self.app_image.is_some(),
+            }),
+            _ => None,
+        }
+    }
+
+    /// Whether an updater job is running — the frame loop's reason to ask for
+    /// another frame, so a reply that arrives mid-run is drawn at once.
+    #[must_use]
+    pub fn update_job_running(&self) -> bool {
+        self.update_install.is_some() || self.release_check.is_some()
+    }
+
+    /// Collect what the installer's thread has to say, if it has said it.
+    ///
+    /// Called from the frame loop. The session is dropped once it has
+    /// finished, so a done install is not joined on every frame for the rest
+    /// of the run; its last word stays in `install_state`.
+    pub fn poll_update_install(&mut self) {
+        if let Some(session) = self.update_install.as_mut()
+            && let Some(progress) = session.try_progress()
+        {
+            self.install_state = Some(progress);
+        }
+
+        let finished = self
+            .update_install
+            .as_ref()
+            .is_some_and(crate::update::InstallSession::is_finished);
+
+        if finished && let Some(session) = self.update_install.take() {
+            let outcome = session.join();
+            match &outcome {
+                crate::update::Install::Installed { version } => {
+                    tracing::info!(%version, "the update is installed");
+                }
+                crate::update::Install::Failed { reason } => {
+                    tracing::warn!(%reason, "the update did not complete");
+                }
+                crate::update::Install::Running { .. } => {}
+            }
+            self.install_state = Some(outcome);
+        }
+    }
+
+    /// Put an installer's state in place as though it had happened.
+    ///
+    /// For tests, and for the same reason as [`MusicCraftApp::set_release_update`]:
+    /// the real states come from downloading and swapping real images.
+    #[cfg(test)]
+    pub(crate) fn set_install(
+        &mut self,
+        version: Option<&str>,
+        state: Option<crate::update::Install>,
+    ) {
+        self.install_version = version.map(str::to_owned);
+        self.install_state = state;
+    }
+
+    /// Make the app believe it runs from `path`, or from no AppImage at all.
+    #[cfg(test)]
+    pub(crate) fn set_app_image(&mut self, path: Option<std::path::PathBuf>) {
+        self.app_image = path;
+    }
+
+    /// Make the app believe a release check is pending, without a request.
+    #[cfg(test)]
+    pub(crate) fn set_check_pending(&mut self) {
+        self.release_check = Some(ReleaseCheck::pending_for_tests());
     }
 
     /// Every playlist the library holds, for the sidebar.
@@ -1021,6 +1238,23 @@ impl MusicCraftApp {
         let artwork_directory = crate::library::artwork::cache_directory(&data_directory);
         let folders = self.config.library_folders.clone();
 
+        // The media home a first boot was given is created on the user's
+        // behalf — the way iTunes creates *iTunes Media* — so there is
+        // somewhere to put music from the very first run. A folder the user
+        // chose is never created here: a chosen folder that is missing is a
+        // mistake to report when it is scanned, not a directory to invent
+        // behind their back.
+        if let Some(home) = self.config.media_home().map(PathBuf::from)
+            && AppConfig::default_media_home().as_ref() == Some(&home)
+            && !home.exists()
+            && let Err(error) = std::fs::create_dir_all(&home)
+        {
+            tracing::warn!(
+                "could not create the media home {}: {error}",
+                home.display()
+            );
+        }
+
         self.open_library(&database, artwork_directory, folders);
     }
 
@@ -1202,6 +1436,312 @@ impl MusicCraftApp {
         true
     }
 
+    /// Ask the desktop for audio files, then ask where they should live.
+    ///
+    /// The chooser blocks until it is answered, so this belongs to a click and
+    /// to nothing a frame does on its own. A dismissed dialog asks nothing
+    /// afterwards.
+    pub fn add_files(&mut self) {
+        if let Some(paths) = choose_files() {
+            self.ask_to_add(PendingAdd::Files { paths });
+        }
+    }
+
+    /// Ask the desktop for a folder, then ask where its music should live.
+    pub fn add_folder(&mut self) {
+        let start = self.config.media_home().map(PathBuf::from);
+        if let Some(folder) = choose_folder(start.as_ref()) {
+            self.ask_to_add(PendingAdd::Folders {
+                paths: vec![folder],
+            });
+        }
+    }
+
+    /// Show the add dialog for `add`; an empty choice asks no questions.
+    pub fn ask_to_add(&mut self, add: PendingAdd) {
+        if !add.paths().is_empty() {
+            self.pending_add = Some(add);
+        }
+    }
+
+    /// The add dialog's question, while it waits to be answered.
+    #[must_use]
+    pub fn pending_add(&self) -> Option<PendingAdd> {
+        self.pending_add.clone()
+    }
+
+    /// The library's media home — the folder the add dialog's "Copy" copies
+    /// into — if the library has one.
+    #[must_use]
+    pub fn media_home(&self) -> Option<&Path> {
+        self.config.media_home()
+    }
+
+    /// Close the add dialog without adding anything.
+    pub fn cancel_add(&mut self) {
+        self.pending_add = None;
+        self.pump_add_queue();
+    }
+
+    /// Show the next queued add question, if the dialog is not already asking.
+    fn pump_add_queue(&mut self) {
+        if self.pending_add.is_none() {
+            self.pending_add = self.add_queue.pop_front();
+        }
+    }
+
+    /// Consume the files the desktop dropped onto the window this frame.
+    ///
+    /// A drop is an addition like any other and gets the add dialog's question
+    /// asked of it — folders in one question, loose files in the next — so the
+    /// window accepts music from the pointer exactly as the chooser does from
+    /// the gear menu. Dropping is never adding: the dialog still decides.
+    pub fn poll_dropped_files(&mut self, ctx: &egui::Context) {
+        let dropped: Vec<PathBuf> = ctx.input(|input| {
+            input
+                .raw
+                .dropped_files
+                .iter()
+                .map(|file| file.path().to_path_buf())
+                .collect()
+        });
+
+        if dropped.is_empty() {
+            return;
+        }
+
+        let folders: Vec<PathBuf> = dropped
+            .iter()
+            .filter(|path| path.is_dir())
+            .cloned()
+            .collect();
+        let files: Vec<PathBuf> = dropped
+            .iter()
+            .filter(|path| !path.is_dir())
+            .cloned()
+            .collect();
+
+        if !folders.is_empty() {
+            self.add_queue
+                .push_back(PendingAdd::Folders { paths: folders });
+        }
+
+        if !files.is_empty() {
+            self.add_queue.push_back(PendingAdd::Files { paths: files });
+        }
+
+        self.pump_add_queue();
+    }
+
+    /// Answer the add dialog with "Add": watch what was chosen, where it is.
+    ///
+    /// Folders and single files are watched alike — the scanner reads an entry
+    /// that is a file as the one file to index — so one answer covers both
+    /// kinds of choice. The scan reports what arrived; the dialog itself
+    /// promises nothing beyond watching.
+    pub fn add_paths_in_place(&mut self) {
+        let Some(add) = self.pending_add.take() else {
+            return;
+        };
+        self.pump_add_queue();
+
+        for path in add.paths() {
+            self.config.add_library_folder(path.clone());
+        }
+        self.config_dirty = true;
+        if let Some(library) = self.library.as_mut() {
+            library.set_folders(self.config.library_folders.clone());
+        }
+
+        self.start_scan();
+    }
+
+    /// Answer the add dialog with "Copy": copy into the media home on a worker
+    /// thread, and index the copies once it lands.
+    ///
+    /// A scan may run alongside a copy: a file caught mid-write fails to read,
+    /// is reported as unreadable, and the scan that follows the finished copy
+    /// indexes it properly. Nothing is moved or deleted either way — the
+    /// originals are exactly where the user left them.
+    pub fn copy_paths_into_home(&mut self) {
+        let Some(add) = self.pending_add.take() else {
+            return;
+        };
+        self.pump_add_queue();
+
+        let home = match self.config.media_home().map(PathBuf::from) {
+            Some(home) => home,
+            None => match AppConfig::default_media_home() {
+                Some(home) => {
+                    self.config.set_media_home(home.clone());
+                    self.config_dirty = true;
+                    if let Some(library) = self.library.as_mut() {
+                        library.set_folders(self.config.library_folders.clone());
+                    }
+                    home
+                }
+                None => {
+                    self.library_error =
+                        Some("this platform has no home folder to copy into".to_owned());
+                    return;
+                }
+            },
+        };
+
+        if self.copy.is_some() {
+            self.library_error = Some("a copy is already running".to_owned());
+            return;
+        }
+
+        self.library_error = None;
+        self.copy_progress = CopyProgress::default();
+        self.copy = Some(CopySession::spawn(CopyRequest {
+            paths: add.paths().to_vec(),
+            home,
+        }));
+    }
+
+    /// Whether a copy is running on a worker thread.
+    #[must_use]
+    pub fn is_copying(&self) -> bool {
+        self.copy.is_some()
+    }
+
+    /// How far the running copy has got.
+    #[must_use]
+    pub fn copy_progress(&self) -> &CopyProgress {
+        &self.copy_progress
+    }
+
+    /// Ask the running copy to stop after the file it is on.
+    pub fn cancel_copy(&mut self) {
+        if let Some(copy) = self.copy.as_ref() {
+            copy.cancel();
+        }
+    }
+
+    /// The now-playing bar's Indexing widget, ready to be drawn.
+    ///
+    /// One getter rather than the view reading scans and copies separately:
+    /// to the bar they are the same job — the library being built — and the
+    /// widget must not flicker a second verb when a copy hands over to the
+    /// scan that indexes what it moved.
+    #[must_use]
+    pub fn indexing_status(&self) -> Option<IndexingStatus> {
+        if self.is_scanning() {
+            let progress = &self.scan_progress;
+            return Some(IndexingStatus {
+                done: progress.processed,
+                total: progress.total,
+                left_out: progress.failed + progress.unreadable,
+            });
+        }
+
+        if self.is_copying() {
+            let progress = &self.copy_progress;
+            return Some(IndexingStatus {
+                done: progress.copied,
+                total: progress.total,
+                left_out: progress.failed,
+            });
+        }
+
+        None
+    }
+
+    /// Stop whichever indexing job the bar's Cancel button is pointing at.
+    pub fn cancel_indexing(&mut self) {
+        if self.is_scanning() {
+            self.cancel_scan();
+        } else {
+            self.cancel_copy();
+        }
+    }
+
+    /// Whether the gear on the status bar is showing its menu.
+    #[must_use]
+    pub fn gear_menu_open(&self) -> bool {
+        self.gear_menu_open
+    }
+
+    /// Open or close the gear's menu.
+    pub fn toggle_gear_menu(&mut self) {
+        self.gear_menu_open = !self.gear_menu_open;
+    }
+
+    /// Close the gear's menu.
+    pub fn close_gear_menu(&mut self) {
+        self.gear_menu_open = false;
+    }
+
+    /// Ask the desktop for a new location for the media home, and move the
+    /// library's watch to it.
+    ///
+    /// The library follows the folder: the files that were in the old home are
+    /// not moved, because moving an entire library's bytes is a job that needs
+    /// its own progress and verification, and guessing wrong about a copy of
+    /// that size is not something a folder chooser should do behind a dialog.
+    pub fn change_media_home(&mut self) {
+        let start = self.config.media_home().map(PathBuf::from);
+        if let Some(folder) = choose_folder(start.as_ref()) {
+            self.set_media_home_now(folder);
+        }
+    }
+
+    /// Return the media home to the location a first boot would have chosen.
+    ///
+    /// This is the Settings pane's Reset button: wherever the home had been
+    /// moved, `~/iCraftMusic` — the one place the application always knows —
+    /// becomes the home again.
+    pub fn reset_media_home(&mut self) {
+        if self.config.reset_media_home() {
+            let home = self.config.media_home().map(PathBuf::from);
+            self.sync_media_home();
+            if let Some(home) = home {
+                self.ensure_home_exists(&home);
+            }
+            self.start_scan();
+        }
+    }
+
+    /// Point the library and its settings at the home the config now names.
+    fn set_media_home_now(&mut self, folder: PathBuf) {
+        if self.config.media_home() == Some(folder.as_path()) {
+            // Asking for the home it already has is a refresh, the way choosing
+            // a watched folder again rescans it.
+            self.start_scan();
+            return;
+        }
+
+        self.config.set_media_home(folder.clone());
+        self.config_dirty = true;
+        self.sync_media_home();
+        self.ensure_home_exists(&folder);
+        self.start_scan();
+    }
+
+    /// Hand the config's watched folders to the library, so a scan after a
+    /// home change sees the change rather than the old list.
+    fn sync_media_home(&mut self) {
+        if let Some(library) = self.library.as_mut() {
+            library.set_folders(self.config.library_folders.clone());
+        }
+    }
+
+    /// Create `folder` if it is not there, without ceremony: the home is the
+    /// one folder the application owns, so a home that was chosen or reset to
+    /// but does not exist yet is a folder to make, not a mistake to report.
+    fn ensure_home_exists(&mut self, folder: &Path) {
+        if !folder.exists()
+            && let Err(error) = std::fs::create_dir_all(folder)
+        {
+            self.library_error = Some(format!(
+                "{} could not be created: {error}",
+                folder.display()
+            ));
+        }
+    }
+
     /// Scan the watched folders, unless a scan is already running.
     ///
     /// # Errors
@@ -1256,12 +1796,19 @@ impl MusicCraftApp {
         }
     }
 
-    /// Let a running scan make progress, and store what it found when it ends.
+    /// Let the running scan and the running copy make progress, finishing
+    /// either when its worker reports done.
     ///
-    /// This runs once per frame from [`eframe::App::ui`]: the scan itself is on
-    /// a worker thread, and the worker is only joined once it has reported that
-    /// it is finished, so the frame loop never waits on a scan.
+    /// This runs once per frame from [`eframe::App::ui`]: the work itself is on
+    /// worker threads, and a worker is only joined once it has reported that it
+    /// is finished, so the frame loop never waits on either.
     pub fn poll_library(&mut self) {
+        self.poll_scan();
+        self.poll_copy();
+    }
+
+    /// Let a running scan make progress, and store what it found when it ends.
+    fn poll_scan(&mut self) {
         if self.scan.is_none() {
             return;
         }
@@ -1297,6 +1844,36 @@ impl MusicCraftApp {
             Err(error) => {
                 self.library_error = Some(format!("the scan could not be saved: {error}"));
             }
+        }
+    }
+
+    /// Let a running copy make progress, and say what it did when it ends.
+    ///
+    /// A copy that landed anything is followed by a scan: the whole point of
+    /// copying into the home is that the home's watch indexes the copies.
+    fn poll_copy(&mut self) {
+        if self.copy.is_none() {
+            return;
+        }
+
+        if let Some(copy) = self.copy.as_ref() {
+            if let Some(progress) = copy.try_progress() {
+                self.copy_progress = progress;
+            }
+
+            if !copy.is_finished() {
+                return;
+            }
+        }
+
+        let Some(copy) = self.copy.take() else {
+            return;
+        };
+        let report = copy.join();
+        self.last_import = Some(copy_message(&report, self.media_home()));
+
+        if report.copied > 0 {
+            self.start_scan();
         }
     }
 
@@ -2164,6 +2741,18 @@ fn choose_folder(start: Option<&PathBuf>) -> Option<PathBuf> {
     dialog.pick_folder()
 }
 
+/// The desktop's file chooser, or `None` when the user dismissed it.
+///
+/// The sibling of [`choose_folder`], and the reason the add dialog exists: the
+/// files it returns are not watched anywhere yet, so the user still has to say
+/// whether they are indexed where they lie or copied into the media home
+/// first.
+fn choose_files() -> Option<Vec<PathBuf>> {
+    rfd::FileDialog::new()
+        .set_title("Choose audio files to add to the library")
+        .pick_files()
+}
+
 /// A queue entry for a library track, labelled with its tag title.
 fn queue_item(track: &Track) -> QueueItem {
     QueueItem::new(track.path.clone(), track.title.clone())
@@ -2185,6 +2774,62 @@ fn playlist_conflict(error: &AppError, name: &str) -> String {
         }
         other => other.to_string(),
     }
+}
+
+/// What the now-playing bar shows while the library is being built.
+///
+/// A scan and a copy wear the same face here because they are the same job
+/// seen from the bar: music coming in. `total` is `0` while a job's walk is
+/// still counting — the bar slides without numbers until the total is real —
+/// and `left_out` counts only what has genuinely been set aside: formats this
+/// build cannot read, and files that failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IndexingStatus {
+    /// Files read or copied so far.
+    pub done: usize,
+    /// Files the job expects, or `0` while its walk is still counting.
+    pub total: usize,
+    /// Files the job has already left out.
+    pub left_out: usize,
+}
+
+/// What the updater has to show, composed from the release check's answer and
+/// the installer's state so that no view has to read — and order — the two
+/// itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateStatus {
+    /// A release check is on its way.
+    Checking,
+    /// A newer release is out. `can_install` is the difference between an
+    /// update the app can carry out and one it can only point at: it needs
+    /// both a downloadable image and an AppImage to replace.
+    Available {
+        /// The release's tag, e.g. `v0.2.0`.
+        version: String,
+        /// Whether the gear menu can promise an update or only a pointer.
+        can_install: bool,
+    },
+    /// An image is being downloaded: `done` of `total` bytes, `total` `0`
+    /// until the server has named the size.
+    Downloading {
+        /// The release being taken in.
+        version: String,
+        /// Bytes written so far.
+        done: u64,
+        /// Bytes to write, or `0` while the size is unknown.
+        total: u64,
+    },
+    /// The new image is installed; a restart is what runs it.
+    Installed {
+        /// The release now on disk.
+        version: String,
+    },
+    /// A download or swap failed. The running image is untouched, and the
+    /// menu offers the attempt again.
+    Failed {
+        /// What stopped it, from the installer's own words.
+        reason: String,
+    },
 }
 
 /// The one-line report shown after an import finishes.
@@ -2234,6 +2879,39 @@ pub fn import_message(summary: &ImportSummary, cancelled: bool) -> String {
     message
 }
 
+/// The one-line report shown after a copy into the media home finishes.
+///
+/// Like the scan's report it counts what moved and what could not be read, and
+/// says plainly when the user stopped it — a stopped copy leaves files on both
+/// sides, so the message must not read as if the job were done.
+#[must_use]
+pub fn copy_message(report: &crate::library::CopyReport, home: Option<&Path>) -> String {
+    let into = match home {
+        Some(home) => format!(" into {}", home.display()),
+        None => String::new(),
+    };
+
+    if report.cancelled {
+        return format!(
+            "Copy stopped after {} {}{into}",
+            report.copied,
+            if report.copied == 1 { "file" } else { "files" }
+        );
+    }
+
+    let mut message = format!(
+        "Copied {} {}{into}",
+        report.copied,
+        if report.copied == 1 { "file" } else { "files" }
+    );
+
+    if report.failed > 0 {
+        message.push_str(&format!(", {} failed", report.failed));
+    }
+
+    message
+}
+
 /// Format a track length the way a player shows it: `3:45`, or `1:02:03` once
 /// a track runs past an hour.
 #[must_use]
@@ -2263,15 +2941,29 @@ impl eframe::App for MusicCraftApp {
         // the frame loop is also what collects its progress and stores it.
         self.poll_library();
 
+        // Files dragged from the desktop arrive as input of the frame they
+        // land in, so the frame loop is what notices a drop and asks where the
+        // dropped music should live.
+        self.poll_dropped_files(ui.ctx());
+
         // The release check runs on its own thread for the same reason: the
-        // frame loop collects its answer when it arrives.
+        // frame loop collects its answer when it arrives — and the installer's
+        // progress and outcome are collected the same way.
         self.poll_release_check();
+        self.poll_update_install();
 
         // The progress bar and the elapsed time only move while audio plays, so
         // ask for another frame for exactly as long as that is true. A running
-        // scan asks for frames for the same reason: without them the progress
-        // count would freeze until the user moved the mouse.
-        if self.transport() == TransportState::Playing || self.is_scanning() {
+        // scan or copy asks for frames for the same reason: without them the
+        // progress bar and its barber-pole would freeze until the user moved
+        // the mouse — and the same for a release check's reply and a download's
+        // bytes, which move on their threads and want a frame the moment they
+        // arrive.
+        if self.transport() == TransportState::Playing
+            || self.is_scanning()
+            || self.is_copying()
+            || self.update_job_running()
+        {
             ui.ctx().request_repaint();
         }
 
@@ -2605,6 +3297,405 @@ mod tests {
             app.is_scanning(),
             "a folder is scanned as soon as it is chosen"
         );
+    }
+
+    #[test]
+    fn a_dropped_folder_asks_the_add_question_instead_of_adding_itself() {
+        #[derive(Debug)]
+        struct Dropped {
+            path: PathBuf,
+        }
+
+        impl egui::DroppedFile for Dropped {
+            fn path(&self) -> &Path {
+                &self.path
+            }
+
+            fn bytes(&self) -> std::result::Result<Vec<u8>, String> {
+                std::fs::read(&self.path).map_err(|error| error.to_string())
+            }
+        }
+
+        let mut app = empty();
+        let folder = crate::fixtures::scratch("dropped-folder");
+
+        let ctx = egui::Context::default();
+        let dropped = egui::RawInput {
+            dropped_files: vec![std::sync::Arc::new(Dropped {
+                path: folder.clone(),
+            })],
+            ..Default::default()
+        };
+        let mut run = ctx.run_ui(dropped, |_ui| app.poll_dropped_files(&ctx));
+        run.textures_delta.clear();
+
+        assert_eq!(
+            app.pending_add(),
+            Some(PendingAdd::Folders {
+                paths: vec![folder]
+            }),
+            "a dropped folder is added through the same dialog as a chosen one"
+        );
+        assert!(app.library_folders().is_empty(), "dropping is not adding");
+    }
+
+    #[test]
+    fn a_mixed_drop_asks_its_two_questions_one_at_a_time() {
+        #[derive(Debug)]
+        struct Dropped {
+            path: PathBuf,
+        }
+
+        impl egui::DroppedFile for Dropped {
+            fn path(&self) -> &Path {
+                &self.path
+            }
+
+            fn bytes(&self) -> std::result::Result<Vec<u8>, String> {
+                std::fs::read(&self.path).map_err(|error| error.to_string())
+            }
+        }
+
+        let mut app = empty();
+        let folder = crate::fixtures::scratch("mixed-folder");
+        let file = crate::fixtures::scratch_file("mixed-file.wav", b"RIFF");
+
+        let ctx = egui::Context::default();
+        let dropped = egui::RawInput {
+            dropped_files: vec![
+                std::sync::Arc::new(Dropped {
+                    path: folder.clone(),
+                }),
+                std::sync::Arc::new(Dropped { path: file.clone() }),
+            ],
+            ..Default::default()
+        };
+        let mut run = ctx.run_ui(dropped, |_ui| app.poll_dropped_files(&ctx));
+        run.textures_delta.clear();
+
+        assert_eq!(
+            app.pending_add(),
+            Some(PendingAdd::Folders {
+                paths: vec![folder]
+            }),
+            "folders are asked about first"
+        );
+
+        app.cancel_add();
+
+        assert_eq!(
+            app.pending_add(),
+            Some(PendingAdd::Files { paths: vec![file] }),
+            "the second question arrives when the first is answered"
+        );
+    }
+
+    #[test]
+    fn the_add_dialog_answered_with_add_watches_what_it_chose() {
+        let mut app = empty();
+        let file =
+            crate::fixtures::scratch_file("loose-add.wav", &crate::fixtures::silent_wav(8000));
+
+        app.ask_to_add(PendingAdd::Files {
+            paths: vec![file.clone()],
+        });
+        assert!(app.pending_add().is_some(), "the dialog is asking");
+
+        app.add_paths_in_place();
+
+        assert!(app.pending_add().is_none(), "the answer closes the dialog");
+        assert!(
+            app.library_folders().contains(&file),
+            "the file is watched exactly where it lives"
+        );
+        assert!(app.is_scanning(), "watching is followed by a scan");
+    }
+
+    #[test]
+    fn the_add_dialog_answered_with_cancel_adds_nothing() {
+        let mut app = empty();
+
+        app.ask_to_add(PendingAdd::Folders {
+            paths: vec![PathBuf::from("/music/nowhere")],
+        });
+        app.cancel_add();
+
+        assert!(app.pending_add().is_none());
+        assert!(
+            app.library_folders().is_empty(),
+            "Cancel is not a hidden way to watch a folder"
+        );
+    }
+
+    #[test]
+    fn an_empty_choice_asks_no_question() {
+        let mut app = empty();
+
+        app.ask_to_add(PendingAdd::Files { paths: Vec::new() });
+
+        assert!(app.pending_add().is_none(), "nothing chosen, nothing asked");
+    }
+
+    #[test]
+    fn the_add_dialog_answered_with_copy_lands_the_file_in_the_home_and_indexes_it() {
+        let mut app = empty();
+        let home = crate::fixtures::scratch("copy-into-home");
+        app.config.set_media_home(home.clone());
+        app.library_mut()
+            .expect("a library")
+            .set_folders(vec![home.clone()]);
+
+        let source =
+            crate::fixtures::scratch_file("copy-me.wav", &crate::fixtures::silent_wav(8000));
+
+        app.ask_to_add(PendingAdd::Files {
+            paths: vec![source.clone()],
+        });
+        app.copy_paths_into_home();
+
+        assert!(app.pending_add().is_none());
+        assert!(app.is_copying(), "the copy runs on its worker thread");
+
+        // The copy finishes on its thread and is followed by the scan that
+        // indexes what landed; polling is the same one the frames do.
+        for _ in 0..4000 {
+            app.poll_library();
+            if !app.is_copying()
+                && !app.is_scanning()
+                && app.last_import().is_some_and(|m| m.contains("Indexed"))
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+
+        assert!(!app.is_copying() && !app.is_scanning(), "both jobs ended");
+        assert!(
+            home.join("copy-me.wav").is_file(),
+            "the copy is in the home"
+        );
+        assert!(source.is_file(), "the original is where it always was");
+        assert_eq!(
+            app.browse().track_count(),
+            1,
+            "the copy is what the scan indexed"
+        );
+    }
+
+    #[test]
+    fn the_indexing_widget_turns_a_running_scan_into_one_status() {
+        let mut app = empty();
+
+        assert_eq!(
+            app.indexing_status(),
+            None,
+            "with nothing running the bar has nothing to say"
+        );
+
+        // The scan as spawned: the walk has not reported back yet, so the
+        // widget knows only that work is happening — no total, no numbers.
+        app.ask_to_add(PendingAdd::Folders {
+            paths: vec![crate::fixtures::scratch("index-status")],
+        });
+        app.add_paths_in_place();
+        assert!(app.is_scanning(), "the job is on its worker thread");
+        assert_eq!(
+            app.indexing_status(),
+            Some(IndexingStatus {
+                done: 0,
+                total: 0,
+                left_out: 0,
+            }),
+            "before the walk has counted, the bar claims no total"
+        );
+
+        // Mid-job, as the walk's report and the reads since have come in:
+        // both kinds of left-out file — unreadable formats and failures —
+        // count together as the one honest "left out".
+        app.scan_progress = ScanProgress {
+            discovered: 42,
+            processed: 42,
+            failed: 2,
+            total: 118,
+            unreadable: 3,
+            current: None,
+        };
+        assert_eq!(
+            app.indexing_status(),
+            Some(IndexingStatus {
+                done: 42,
+                total: 118,
+                left_out: 5,
+            }),
+            "the bar's line is the scan's own counts"
+        );
+    }
+
+    #[test]
+    fn the_indexing_widget_reads_a_copy_as_the_same_job() {
+        let mut app = empty();
+        let home = crate::fixtures::scratch("index-status-copy");
+        app.config.set_media_home(home.clone());
+        app.library_mut()
+            .expect("a library")
+            .set_folders(vec![home.clone()]);
+        let source =
+            crate::fixtures::scratch_file("index-copy.wav", &crate::fixtures::silent_wav(8000));
+
+        app.ask_to_add(PendingAdd::Files {
+            paths: vec![source],
+        });
+        app.copy_paths_into_home();
+        assert!(app.is_copying(), "the copy is on its worker thread");
+
+        // The copy reports through the same widget with the same words: the
+        // handover from copy to the scan that indexes is not the bar's affair.
+        app.copy_progress = CopyProgress {
+            copied: 7,
+            total: 20,
+            failed: 1,
+            current: None,
+        };
+        assert_eq!(
+            app.indexing_status(),
+            Some(IndexingStatus {
+                done: 7,
+                total: 20,
+                left_out: 1,
+            }),
+            "a copy wears the scan's face"
+        );
+    }
+
+    #[test]
+    fn the_updater_says_what_it_knows_as_one_status() {
+        let mut app = empty();
+        // The tests say what kind of run they are, rather than inheriting
+        // whether the machine that runs `cargo test` happens to be an
+        // AppImage itself.
+        app.set_app_image(None);
+
+        assert_eq!(app.update_status(), None, "nothing asked, nothing shown");
+
+        app.set_release_update(Update::UpToDate);
+        assert_eq!(app.update_status(), None, "being up to date is not news");
+
+        // A release carrying an image, but this build is not running from an
+        // AppImage: the gear row may point at the release, and must not
+        // promise a swap.
+        app.set_release_update(Update::Available {
+            version: "v9.9.9".to_owned(),
+            url: "https://github.com/cmspeedau/iCraftMusic/releases/tag/v9.9.9".to_owned(),
+            asset: Some("https://e/iCraftMusic-9.9.9-x86_64.AppImage".to_owned()),
+        });
+        assert_eq!(
+            app.update_status(),
+            Some(crate::app::UpdateStatus::Available {
+                version: "v9.9.9".to_owned(),
+                can_install: false,
+            }),
+            "a non-AppImage run was offered a swap it cannot perform"
+        );
+
+        // The same release while the process knows its own image file: now
+        // the swap is on the table.
+        app.set_app_image(Some(std::env::temp_dir().join("iCraftMusic-test.AppImage")));
+        assert_eq!(
+            app.update_status(),
+            Some(crate::app::UpdateStatus::Available {
+                version: "v9.9.9".to_owned(),
+                can_install: true,
+            }),
+            "an AppImage run was not offered the update it can install"
+        );
+    }
+
+    #[test]
+    fn the_installer_outranks_the_release_news() {
+        let mut app = empty();
+        app.set_release_update(Update::Available {
+            version: "v9.9.9".to_owned(),
+            url: "https://github.com/cmspeedau/iCraftMusic/releases/tag/v9.9.9".to_owned(),
+            asset: Some("https://e/iCraftMusic-9.9.9-x86_64.AppImage".to_owned()),
+        });
+
+        // Once bytes are moving, that is the news — not the offer they came from.
+        app.set_install(
+            Some("v9.9.9"),
+            Some(crate::update::Install::Running { done: 5, total: 10 }),
+        );
+        assert_eq!(
+            app.update_status(),
+            Some(crate::app::UpdateStatus::Downloading {
+                version: "v9.9.9".to_owned(),
+                done: 5,
+                total: 10,
+            }),
+            "a running download was hidden behind the release news"
+        );
+
+        app.set_install(
+            Some("v9.9.9"),
+            Some(crate::update::Install::Installed {
+                version: "v9.9.9".to_owned(),
+            }),
+        );
+        assert_eq!(
+            app.update_status(),
+            Some(crate::app::UpdateStatus::Installed {
+                version: "v9.9.9".to_owned(),
+            }),
+            "an installed update still reads as merely available"
+        );
+
+        // A failed attempt says so, once, rather than silently falling back to
+        // the offer and letting the user wonder whether the last one worked.
+        app.set_install(
+            None,
+            Some(crate::update::Install::Failed {
+                reason: "the download stopped".to_owned(),
+            }),
+        );
+        assert_eq!(
+            app.update_status(),
+            Some(crate::app::UpdateStatus::Failed {
+                reason: "the download stopped".to_owned(),
+            }),
+            "the failure hid behind the news"
+        );
+    }
+
+    #[test]
+    fn an_update_is_started_only_where_a_swap_is_possible() {
+        let mut app = empty();
+        app.set_app_image(None);
+        app.set_release_update(Update::Available {
+            version: "v9.9.9".to_owned(),
+            url: "https://github.com/cmspeedau/iCraftMusic/releases/tag/v9.9.9".to_owned(),
+            asset: Some("https://e/iCraftMusic-9.9.9-x86_64.AppImage".to_owned()),
+        });
+
+        // Not running from an AppImage: pressing the row must not start a
+        // worker — the menu offers this release as a page instead, and a
+        // download with nowhere to land is bytes for nothing.
+        app.start_update();
+        assert!(
+            !app.update_job_running(),
+            "a worker started with no AppImage to swap into"
+        );
+        assert!(app.app_image_path().is_none());
+    }
+
+    #[test]
+    fn a_pending_check_is_the_updater_checking() {
+        let mut app = empty();
+        app.set_check_pending();
+
+        assert_eq!(
+            app.update_status(),
+            Some(crate::app::UpdateStatus::Checking)
+        );
+        assert!(app.update_job_running(), "a pending check is a job");
     }
 
     #[test]

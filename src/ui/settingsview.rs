@@ -12,7 +12,7 @@
 //! library. It reads rather than writes — the only action there is asking
 //! SQLite to check itself, and even that changes nothing.
 
-use egui::{Key, RichText, Slider, TextEdit, Vec2};
+use egui::{RichText, Slider, TextEdit, Vec2};
 
 use crate::app::MusicCraftApp;
 use crate::audio::{BAND_FREQUENCIES, MAX_CROSSFADE_SECONDS, MAX_GAIN_DB, MIN_GAIN_DB, PRESETS};
@@ -56,10 +56,9 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     about(app, ui);
 }
 
-/// Width of the folder chooser button, in points.
-const BROWSE_WIDTH: f32 = 112.0;
-/// Width of the "add this folder" button.
-const IMPORT_WIDTH: f32 = 72.0;
+/// Width of the two buttons beside the media home's path, in points. Both
+/// share it so the pair reads as one control group.
+const HOME_BUTTON_WIDTH: f32 = 76.0;
 /// Width of the button that rescans the watched folders.
 const RESCAN_WIDTH: f32 = 68.0;
 /// Width of the button that stops a running scan.
@@ -406,62 +405,81 @@ fn version_line() -> String {
     format!("v{}", crate::APP_VERSION)
 }
 
-/// The folders the library watches, and how to add or rescan them.
+/// Where the library lives and how music comes in — laid out the way a music
+/// application's advanced preferences lay it out: the media folder's location
+/// in a bordered box of its own, the buttons that move it stacked at its side,
+/// and everything else stated plainly underneath.
 fn library_management(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.label(RichText::new("Library management").strong());
     ui.label(
         RichText::new(
-            "Folders you watch are scanned for audio files and indexed. Pick one with the \
-             chooser, or type its path.",
+            "The media home is where the library's own music lives. Change moves the \
+             library's watch to a folder of your choice; Reset returns it to the folder \
+             the application was born with. Music comes in from the gear at the corner \
+             of the bar — Add files… or Add folder… — or by dragging it onto the window.",
         )
         .small()
         .weak(),
     );
     ui.add_space(6.0);
 
+    // The location box. The path inside it is not editable: a library pointed
+    // at a mistyped path is worse than one pointed at the wrong button, so the
+    // two buttons at its side are the only ways this box ever changes.
+    egui::Frame::new()
+        .stroke(ui.visuals().window_stroke)
+        .corner_radius(6.0)
+        .inner_margin(egui::Margin::symmetric(12, 12))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new(format!("{} Media folder location", crate::APP_NAME))
+                    .small()
+                    .strong(),
+            );
+
+            let fixed = HOME_BUTTON_WIDTH + ui.spacing().item_spacing.x;
+            let width = (ui.available_width() - fixed).max(140.0);
+
+            ui.horizontal(|ui| {
+                let mut path = match app.media_home() {
+                    Some(home) => home.display().to_string(),
+                    None => "no location — Reset picks one".to_owned(),
+                };
+                ui.add_sized(
+                    [width, 24.0],
+                    TextEdit::singleline(&mut path)
+                        .interactive(false)
+                        .font(egui::FontId::monospace(12.0)),
+                );
+
+                ui.vertical(|ui| {
+                    if ui
+                        .add_sized([HOME_BUTTON_WIDTH, 24.0], egui::Button::new("Change…"))
+                        .on_hover_text(
+                            "Move the library to a folder of your choice. The library follows \
+                             the new folder; the files you have are not moved.",
+                        )
+                        .clicked()
+                    {
+                        app.change_media_home();
+                    }
+
+                    if ui
+                        .add_sized([HOME_BUTTON_WIDTH, 24.0], egui::Button::new("Reset"))
+                        .on_hover_text(format!("Return the media home to ~/{}", crate::APP_NAME))
+                        .clicked()
+                    {
+                        app.reset_media_home();
+                    }
+                });
+            });
+        });
+
+    ui.add_space(6.0);
+
     let scanning = app.is_scanning();
-
-    // Everything on this row except the path field has a fixed width, and the
-    // gaps between them are counted as well: the field takes whatever is left,
-    // so the row can never overflow the pane and push a button off its edge.
-    let fixed = BROWSE_WIDTH
-        + IMPORT_WIDTH
-        + RESCAN_WIDTH
-        + ui.spacing().item_spacing.x * 3.0
-        + if scanning {
-            STOP_WIDTH + ui.spacing().item_spacing.x
-        } else {
-            0.0
-        };
-    let width = (ui.available_width() - fixed).max(140.0);
-
+    let can_scan = !scanning && !app.library_folders().is_empty();
     ui.horizontal(|ui| {
-        let field = ui.add_sized(
-            [width, 24.0],
-            TextEdit::singleline(app.folder_input_mut()).hint_text("/home/you/Music"),
-        );
-        let submitted = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
-
-        // The field is still the way to type a path — a folder on a network
-        // share or one behind a path only the user knows. The button beside it
-        // is for the much more common case of picking one out of a list.
-        if ui
-            .add_sized([BROWSE_WIDTH, 24.0], egui::Button::new("Choose a folder…"))
-            .on_hover_text("Pick a folder with the desktop's own file chooser")
-            .clicked()
-        {
-            app.choose_library_folder();
-        }
-
-        let import = ui
-            .add_sized([IMPORT_WIDTH, 24.0], egui::Button::new("Import"))
-            .on_hover_text("Add a folder to the library and scan it");
-
-        if import.clicked() || submitted {
-            app.import_folder_input();
-        }
-
-        let can_scan = !scanning && !app.library_folders().is_empty();
         if ui
             .add_enabled(
                 can_scan,
@@ -482,8 +500,6 @@ fn library_management(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             app.cancel_scan();
         }
     });
-
-    ui.add_space(6.0);
 
     if let Some(message) = app.library_error().map(str::to_owned) {
         ui.horizontal_wrapped(|ui| {
@@ -513,20 +529,49 @@ fn library_management(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 );
             }
         });
+    } else if app.is_copying() {
+        let progress = app.copy_progress();
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new(format!(
+                    "Copying… {} of {} files",
+                    progress.copied, progress.total
+                ))
+                .small()
+                .color(theme::ACCENT),
+            );
+
+            if let Some(current) = progress.current.as_ref() {
+                ui.label(
+                    RichText::new(current.display().to_string())
+                        .small()
+                        .weak()
+                        .monospace(),
+                );
+            }
+        });
     } else if let Some(message) = app.last_import().map(str::to_owned) {
         ui.label(RichText::new(message).small().weak());
     }
 
     ui.add_space(4.0);
 
-    if app.library_folders().is_empty() {
-        ui.label(RichText::new("No folders are watched yet.").small().weak());
+    // The list starts after the home: the home is the box above, and what is
+    // named here is what the user added alongside it — each with the way to
+    // stop watching it.
+    let extra: Vec<std::path::PathBuf> = app.library_folders().iter().skip(1).cloned().collect();
+    if extra.is_empty() {
+        ui.label(
+            RichText::new("No folders are watched besides the media home.")
+                .small()
+                .weak(),
+        );
     } else {
-        ui.label(RichText::new("Watched folders").small().weak());
+        ui.label(RichText::new("Other watched folders").small().weak());
 
         // Copied out before the buttons are drawn: forgetting a folder edits
         // the list the loop is walking.
-        for folder in app.library_folders().to_vec() {
+        for folder in extra {
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(folder.display().to_string())
@@ -623,14 +668,14 @@ mod tests {
     use crate::error::AppError;
 
     #[test]
-    fn the_import_row_fits_the_pane_it_is_drawn_in() {
+    fn the_location_box_and_scan_buttons_fit_the_pane_they_are_drawn_in() {
         let mut app = app(None);
         app.set_section(crate::ui::navigation::NavSection::Settings);
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0));
 
         let texts = painted(&mut app, screen);
 
-        for label in ["Choose a folder…", "Import", "Rescan"] {
+        for label in ["Change…", "Reset", "Rescan"] {
             let ink = texts
                 .iter()
                 .find(|(text, _)| text == label)
@@ -716,8 +761,14 @@ mod tests {
             .collect();
 
         assert!(
-            painted.iter().any(|text| text.contains("Choose a folder")),
-            "the chooser button is not drawn: {painted:?}"
+            painted.iter().any(|text| text.contains("Change…")),
+            "the location box does not offer its chooser: {painted:?}"
+        );
+        assert!(
+            painted
+                .iter()
+                .any(|text| text.contains("Media folder location")),
+            "the location box does not name itself: {painted:?}"
         );
         // Drawing it must not open the dialog: a native chooser blocks the
         // thread it is called from, and a test that called it would hang.
@@ -886,10 +937,15 @@ mod tests {
     #[test]
     fn a_watched_folder_can_be_forgotten_from_the_pane() {
         // Forgetting a folder is about the watched list, so the application
-        // needs a library for the folder to be watched by.
+        // needs a library for the folder to be watched by. The first folder is
+        // the media home — it lives in its own box — so the forgettable one is
+        // the folder added alongside it.
         let mut app = watched();
+        let home = std::env::temp_dir().join("musiccraft-settings-home");
         let folder = std::env::temp_dir().join("musiccraft-settings-forget");
+        std::fs::create_dir_all(&home).expect("a folder to be the home");
         std::fs::create_dir_all(&folder).expect("a folder to watch");
+        assert!(app.add_library_folder(&home));
         assert!(app.add_library_folder(&folder));
 
         let painted = everything(&mut app);
@@ -897,11 +953,17 @@ mod tests {
             painted.iter().any(|text| text == "Forget"),
             "the folder has no way to be dropped: {painted:?}"
         );
+        assert!(
+            painted
+                .iter()
+                .any(|text| text == &folder.display().to_string()),
+            "the extra folder is not listed: {painted:?}"
+        );
 
         // Drawing the button is not pressing it.
         assert_eq!(
             app.library_folders().len(),
-            1,
+            2,
             "the folder is forgotten on a click, not on a repaint"
         );
     }

@@ -45,11 +45,11 @@
 
 use egui::{
     Align, Button, Color32, CornerRadius, Layout, Panel, Pos2, Rect, RichText, Sense, Slider,
-    Stroke, TextEdit, UiBuilder, Vec2,
+    Stroke, StrokeKind, TextEdit, UiBuilder, Vec2,
 };
 use std::path::Path;
 
-use crate::app::{MusicCraftApp, format_duration};
+use crate::app::{IndexingStatus, MusicCraftApp, UpdateStatus, format_duration};
 use crate::library::browse::BrowseKind;
 use crate::ui::navigation::NavSection;
 use crate::ui::{queueview, theme};
@@ -139,6 +139,12 @@ const VOLUME_GLYPH_WIDTH: f32 = 16.0;
 /// Square, and as tall as the box's contents: it reads as one of the bar's
 /// controls rather than as the glyph it draws.
 const QUEUE_BUTTON_SIZE: f32 = 28.0;
+
+/// The Cancel button on the Indexing bar's line, in points.
+///
+/// Fixed so the bar takes what is left of the row's width rather than trading
+/// width with a label that changes every file: the groove never jitters.
+const CANCEL_BUTTON_WIDTH: f32 = 54.0;
 
 /// Size the queue's burger glyph is drawn at, in points.
 ///
@@ -610,9 +616,19 @@ fn search_field(app: &mut MusicCraftApp, ui: &mut egui::Ui, field: Rect, clear: 
 ///
 /// The cream pill is drawn whatever the bar holds — it is the widget's own
 /// surface and keeps the bar's middle — but what sits IN it is drawn only while
-/// there is a track on the bar. With nothing playing the box is a bare cream
-/// shape: no cover, no "Nothing playing" line, no seek row and no queue button,
-/// just the surface the widget returns to when something plays.
+/// there is something to say. With nothing playing and nothing being indexed
+/// the box is a bare cream shape: no cover, no "Nothing playing" line, no seek
+/// row and no queue button, just the surface the widget returns to.
+///
+/// Indexing takes the top row from the track while a scan or copy runs: the
+/// bar's centre is the one place the user is guaranteed to be looking when
+/// music is coming in, and the queue button holds its exact spot through the
+/// swap. A track that is playing keeps its seek row underneath.
+///
+/// An update news takes the same row when no job is running: newer version,
+/// arriving bytes, or the word that it is installed and wants a restart.
+/// Indexing outranks it — a job the user started is louder news — and the ☰
+/// holds its spot through that swap too.
 ///
 /// The pill is painted from the same constants its contents are placed by, so it
 /// fits them exactly and its centre is the window's centre. Painting it here
@@ -633,79 +649,306 @@ fn centre_box(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     // keeps its place on the cream rather than closing when the queue is empty.
     // Under the contents, so the cover, the text and the rail sit on the cream
     // rather than the cream over them.
-    ui.painter().rect_filled(
-        pill,
-        CornerRadius::same(theme::CENTRE_BOX_RADIUS),
-        theme::CENTRE_BOX_FILL,
-    );
+    theme::centre_box_surface(ui.painter(), pill);
 
-    // Everything the box holds needs a track on the bar; with none, the pill
-    // above is the whole of it. Owned before the contents draw: they read
-    // several pieces of the app and then mutate it (opening the queue), and a
-    // borrow held across that closure is a borrow conflict.
-    let Some(playing) = app.now_playing() else {
+    // Owned before anything draws, for the same reason the track's parts were
+    // always owned first: the closures below read the app and then mutate it
+    // (the queue, the Cancel button), and a borrow held across them conflicts.
+    let indexing = app.indexing_status();
+    // The check's silence is the track's chance: while a background check is
+    // only wondering, the box says nothing of it and the track keeps its row.
+    let update = app
+        .update_status()
+        .filter(|status| *status != UpdateStatus::Checking);
+    let playing = app.now_playing().is_some();
+
+    // The bare pill: nothing on the bar to say.
+    if indexing.is_none() && update.is_none() && !playing {
         return;
-    };
-    let title = playing.title.clone();
-    let artwork = playing.artwork;
-    let failure = app.playback_error();
-    let state = failure.clone().unwrap_or_else(|| subtitle(app));
+    }
 
-    // The two rows are given their own rectangles rather than stacked by the
-    // layout, so each one lands where the pill's own height puts it. A row that
-    // grew — a title and a state line at the box's spacing measure 35 points
-    // against the cover's 32 — would otherwise push the seek row out through
-    // the box's foot, and the pill is placed from constants that know nothing
-    // about how tall the text came out.
     let cover_row = top_row_rect(pill);
     let seek_row = seek_row_rect(pill);
 
+    if let Some(status) = indexing {
+        ui.scope_builder(
+            UiBuilder::new()
+                .id_salt("playback_centre_box")
+                .max_rect(cover_row)
+                .layout(Layout::left_to_right(Align::Center)),
+            |ui| {
+                theme::apply_centre_box_visuals(&mut ui.style_mut().visuals);
+                ui.spacing_mut().item_spacing = Vec2::new(CENTRE_BOX_GAP, DETAILS_LINE_GAP);
+
+                indexing_widget(app, ui, &status, cover_row.width());
+                queue_button_slot(app, ui, cover_row, pill);
+            },
+        );
+    } else if let Some(status) = update {
+        ui.scope_builder(
+            UiBuilder::new()
+                .id_salt("playback_update_box")
+                .max_rect(cover_row)
+                .layout(Layout::left_to_right(Align::Center)),
+            |ui| {
+                theme::apply_centre_box_visuals(&mut ui.style_mut().visuals);
+                ui.spacing_mut().item_spacing = Vec2::new(CENTRE_BOX_GAP, DETAILS_LINE_GAP);
+
+                update_widget(app, ui, &status, cover_row.width());
+                queue_button_slot(app, ui, cover_row, pill);
+            },
+        );
+    } else if let Some(playing) = app.now_playing() {
+        let title = playing.title.clone();
+        let artwork = playing.artwork;
+        let failure = app.playback_error();
+        let state = failure.clone().unwrap_or_else(|| subtitle(app));
+
+        // The two rows are given their own rectangles rather than stacked by the
+        // layout, so each one lands where the pill's own height puts it. A row
+        // that grew — a title and a state line at the box's spacing measure 35
+        // points against the cover's 32 — would otherwise push the seek row out
+        // through the box's foot, and the pill is placed from constants that
+        // know nothing about how tall the text came out.
+        ui.scope_builder(
+            UiBuilder::new()
+                .id_salt("playback_centre_box")
+                .max_rect(cover_row)
+                .layout(Layout::left_to_right(Align::Center)),
+            |ui| {
+                theme::apply_centre_box_visuals(&mut ui.style_mut().visuals);
+                ui.spacing_mut().item_spacing = Vec2::new(CENTRE_BOX_GAP, DETAILS_LINE_GAP);
+
+                cover(app, ui, artwork.as_deref());
+                details(ui, &title, &state, failure.is_some());
+
+                queue_button_slot(app, ui, cover_row, pill);
+            },
+        );
+    }
+
+    // The seek row belongs to the track, not the top row, so indexing does
+    // not claim it: a track playing during a scan stays seekable.
+    if playing {
+        ui.scope_builder(
+            UiBuilder::new()
+                .id_salt("playback_seek_row")
+                .max_rect(seek_row)
+                .layout(Layout::left_to_right(Align::Center)),
+            |ui| {
+                theme::apply_centre_box_visuals(&mut ui.style_mut().visuals);
+                progress(app, ui, seek_row);
+            },
+        );
+    }
+}
+
+/// The queue button, pinned to the box's right edge and centred on the BOX's
+/// own middle rather than the row's.
+///
+/// It is a slot of its own because two different top rows — the track's cover
+/// and details, and the indexing widget — both draw it at the same coordinates:
+/// the ☰ is the one thing on the pill that must not move when one takes over
+/// from the other.
+fn queue_button_slot(app: &mut MusicCraftApp, ui: &mut egui::Ui, cover_row: Rect, pill: Rect) {
+    // The button is at the row's trailing edge, not after the details: the
+    // pill is sized to hold both and its own padding, so placing it against
+    // the edge lands it there whatever the row's contents came to.
+    let button = Rect::from_center_size(
+        Pos2::new(cover_row.right() - QUEUE_BUTTON_SIZE / 2.0, pill.center().y),
+        Vec2::splat(QUEUE_BUTTON_SIZE),
+    );
     ui.scope_builder(
         UiBuilder::new()
-            .id_salt("playback_centre_box")
-            .max_rect(cover_row)
-            .layout(Layout::left_to_right(Align::Center)),
-        |ui| {
-            theme::apply_centre_box_visuals(&mut ui.style_mut().visuals);
-            ui.spacing_mut().item_spacing = Vec2::new(CENTRE_BOX_GAP, DETAILS_LINE_GAP);
-
-            cover(app, ui, artwork.as_deref());
-            details(ui, &title, &state, failure.is_some());
-
-            // The button is at the row's trailing edge, not after the details:
-            // the pill is sized to hold both and its own padding, so placing it
-            // against the edge lands it there whatever the title came to.
-            //
-            // It is centred on the BOX's own middle, not on the top row's: the
-            // box is the thing the button belongs to, and the row is only where
-            // its own contents happen to sit. On the row's line it read as level
-            // with the cover and high in the box; on the box's line it sits in
-            // the box, and the two rows underneath it are what the eye reads the
-            // height from.
-            let button = Rect::from_center_size(
-                Pos2::new(cover_row.right() - QUEUE_BUTTON_SIZE / 2.0, pill.center().y),
-                Vec2::splat(QUEUE_BUTTON_SIZE),
-            );
-            ui.scope_builder(
-                UiBuilder::new()
-                    .id_salt("playback_queue_button")
-                    .max_rect(button)
-                    .layout(Layout::top_down(Align::Center)),
-                |ui| queue_button(app, ui),
-            );
-        },
+            .id_salt("playback_queue_button")
+            .max_rect(button)
+            .layout(Layout::top_down(Align::Center)),
+        |ui| queue_button(app, ui),
     );
+}
 
-    ui.scope_builder(
-        UiBuilder::new()
-            .id_salt("playback_seek_row")
-            .max_rect(seek_row)
-            .layout(Layout::left_to_right(Align::Center)),
-        |ui| {
-            theme::apply_centre_box_visuals(&mut ui.style_mut().visuals);
-            progress(app, ui, seek_row);
-        },
-    );
+/// The Indexing widget: the wording on top, iTunes 7's candy bar beneath it,
+/// and Cancel on the bar's line at its right.
+///
+/// It fills exactly the space the cover and details use — everything left of
+/// the gap before the queue button — so the pill never resizes, and the ☰
+/// never shifts, when the widget takes the row over from a track.
+fn indexing_widget(
+    app: &mut MusicCraftApp,
+    ui: &mut egui::Ui,
+    status: &IndexingStatus,
+    row_width: f32,
+) {
+    let width = row_width - QUEUE_BUTTON_SIZE - CENTRE_BOX_GAP;
+
+    ui.vertical(|ui| {
+        ui.set_min_width(width);
+        ui.set_max_width(width);
+
+        ui.label(RichText::new(indexing_caption(status)).small().weak());
+
+        ui.horizontal(|ui| {
+            let bar_width = (width - CANCEL_BUTTON_WIDTH - ui.spacing().item_spacing.x).max(40.0);
+            let (rect, _response) = ui.allocate_exact_size(
+                Vec2::new(bar_width, theme::CANDY_BAR_HEIGHT),
+                Sense::hover(),
+            );
+            theme::candy_progress(
+                ui,
+                rect,
+                (status.total > 0).then(|| status.done as f32 / status.total as f32),
+            );
+
+            if ui
+                .add_sized(
+                    [CANCEL_BUTTON_WIDTH, 18.0],
+                    egui::Button::new(RichText::new("Cancel").small()),
+                )
+                .on_hover_text("Stop indexing after the file it is on")
+                .clicked()
+            {
+                app.cancel_indexing();
+            }
+        });
+    });
+}
+
+/// The widget's wording, in the numbers the job actually has.
+///
+/// No total is claimed while the walk is still counting — the bar slides and
+/// the line reads simply "Indexing…" — and the left-out clause stays away
+/// while nothing has been left out, the way iTunes' sheet said nothing it
+/// could not yet say.
+fn indexing_caption(status: &IndexingStatus) -> String {
+    if status.total == 0 {
+        return "Indexing…".to_owned();
+    }
+
+    if status.left_out == 0 {
+        return format!("Indexing — {} of {}", status.done, status.total);
+    }
+
+    format!(
+        "Indexing — {} of {} · {} left out",
+        status.done, status.total, status.left_out
+    )
+}
+
+/// The updater's voice in the centre box: the news that a newer version is
+/// out, the bytes of it arriving, or the word that it is in and wants a
+/// restart.
+///
+/// A job the user started outranks it — indexing took this row first and the
+/// update waits its turn — but news of a version outranks the track: the
+/// update waits across restarts, and the box saying so until it is taken is
+/// the whole of its pointing. The button is deliberately not here: the gear
+/// menu holds it, next to the Settings that talk about the application; the
+/// second line only says where to find it.
+fn update_widget(
+    app: &mut MusicCraftApp,
+    ui: &mut egui::Ui,
+    status: &UpdateStatus,
+    row_width: f32,
+) {
+    let width = row_width - QUEUE_BUTTON_SIZE - CENTRE_BOX_GAP;
+
+    ui.vertical(|ui| {
+        ui.set_min_width(width);
+        ui.set_max_width(width);
+
+        match status {
+            UpdateStatus::Available {
+                version,
+                can_install,
+            } => {
+                let news = RichText::new(format!("Update available — {version}")).strong();
+                ui.add(egui::Label::new(news).truncate().selectable(false));
+
+                let way = if *can_install {
+                    "Take it from the gear menu at the bar's right end"
+                } else {
+                    "This copy cannot replace itself — the gear menu opens the release"
+                };
+                ui.add(
+                    egui::Label::new(RichText::new(way).small().weak())
+                        .truncate()
+                        .selectable(false),
+                );
+            }
+            UpdateStatus::Downloading {
+                version,
+                done,
+                total,
+            } => {
+                let caption = if *total == 0 {
+                    format!("Updating to {version}…")
+                } else {
+                    format!(
+                        "Updating to {version} — {} of {}",
+                        crate::update::format_bytes(*done),
+                        crate::update::format_bytes(*total)
+                    )
+                };
+                ui.add(
+                    egui::Label::new(RichText::new(caption).small().weak())
+                        .truncate()
+                        .selectable(false),
+                );
+
+                ui.horizontal(|ui| {
+                    let bar_width =
+                        (width - CANCEL_BUTTON_WIDTH - ui.spacing().item_spacing.x).max(40.0);
+                    let (rect, _response) = ui.allocate_exact_size(
+                        Vec2::new(bar_width, theme::CANDY_BAR_HEIGHT),
+                        Sense::hover(),
+                    );
+                    theme::candy_progress(
+                        ui,
+                        rect,
+                        (*total > 0).then(|| *done as f32 / *total as f32),
+                    );
+
+                    if ui
+                        .add_sized(
+                            [CANCEL_BUTTON_WIDTH, 18.0],
+                            egui::Button::new(RichText::new("Cancel").small()),
+                        )
+                        .on_hover_text(
+                            "Stop the download; the version you are running stays as it is",
+                        )
+                        .clicked()
+                    {
+                        app.cancel_update();
+                    }
+                });
+            }
+            UpdateStatus::Installed { version } => {
+                let news = RichText::new(format!("{version} is installed")).strong();
+                ui.add(egui::Label::new(news).truncate().selectable(false));
+                ui.add(
+                    egui::Label::new(
+                        RichText::new("Restart to run it — the gear menu offers it")
+                            .small()
+                            .weak(),
+                    )
+                    .truncate()
+                    .selectable(false),
+                );
+            }
+            UpdateStatus::Failed { reason } => {
+                let news = RichText::new("The update did not finish").strong();
+                ui.add(egui::Label::new(news).truncate().selectable(false));
+                ui.add(
+                    egui::Label::new(RichText::new(reason).small().weak())
+                        .truncate()
+                        .selectable(false),
+                );
+            }
+            // The box stays silent while a check is merely wondering; the
+            // gear menu says "Checking…" to whoever looks.
+            UpdateStatus::Checking => {}
+        }
+    });
 }
 
 /// The box's top row: the cover, the track's details and the queue button, one
@@ -820,6 +1063,16 @@ fn cover(app: &mut MusicCraftApp, ui: &mut egui::Ui, artwork: Option<&Path>) {
             painter.rect_filled(rect, CornerRadius::same(4), theme::CENTRE_BOX_CONTROL);
         }
     }
+
+    // Framed alike, the picture and its absence: the hairline rim is what
+    // makes a small square read as an object set on the box rather than a
+    // patch of one colour, and it is the same rim the box itself wears.
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(4),
+        Stroke::new(1.0, theme::CENTRE_BOX_EDGE),
+        StrokeKind::Inside,
+    );
 }
 
 /// `Track 2 of 3 · Playing`, or what the transport is when nothing is playing.
@@ -899,6 +1152,13 @@ fn controls(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 ///
 /// The glyph is drawn at its own size rather than at a text style's: see
 /// `QUEUE_GLYPH_SIZE` for why the burger gets a size of its own.
+///
+/// Its face is painted rather than left to a button style: the little
+/// push buttons wore their light — a rim, a lit top half, and a darker sink
+/// while pressed or held down — and no widget fill gives that. The `Button`
+/// is kept underneath, stripped to transparent fills, so the click, the
+/// focus ring, the accessible name and the selectable state all stay egui's
+/// own: only the paint has changed hands.
 fn queue_button(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let queued = app.playback().queue().len();
     let open = app.queue_open();
@@ -908,9 +1168,66 @@ fn queue_button(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         if queued == 1 { "track" } else { "tracks" }
     );
 
+    // The face is decided off the pointer directly rather than off a Response:
+    // it is painted before the widget whose face it is, and a Response does
+    // not exist yet. The same input says the same thing a frame later, when
+    // the widget reads it — no disagreement between what is lit and what is
+    // clickable.
+    let (face, _) = ui.allocate_exact_size(Vec2::splat(QUEUE_BUTTON_SIZE), Sense::hover());
+    let hovered = ui
+        .input(|input| input.pointer.hover_pos())
+        .is_some_and(|pos| face.contains(pos));
+    let pushed = hovered && ui.input(|input| input.pointer.any_down());
+    let sunk = pushed || open;
+
+    let radius = CornerRadius::same(6);
+    let fill = if sunk {
+        theme::CENTRE_BOX_PRESSED
+    } else if hovered {
+        theme::CENTRE_BOX_GLOSS
+    } else {
+        theme::CENTRE_BOX_CONTROL
+    };
+    ui.painter().rect_filled(face, radius, fill);
+    ui.painter().rect_stroke(
+        face,
+        radius,
+        Stroke::new(1.0, theme::CENTRE_BOX_EDGE),
+        StrokeKind::Inside,
+    );
+    if sunk {
+        // Pushed in, the light goes and the shadow gathers along the top —
+        // the rim of the hole the button has sunk into.
+        ui.painter().hline(
+            face.x_range().shrink(2.0),
+            face.top() + 1.0,
+            Stroke::new(1.0, theme::CENTRE_BOX_EDGE),
+        );
+    } else {
+        let gloss = Rect::from_min_max(
+            Pos2::new(face.left() + 1.0, face.top() + 1.0),
+            Pos2::new(face.right() - 1.0, face.center().y),
+        );
+        ui.painter()
+            .rect_filled(gloss, CornerRadius::same(5), theme::CENTRE_BOX_GLOSS);
+    }
+
+    // The button stripped: every fill it would paint, replaced by nothing,
+    // for the states this one widget walks through. Inside its own scope, so
+    // no other button on the bar loses its paint with it.
+    let visuals = &mut ui.style_mut().visuals;
+    for state in [
+        &mut visuals.widgets.inactive,
+        &mut visuals.widgets.hovered,
+        &mut visuals.widgets.active,
+    ] {
+        state.weak_bg_fill = Color32::TRANSPARENT;
+        state.bg_fill = Color32::TRANSPARENT;
+    }
+
     let response = ui
-        .add_sized(
-            Vec2::splat(QUEUE_BUTTON_SIZE),
+        .put(
+            face,
             Button::selectable(open, RichText::new(QUEUE_GLYPH).size(QUEUE_GLYPH_SIZE)),
         )
         .on_hover_text(&words);
@@ -1956,18 +2273,21 @@ mod tests {
 
     /// The seek bar's rail, from one frame of the seek row.
     ///
-    /// Found by its TRANSLUCENCY rather than its colour or its size: the rail
-    /// and the played part of it over it are drawn with an alpha, where every
-    /// opaque rectangle on this bar is a surface — the bar's own fill is 1180
-    /// points wide and would otherwise be the widest rectangle in the frame. A
-    /// slider with no known duration is drawn DISABLED, in egui's own disabled
-    /// style rather than the box's control shade, so the colour is not a
-    /// property these tests can lean on either.
+    /// Found by its PARTIAL TRANSLUCENCY rather than its colour or its size:
+    /// the rail and the played part of it over it are drawn with an alpha,
+    /// where every opaque rectangle on this bar is a surface — the bar's own
+    /// fill is 1180 points wide and would otherwise be the widest rectangle
+    /// in the frame. Fully transparent fills are excluded with the opaque
+    /// ones: since the box gained its rim, those are the hand-painted edges —
+    /// a stroke's rectangle carries no fill at all. A slider with no known
+    /// duration is drawn DISABLED, in egui's own disabled style rather than
+    /// the box's control shade, so the colour is not a property these tests
+    /// can lean on either.
     fn seek_rail(painted: &Painted) -> egui::Rect {
         painted
             .rects
             .iter()
-            .filter(|(_, colour)| colour.a() < 255)
+            .filter(|(_, colour)| (1..255).contains(&colour.a()))
             .map(|(rect, _)| *rect)
             .filter(|rect| rect.width() >= 100.0)
             .max_by(|left, right| left.width().total_cmp(&right.width()))
@@ -2665,6 +2985,352 @@ mod tests {
         egui::__run_test_ui(|ui| super::queue_button(&mut app, ui));
 
         assert!(!app.queue_open(), "drawing is not clicking");
+    }
+
+    /// The box's cream stood off the bar rather than dissolving into it: a
+    /// hairline rim on the outside, and a lighter line just inside it — the
+    /// edge catching the light, which is what makes a flat shape read as a
+    /// raised one. Painted from the constants, and asserted as painted.
+    #[test]
+    fn the_centre_box_is_rimmed_and_lit_like_a_raised_panel() {
+        let mut app = app_with_a_loaded_track();
+        let painted = paint_bar(&mut app);
+        let pill = painted
+            .rects_with(theme::CENTRE_BOX_FILL)
+            .into_iter()
+            .max_by(|a, b| a.area().total_cmp(&b.area()))
+            .expect("the centre box paints its own fill");
+
+        assert!(
+            painted.stroked_with(theme::CENTRE_BOX_EDGE).contains(&pill),
+            "the box has no rim of its own against the bar: {pill:?}"
+        );
+        assert!(
+            painted
+                .stroked_with(theme::CENTRE_BOX_GLOSS)
+                .contains(&pill.shrink(1.0)),
+            "nothing catches the light along the box's inner edge"
+        );
+    }
+
+    /// The queue button is a small push button of the same school: lighter
+    /// face than the box it sits on, rimmed, and lit along its top half.
+    #[test]
+    fn the_queue_button_is_a_lit_push_button_on_the_box() {
+        let mut app = app_with_a_loaded_track();
+        let painted = paint_bar(&mut app);
+        let face = painted
+            .rects_with(theme::CENTRE_BOX_CONTROL)
+            .into_iter()
+            .find(|rect| {
+                (rect.width() - QUEUE_BUTTON_SIZE).abs() < 0.5
+                    && (rect.height() - QUEUE_BUTTON_SIZE).abs() < 0.5
+            })
+            .expect("the queue button paints its own face");
+
+        assert!(
+            painted.stroked_with(theme::CENTRE_BOX_EDGE).contains(&face),
+            "the button has no rim: {face:?}"
+        );
+
+        let gloss = painted
+            .rects_with(theme::CENTRE_BOX_GLOSS)
+            .into_iter()
+            .find(|rect| face.contains_rect(*rect))
+            .expect("the button's top half is lit");
+        assert!(
+            gloss.top() <= face.top() + 2.0 && (gloss.bottom() - face.center().y).abs() <= 1.0,
+            "the light sits somewhere other than the button's top: {gloss:?} in {face:?}"
+        );
+    }
+
+    /// With the queue open the button shows pushed in: the sink of a pressed
+    /// face, so the open queue has a source on the bar that reads as held
+    /// down rather than merely recoloured.
+    #[test]
+    fn an_open_queue_shows_the_button_pushed_in() {
+        let mut app = app_with_a_loaded_track();
+        app.toggle_queue();
+        let painted = paint_bar(&mut app);
+
+        let sunk = painted
+            .rects_with(theme::CENTRE_BOX_PRESSED)
+            .into_iter()
+            .find(|rect| {
+                (rect.width() - QUEUE_BUTTON_SIZE).abs() < 0.5
+                    && (rect.height() - QUEUE_BUTTON_SIZE).abs() < 0.5
+            })
+            .expect("an open queue leaves its button sunk");
+        let glyph = painted.ink(QUEUE_GLYPH).expect("the queue button");
+        assert!(
+            sunk.contains_rect(glyph),
+            "the sunk face is not under the button it belongs to: {sunk:?} vs {glyph:?}"
+        );
+    }
+
+    /// The cover wears the box's rim too, picture and empty slot alike: the
+    /// hairline is what makes the small square read as an object set ON the
+    /// box rather than a patch of colour let into it.
+    #[test]
+    fn the_cover_slot_wears_the_boxs_rim() {
+        let mut app = app();
+        app.open_path(Path::new("/music/song.mp3"));
+        let painted = paint_bar(&mut app);
+
+        let slot = painted
+            .rects_with(theme::CENTRE_BOX_CONTROL)
+            .into_iter()
+            .find(|rect| {
+                (rect.width() - COVER_SIZE).abs() < 0.5 && (rect.height() - COVER_SIZE).abs() < 0.5
+            })
+            .expect("the empty cover slot is marked out");
+        assert!(
+            painted.stroked_with(theme::CENTRE_BOX_EDGE).contains(&slot),
+            "the slot has no frame: {slot:?}"
+        );
+    }
+
+    /// Ask the app to index a scratch folder and leave it mid-job.
+    ///
+    /// Nothing here polls the library, so the app keeps reporting itself as
+    /// scanning for every frame the bar draws — the state the Indexing widget
+    /// exists for. The session itself looks at an empty scratch folder and
+    /// ends on its own thread, where nobody waits for it.
+    fn start_indexing(app: &mut MusicCraftApp) {
+        app.ask_to_add(crate::ui::dialog::PendingAdd::Folders {
+            paths: vec![crate::fixtures::scratch("index-watch")],
+        });
+        app.add_paths_in_place();
+
+        assert!(app.is_scanning(), "the app should be mid-scan");
+    }
+
+    /// An app holding a library but no track: the bar's pill is bare until
+    /// something plays or something is being indexed.
+    fn app_with_a_bare_bar() -> MusicCraftApp {
+        let library =
+            crate::library::Library::in_memory(crate::fixtures::scratch("index-bare-bar"))
+                .expect("an in-memory library");
+
+        MusicCraftApp::with_library(
+            Startup {
+                config: AppConfig::default(),
+                config_path: None,
+                error: None,
+            },
+            Playback::with_engine(AudioEngine::without_device(), 1.0),
+            library,
+        )
+    }
+
+    /// Indexing takes the box's top row from the track — the wording, the
+    /// candy groove and Cancel all land there — and the ☰ holds its exact
+    /// spot through the swap: the one thing on the pill that must not move.
+    #[test]
+    fn indexing_takes_the_top_row_from_a_playing_track() {
+        let mut app = app_playing_a_timed_track();
+        let resting = paint_bar(&mut app);
+        let burger_before = resting
+            .ink(QUEUE_GLYPH)
+            .expect("the queue button sits on the track's row");
+        // The bar's title is the opened path's stem, not the stored row's:
+        // `open_path` plays the file, and the file's stem is its name.
+        assert!(resting.ink("Seek").is_some(), "the track is on the bar");
+
+        start_indexing(&mut app);
+        let painted = paint_bar(&mut app);
+
+        // The walk has not reported back yet on this empty folder, so the
+        // honest caption is the sliding one — and the numbers clause only
+        // ever appears with a total to put them against.
+        assert!(
+            painted.ink("Indexing").is_some(),
+            "the widget did not take the row: {:?}",
+            painted
+                .texts
+                .iter()
+                .map(|text| text.galley.text())
+                .collect::<Vec<_>>()
+        );
+        assert!(painted.ink("Cancel").is_some(), "no way out of the job");
+        assert!(
+            painted.ink("Seek").is_none(),
+            "the title stayed on the row the widget took"
+        );
+        assert!(
+            !painted.rects_with(theme::CANDY_GROOVE_FILL).is_empty(),
+            "the widget drew no groove to fill"
+        );
+
+        let burger_after = painted
+            .ink(QUEUE_GLYPH)
+            .expect("the queue button holds its spot while indexing");
+        assert!(
+            (burger_before.min - burger_after.min).length() <= 1.0,
+            "the ☰ moved when the widget took the row: {burger_before:?} vs {burger_after:?}"
+        );
+    }
+
+    /// Nothing playing is not nothing happening: while a job runs the widget
+    /// speaks from the otherwise-bare pill, and the ☰ comes out with it —
+    /// the queue is reachable through a scan exactly as it is under a track.
+    #[test]
+    fn indexing_speaks_from_the_pill_even_with_nothing_playing() {
+        let mut app = app_with_a_bare_bar();
+        let idle = paint_bar(&mut app);
+        assert!(
+            idle.ink("Indexing").is_none() && idle.ink(QUEUE_GLYPH).is_none(),
+            "an idle bar with no track has nothing to say"
+        );
+
+        start_indexing(&mut app);
+        let painted = paint_bar(&mut app);
+
+        assert!(painted.ink("Indexing").is_some(), "the job is silent");
+        assert!(painted.ink("Cancel").is_some(), "no way out of the job");
+        assert!(
+            painted.ink(QUEUE_GLYPH).is_some(),
+            "the queue is unreachable while indexing"
+        );
+        assert!(
+            !painted.rects_with(theme::CANDY_GROOVE_FILL).is_empty(),
+            "the widget drew no groove to fill"
+        );
+    }
+
+    /// Drawing the widget is not clicking Cancel: a frame that shows the job
+    /// must never be the frame that stops it.
+    #[test]
+    fn drawing_the_indexing_cancel_button_cancels_nothing() {
+        let mut app = app_with_a_bare_bar();
+        start_indexing(&mut app);
+
+        paint_bar(&mut app);
+
+        assert!(app.is_scanning(), "drawing is not clicking");
+    }
+
+    /// A newer release takes the box's top row from the track, says where the
+    /// button lives, and leaves the ☰ where it is: the message moved to the
+    /// box, the action stayed in the gear menu.
+    #[test]
+    fn an_available_update_speaks_from_the_box() {
+        let mut app = app_with_a_loaded_track();
+        app.set_release_update(crate::update::Update::Available {
+            version: "v9.9.9".to_owned(),
+            url: "https://github.com/cmspeedau/iCraftMusic/releases/tag/v9.9.9".to_owned(),
+            asset: None,
+        });
+
+        let painted = paint_bar(&mut app);
+
+        assert!(
+            painted.ink("Update available — v9.9.9").is_some(),
+            "the news did not take the box"
+        );
+        assert!(
+            painted.ink("gear menu").is_some(),
+            "the line does not say where to take the update from"
+        );
+        assert!(
+            painted.ink("song").is_none(),
+            "the track kept the row the update took"
+        );
+        assert!(
+            painted.ink(QUEUE_GLYPH).is_some(),
+            "the ☰ left the box for the notice"
+        );
+    }
+
+    /// The check being merely underway says nothing on the bar: the track
+    /// keeps its row until there is an answer worth showing.
+    #[test]
+    fn a_check_underway_says_nothing_in_the_box() {
+        let mut app = app_with_a_loaded_track();
+        app.set_check_pending();
+
+        let painted = paint_bar(&mut app);
+
+        assert!(
+            painted.ink("Update").is_none(),
+            "the box spoke while the check only wondered"
+        );
+        assert!(
+            painted.ink("song").is_some(),
+            "the track lost its row anyway"
+        );
+    }
+
+    /// A job the user started outranks news the app found on its own: while
+    /// files are coming in, that is what the box is for.
+    #[test]
+    fn indexing_outranks_an_update_for_the_row() {
+        let mut app = app_with_a_bare_bar();
+        app.set_release_update(crate::update::Update::Available {
+            version: "v9.9.9".to_owned(),
+            url: "https://e/v9.9.9".to_owned(),
+            asset: None,
+        });
+
+        start_indexing(&mut app);
+        let painted = paint_bar(&mut app);
+
+        assert!(painted.ink("Indexing").is_some(), "the job lost the row");
+        assert!(
+            painted.ink("Update available").is_none(),
+            "the news spoke over a job in progress"
+        );
+    }
+
+    /// An update arriving is a job like any other: it fills the same candy
+    /// groove with its bytes and offers the same Cancel beside it.
+    #[test]
+    fn a_downloading_update_fills_the_candy_bar_and_offers_cancel() {
+        let mut app = app_with_a_bare_bar();
+        app.set_install(
+            Some("v9.9.9"),
+            Some(crate::update::Install::Running {
+                done: 3 * 1024 * 1024,
+                total: 12 * 1024 * 1024,
+            }),
+        );
+
+        let painted = paint_bar(&mut app);
+
+        assert!(painted.ink("Updating to v9.9.9").is_some(), "no word");
+        assert!(
+            painted.ink("3.0 MB of 12.0 MB").is_some(),
+            "the byte counts are not the ones the download has: {:?}",
+            painted
+                .texts
+                .iter()
+                .map(|text| text.galley.text())
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !painted.rects_with(theme::CANDY_GROOVE_FILL).is_empty(),
+            "the download drew no groove to fill"
+        );
+        assert!(painted.ink("Cancel").is_some(), "no way out of the job");
+    }
+
+    /// An installed update keeps the box until the restart takes it: it
+    /// waits across that restart anyway, and forgetting to say so is how an
+    /// update ends up installed and unrun for weeks.
+    #[test]
+    fn an_installed_update_asks_to_be_restarted() {
+        let mut app = app_with_a_bare_bar();
+        app.set_install(
+            Some("v9.9.9"),
+            Some(crate::update::Install::Installed {
+                version: "v9.9.9".to_owned(),
+            }),
+        );
+
+        let painted = paint_bar(&mut app);
+
+        assert!(painted.ink("v9.9.9 is installed").is_some());
+        assert!(painted.ink("Restart to run it").is_some());
     }
 
     #[test]

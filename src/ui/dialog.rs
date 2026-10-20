@@ -1,21 +1,113 @@
-//! The confirmation the library asks for before it forgets anything.
+//! The dialogs that ask the library's two questions.
 //!
-//! Every destructive library action goes through one of these: removing tracks
+//! Every destructive library action goes through a confirmation: removing tracks
 //! and clearing out the rows whose files have vanished both drop rows the user
-//! can only get back with another scan, so both are asked about first. The
-//! dialog is drawn as a floating window from [`crate::ui::render`], on top of
-//! whatever section is open, because a question that can be answered wrongly
-//! has to be unmissable.
+//! can only get back with another scan, so both are asked about first. Choosing
+//! music to add gets the other question — not permission, but a fork: index it
+//! where it lies, or copy it into the media home first. Both dialogs are drawn
+//! as floating windows from [`crate::ui::render`], on top of whatever section is
+//! open, because a question that can be answered wrongly has to be unmissable.
 //!
 //! Nothing here acts on its own: the view reports what the user chose and
-//! [`crate::app::MusicCraftApp::confirm_pending`] does the work, so the dialog
-//! and the action can be tested apart from one another.
+//! [`crate::app::MusicCraftApp`] does the work, so the dialogs and the actions
+//! can be tested apart from one another.
 
 use egui::{Align2, RichText, Vec2};
 
 use crate::app::MusicCraftApp;
 use crate::library::PlaylistId;
 use crate::ui::theme;
+
+use std::path::{Path, PathBuf};
+
+/// The music the user has just chosen, waiting to hear where it should live.
+///
+/// This is the mirror of [`Confirmation`]: that dialog asks permission for one
+/// destructive act, this one asks which of two additive homes the files should
+/// have. Both answer buttons bring the music in — "Add" watches it where it
+/// lies, "Copy" brings a copy into the media home and watches that — and only
+/// Cancel adds nothing. The originals are never moved or touched either way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PendingAdd {
+    /// Audio files chosen one by one.
+    Files {
+        /// The files the user picked.
+        paths: Vec<PathBuf>,
+    },
+    /// Whole folders chosen as folders.
+    Folders {
+        /// The folders the user picked.
+        paths: Vec<PathBuf>,
+    },
+}
+
+impl PendingAdd {
+    /// What was chosen.
+    #[must_use]
+    pub fn paths(&self) -> &[PathBuf] {
+        match self {
+            Self::Files { paths } | Self::Folders { paths } => paths,
+        }
+    }
+
+    /// The question, in a line, counting what was chosen.
+    #[must_use]
+    pub fn title(&self) -> String {
+        let count = self.paths().len();
+        match self {
+            Self::Files { .. } => format!(
+                "Add {} {}?",
+                count,
+                if count == 1 { "file" } else { "files" }
+            ),
+            Self::Folders { .. } => format!(
+                "Add {} {}?",
+                count,
+                if count == 1 { "folder" } else { "folders" }
+            ),
+        }
+    }
+
+    /// What each button does, and what no button does — never touch a file.
+    #[must_use]
+    pub fn detail(&self, home: Option<&Path>) -> String {
+        let unit = match self {
+            Self::Files { .. } => "file",
+            Self::Folders { .. } => "folder",
+        };
+        let where_part = match self {
+            Self::Files { .. } => "index it where it is",
+            Self::Folders { .. } => "watch it where it is",
+        };
+        let home = match home {
+            Some(home) => format!("{}", home.display()),
+            None => "the media folder".to_owned(),
+        };
+        format!(
+            "\"Add\" will {where_part}: the {} is indexed in its current location and stays \
+             there. \"Copy\" will put a copy of every audio file into `{home}` — folders keep \
+             their shape inside it — and index the copies. Nothing is ever moved, renamed or \
+             deleted: the files you chose stay exactly where they are.",
+            if self.paths().len() == 1 {
+                unit.to_owned()
+            } else {
+                format!("{unit}s")
+            }
+        )
+    }
+
+    /// The button that indexes in place.
+    #[must_use]
+    pub const fn add_label(&self) -> &'static str {
+        "Add"
+    }
+
+    /// The button that copies into the home first.
+    #[must_use]
+    pub const fn copy_label(&self) -> &'static str {
+        "Copy"
+    }
+}
 
 /// A library action that needs the user's consent.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +229,60 @@ pub fn confirm(app: &mut MusicCraftApp, ui: &egui::Ui) {
     }
 }
 
+/// Which button of the add dialog the user pressed.
+enum AddChoice {
+    Add,
+    Copy,
+    Cancel,
+}
+
+/// Draw the add dialog, when chosen music is waiting to hear where it goes.
+pub fn add_music(app: &mut MusicCraftApp, ui: &egui::Ui) {
+    let Some(pending) = app.pending_add() else {
+        return;
+    };
+
+    let home = app.media_home().map(PathBuf::from);
+    let mut open = true;
+    let mut chosen: Option<AddChoice> = None;
+
+    egui::Window::new(pending.title())
+        .collapsible(false)
+        .resizable(false)
+        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+        .open(&mut open)
+        .show(ui.ctx(), |ui| {
+            ui.set_max_width(380.0);
+            ui.label(RichText::new(pending.detail(home.as_deref())).small());
+
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .button(RichText::new(pending.add_label()).strong())
+                    .clicked()
+                {
+                    chosen = Some(AddChoice::Add);
+                }
+                if ui
+                    .button(RichText::new(pending.copy_label()).strong())
+                    .clicked()
+                {
+                    chosen = Some(AddChoice::Copy);
+                }
+                if ui.button("Cancel").clicked() {
+                    chosen = Some(AddChoice::Cancel);
+                }
+            });
+        });
+
+    match chosen {
+        Some(AddChoice::Add) => app.add_paths_in_place(),
+        Some(AddChoice::Copy) => app.copy_paths_into_home(),
+        Some(AddChoice::Cancel) | None if !open => app.cancel_add(),
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,6 +354,45 @@ mod tests {
             "the question survives its own frame"
         );
         assert_eq!(app.browse().track_count(), 1);
+    }
+
+    #[test]
+    fn the_add_question_says_what_both_buttons_do_and_promises_no_moves() {
+        let add = PendingAdd::Files {
+            paths: vec![PathBuf::from("/music/song.wav")],
+        };
+
+        assert_eq!(add.title(), "Add 1 file?");
+
+        let detail = add.detail(Some(Path::new("/home/user/iCraftMusic")));
+        assert!(
+            detail.contains("Add") && detail.contains("Copy"),
+            "{detail}"
+        );
+        assert!(
+            detail.contains("iCraftMusic"),
+            "{detail} does not name the home"
+        );
+        assert!(
+            detail.contains("Nothing is ever moved"),
+            "{detail} does not promise the originals safe"
+        );
+    }
+
+    #[test]
+    fn drawing_the_add_dialog_does_not_answer_it() {
+        let mut app = app();
+        app.ask_to_add(PendingAdd::Folders {
+            paths: vec![PathBuf::from("/music/mix")],
+        });
+
+        egui::__run_test_ui(|ui| add_music(&mut app, ui));
+
+        assert!(
+            app.pending_add().is_some(),
+            "the question survives its own frame"
+        );
+        assert!(app.library_folders().is_empty(), "and nothing was watched");
     }
 
     #[test]

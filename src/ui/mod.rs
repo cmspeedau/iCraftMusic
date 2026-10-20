@@ -52,6 +52,7 @@ pub fn render(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     editview::window(app, ui);
     playlistedit::window(app, ui);
     dialog::confirm(app, ui);
+    dialog::add_music(app, ui);
     shortcuts::handle(app, ui);
 }
 
