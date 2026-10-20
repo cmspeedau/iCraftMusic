@@ -179,12 +179,15 @@ is where narrowing to the rows belongs.
 **Artists** — the artist list, which marks a row the same way. Double-click
 plays the artist, and **Show their tracks** is in the right-click menu.
 
-Music comes in two ways, both from the gear at the right of the status bar:
-**Add files…** and **Add folder…** open the desktop's choosers, and folders or
-files can be dropped onto the window. A copy adds files by asking the desktop
-to place them in the **Music home** — the first watched folder is the media
-home, and it is where copies land — while files already somewhere else in the
-library are indexed where they stand.
+Music comes in three ways: **Add files…** and **Add folder…** open the
+desktop's choosers from the gear at the right of the status bar, and folders or
+files can be dragged onto the window. The drag is the one way the desktop can
+thwart: on a Wayland session the windowing toolkit receives no file drops, so
+there the drag needs the window run through XWayland with **`--x11`** (the two
+chooser rows work everywhere). A copy adds files by asking the desktop to place
+them in the **Music home** — the first watched folder is the media home, and it
+is where copies land — while files already somewhere else in the library are
+indexed where they stand.
 
 ## Current functionality
 

@@ -32,8 +32,56 @@ fn main() -> ExitCode {
     }
 }
 
+/// Whether the command line asked for the X11 window.
+fn use_x11(args: &[String]) -> bool {
+    args.iter().any(|arg| arg == "--x11")
+}
+
+/// What `--help` says, which is also the honest answer to "why is there a
+/// flag for a window at all": the flag is about what the desktop delivers,
+/// not about how the window looks.
+fn usage() -> String {
+    format!(
+        "{APP_NAME} {}\n\n\
+         Drag music onto the window from an X11 session, or from a Wayland one\n\
+         with --x11, which draws the window through XWayland so the desktop\n\
+         can deliver the drop. The gear menu's Add entries work everywhere.\n",
+        musiccraft::APP_VERSION
+    )
+}
+
 /// Open the window and run until the user closes it.
 fn run() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        print!("{}", usage());
+        return Ok(());
+    }
+
+    if use_x11(&args) {
+        // Winit picks its backend from these two variables, and X11 is what
+        // gives `--x11` its whole point: the desktop delivers file drops to
+        // X11 windows, and on Wayland it delivers them to nobody.
+        //
+        // SAFETY: this runs before any thread exists — the first act of the
+        // first and only thread — so nothing can be reading the environment
+        // while it changes.
+        unsafe {
+            std::env::remove_var("WAYLAND_DISPLAY");
+            std::env::remove_var("WAYLAND_SOCKET");
+        }
+        tracing::info!("--x11: the window runs through XWayland, where file drops arrive");
+    } else if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        // The one caveat on this kind of desktop, said once and quietly: the
+        // windowing toolkit cannot receive drops on native Wayland, so the
+        // pointer's way in is closed while the menu's two ways work.
+        tracing::info!(
+            "running on native Wayland: the desktop delivers no file drops here; \
+             pass --x11 to run through XWayland if you want to drag music in"
+        );
+    }
+
     let startup = app::Startup::load();
 
     if let Some(error) = startup.error.as_ref() {
@@ -68,4 +116,36 @@ fn run() -> anyhow::Result<()> {
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The flag is read as a word of its own: a stray argument that merely
+    /// looks like it — a longer flag, a negation, a path — must not silently
+    /// choose the window's backend.
+    #[test]
+    fn the_x11_flag_is_read_as_a_word_of_its_own() {
+        assert!(use_x11(&["musiccraft".into(), "--x11".into()]));
+        assert!(!use_x11(&["musiccraft".into()]));
+        assert!(!use_x11(&["musiccraft".into(), "--x111".into()]));
+        assert!(!use_x11(&["musiccraft".into(), "--no-x11".into()]));
+    }
+
+    /// The `--help` text is where someone who has never opened the README
+    /// learns that a flag for the window exists at all, and what it is for:
+    /// the drop, not the look.
+    #[test]
+    fn the_usage_names_the_flag_and_says_what_it_buys() {
+        let text = usage();
+        assert!(
+            text.contains("--x11"),
+            "the flag is not in the usage: {text}"
+        );
+        assert!(
+            text.contains("drop") && text.contains("gear"),
+            "the usage does not say what the flag buys: {text}"
+        );
+    }
 }
