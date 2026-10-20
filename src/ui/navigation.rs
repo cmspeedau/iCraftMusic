@@ -31,12 +31,15 @@
 //! clicks, Tab stops and spoken names stay with the egui widgets underneath
 //! it.
 
-use egui::{Button, Color32, Panel, Pos2, Rect, RichText, ScrollArea, Sense, Stroke, Vec2};
+use egui::{
+    Button, Color32, CornerRadius, Panel, Pos2, Rect, RichText, ScrollArea, Sense, Stroke,
+    StrokeKind, Vec2,
+};
 
 use crate::app::MusicCraftApp;
 use crate::library::PlaylistId;
 
-use super::theme;
+use super::{DraggedTracks, theme};
 
 /// A top-level area of the application.
 ///
@@ -87,9 +90,11 @@ impl NavSection {
 
 /// Draw the sidebar and switch sections when an entry is clicked.
 pub fn sidebar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    // Which playlist a click in the list asked for, applied once the list is no
-    // longer being read — the app cannot be borrowed mutably while it is.
+    // Which playlist a click in the list asked for, and which one a drag of
+    // tracks landed on — both applied once the list is no longer being read,
+    // because the app cannot be borrowed mutably while it is.
     let mut open: Option<PlaylistId> = None;
+    let mut dropped: Option<(PlaylistId, DraggedTracks)> = None;
 
     let panel = Panel::left("musiccraft_sidebar")
         .resizable(false)
@@ -100,7 +105,7 @@ pub fn sidebar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             // take the sidebar's ink instead of the theme's foreground.
             ui.scope(|ui| {
                 theme::apply_sidebar_visuals(&mut ui.style_mut().visuals);
-                sidebar_items(app, ui, &mut open);
+                sidebar_items(app, ui, &mut open, &mut dropped);
             });
         });
 
@@ -119,11 +124,25 @@ pub fn sidebar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         app.set_section(NavSection::Playlists);
         app.open_playlist(id);
     }
+
+    // A drop onto a row is the Add-to-playlist question the pointer asked
+    // instead of the menu: the same adding and the same playlist, with no
+    // menu and no dialog. The row only rings for drags it can receive, so
+    // what lands here has already been welcomed by the one row it landed on.
+    if let Some((id, DraggedTracks(tracks))) = dropped {
+        app.add_tracks_to_playlist_id(id, &tracks);
+    }
 }
 
 /// The sidebar's entries: the places you browse, and the playlists under a
-/// heading of their own.
-fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<PlaylistId>) {
+/// heading of their own. A dragged bundle of tracks is reported through
+/// `dropped` when it lands on one, never on a place.
+fn sidebar_items(
+    app: &mut MusicCraftApp,
+    ui: &mut egui::Ui,
+    open: &mut Option<PlaylistId>,
+    dropped: &mut Option<(PlaylistId, DraggedTracks)>,
+) {
     ui.add_space(2.0);
     heading(ui, "Library");
 
@@ -145,12 +164,16 @@ fn sidebar_items(app: &mut MusicCraftApp, ui: &mut egui::Ui, open: &mut Option<P
             place.description(),
             selected,
             theme::NAV_ITEM_HEIGHT,
+            // The Music row names a section, not a container: a drop on it
+            // would have nowhere to go, so it does not ring and does not
+            // take — and a ring it did not wear is a drop it cannot fake.
+            Landing::Closed,
         ) {
             app.set_section(place);
         }
     }
 
-    playlist_items(app, ui, open, section);
+    playlist_items(app, ui, open, dropped, section);
 }
 
 /// A group's heading: grey capitals, level with the rows under it.
@@ -189,6 +212,7 @@ fn playlist_items(
     app: &MusicCraftApp,
     ui: &mut egui::Ui,
     open: &mut Option<PlaylistId>,
+    dropped: &mut Option<(PlaylistId, DraggedTracks)>,
     section: NavSection,
 ) {
     ui.add_space(12.0);
@@ -213,6 +237,16 @@ fn playlist_items(
                 let selected = section == NavSection::Playlists
                     && app.selected_playlist() == Some(playlist.id);
 
+                let mut landing = None;
+                // A smart playlist's members are drawn by its rules, not
+                // delivered by the pointer: the row keeps its ring off, so a
+                // drop says aloud what the menu already says in the names it
+                // does not offer.
+                let target = if playlist.smart {
+                    Landing::Closed
+                } else {
+                    Landing::Open(&mut landing)
+                };
                 if source_row(
                     ui,
                     playlist.display_name(),
@@ -220,8 +254,12 @@ fn playlist_items(
                     &playlist.totals(),
                     selected,
                     theme::PLAYLIST_ITEM_HEIGHT,
+                    target,
                 ) {
                     *open = Some(playlist.id);
+                }
+                if let Some(tracks) = landing {
+                    *dropped = Some((playlist.id, tracks));
                 }
             }
         });
@@ -241,6 +279,21 @@ fn playlist_items(
 /// The bars read the pointer directly rather than a `Response`, for the queue
 /// button's reason: a bar is painted before the button whose face it is, and
 /// the same input says the same thing a frame later when the button reads it.
+/// Whether a source-list row can receive a dragged bundle of tracks, and
+/// where a received bundle goes.
+///
+/// The two states are one parameter because they are one decision: a row
+/// either can hold songs — a hand-made playlist — or it cannot, and the
+/// rows that cannot (a place like Music, a smart playlist) should neither
+/// ring for the drag nor pretend to have caught it.
+enum Landing<'a> {
+    /// Not a container: the row neither rings nor receives.
+    Closed,
+    /// Can hold tracks: the row rings while a drag passes over it, and a
+    /// release inside it fills this option.
+    Open(&'a mut Option<DraggedTracks>),
+}
+
 fn source_row(
     ui: &mut egui::Ui,
     name: &str,
@@ -248,6 +301,7 @@ fn source_row(
     note: &str,
     selected: bool,
     height: f32,
+    landing: Landing<'_>,
 ) -> bool {
     let (row, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::hover());
 
@@ -296,6 +350,28 @@ fn source_row(
     // The ring is the part egui never draws — the only sign Tab has stopped
     // on the row.
     theme::focus_ring_if_focused(ui, &response);
+
+    // The row's turn as a landing strip. Only a row that can hold tracks is
+    // one: a drag carrying music rings the row it passes over — and hands
+    // over its cargo the frame the pointer releases inside it. A smart
+    // playlist never rings, because it never takes; the pointer is turned
+    // away before it is dropped, not told so after.
+    match landing {
+        Landing::Open(carried_row) => {
+            if response.dnd_hover_payload::<DraggedTracks>().is_some() {
+                ui.painter().rect_stroke(
+                    row.shrink(1.0),
+                    CornerRadius::same(4),
+                    Stroke::new(1.5, theme::ACCENT),
+                    StrokeKind::Inside,
+                );
+            }
+            if let Some(carried) = response.dnd_release_payload::<DraggedTracks>() {
+                *carried_row = Some(DraggedTracks(carried.0.clone()));
+            }
+        }
+        Landing::Closed => {}
+    }
 
     response.clicked()
 }

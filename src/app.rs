@@ -983,8 +983,10 @@ impl MusicCraftApp {
     ///
     /// The name-taking [`MusicCraftApp::add_tracks_to_playlist`] is what the
     /// menu uses when the playlist may not exist yet; this is the half of it
-    /// that runs once the playlist does.
-    fn add_tracks_to_playlist_id(&mut self, id: PlaylistId, tracks: &[TrackId]) -> usize {
+    /// that runs once the playlist does — including when a drag of tracks
+    /// lands on a playlist's row in the sidebar, where the playlist is named
+    /// by nothing but its position.
+    pub fn add_tracks_to_playlist_id(&mut self, id: PlaylistId, tracks: &[TrackId]) -> usize {
         let Some(library) = self.library.as_mut() else {
             return 0;
         };

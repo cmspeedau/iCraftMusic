@@ -37,8 +37,20 @@ pub mod theme;
 use egui::{CentralPanel, RichText, ScrollArea};
 
 use crate::app::MusicCraftApp;
+use crate::library::TrackId;
 
 use navigation::NavSection;
+
+/// A bundle of tracks being dragged inside the window: what a track row
+/// carries away from a table, and what a playlist row in the sidebar may
+/// receive as new members.
+///
+/// Only identifiers travel. A drag starts over one table and ends over the
+/// source list, and what the identifiers still name is looked up when the
+/// drop lands — a track that left the library in between simply arrives at
+/// nothing and goes unstored.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DraggedTracks(pub Vec<TrackId>);
 
 /// Draw the whole window.
 pub fn render(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
@@ -354,6 +366,238 @@ mod tests {
         assert!(
             r < 128 && g < 128 && b < 128,
             "the dark theme's near-white ink reached the white page: {ink:?}"
+        );
+    }
+
+    /// A frame of the whole shell — `frame` with the pointer's company. A
+    /// drag lives across frames, so its test needs the events delivered the
+    /// same way `frame` delivers a drawn frame.
+    fn paint_events(
+        ctx: &egui::Context,
+        app: &mut MusicCraftApp,
+        events: Vec<egui::Event>,
+    ) -> Vec<egui::epaint::ClippedShape> {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                events,
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1180.0, 808.0),
+                )),
+                ..Default::default()
+            },
+            |ui| render(app, ui),
+        );
+        output.textures_delta.clear();
+        output.shapes
+    }
+
+    /// Where the shell drew a label reading exactly `needle`.
+    fn drawn_at(shapes: &[egui::epaint::ClippedShape], needle: &str) -> egui::Rect {
+        shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) if text.galley.text() == needle => {
+                    let size = text.galley.size();
+                    Some(egui::Rect::from_min_size(
+                        egui::pos2(text.pos.x, text.pos.y - size.y / 2.0),
+                        size,
+                    ))
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("nothing painted reads {needle:?}"))
+    }
+
+    /// Whether any source-list row was wearing the landing ring this frame.
+    fn a_row_is_ringing(shapes: &[egui::epaint::ClippedShape]) -> bool {
+        shapes.iter().any(|clipped| match &clipped.shape {
+            egui::Shape::Rect(rect) => {
+                rect.stroke.color == theme::ACCENT && rect.stroke.width == 1.5
+            }
+            _ => false,
+        })
+    }
+
+    fn moved(pos: egui::Pos2) -> egui::Event {
+        egui::Event::PointerMoved(pos)
+    }
+
+    fn pressed(pos: egui::Pos2) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    fn released(pos: egui::Pos2) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    /// The pointer's way of filing a song: pick a row up off the Music
+    /// table, let go over a playlist's row in the source list, and the
+    /// playlist has it — the same adding the right-click menu offers, with
+    /// no menu and no dialog.
+    #[test]
+    fn a_dragged_row_lands_in_the_playlist_it_is_loosed_on() {
+        use crate::playlists::Playlists;
+
+        let mut app = imported();
+        {
+            let library = app.library_mut().expect("a library");
+            Playlists::new(library.repository_mut())
+                .create("Filed")
+                .expect("a playlist to file into");
+        }
+        app.refresh().expect("the playlist reaches the summaries");
+
+        let ctx = egui::Context::default();
+        let shapes = paint_events(&ctx, &mut app, vec![]);
+
+        let row = drawn_at(&shapes, "Roygbiv").center();
+        let shelf = drawn_at(&shapes, "Filed").center();
+
+        // Press the row, then move far enough for the pick-up to start.
+        paint_events(&ctx, &mut app, vec![moved(row), pressed(row)]);
+        paint_events(&ctx, &mut app, vec![moved(shelf)]);
+
+        // The frame after the pick-up the row wears its ring: the sidebar is
+        // drawn before the table, so the drag the table starts on one frame
+        // is in the list's hands on the next — one sixtieth of a second,
+        // invisible to the eye and visible to a frame-by-frame test.
+        let shapes = paint_events(&ctx, &mut app, vec![moved(shelf)]);
+        assert!(
+            a_row_is_ringing(&shapes),
+            "the manual playlist's row kept its ring off a passing drag"
+        );
+
+        // Glide over the row and let go there.
+        paint_events(&ctx, &mut app, vec![moved(shelf), released(shelf)]);
+        paint_events(&ctx, &mut app, vec![]);
+
+        let id = app
+            .playlists()
+            .iter()
+            .find(|playlist| playlist.name == "Filed")
+            .expect("the playlist is still there")
+            .id;
+        assert!(app.open_playlist(id), "the playlist would not open");
+        let titles: Vec<&str> = app
+            .playlist_tracks()
+            .iter()
+            .map(|track| track.title.as_str())
+            .collect();
+        assert_eq!(
+            titles,
+            ["Roygbiv"],
+            "the drop added nothing to the playlist"
+        );
+    }
+
+    /// A smart playlist's row keeps its ring off and takes nothing: its
+    /// members are drawn by its rules, not delivered by the pointer. The
+    /// very drop that files a song elsewhere is refused here, before it is
+    /// ever loosed.
+    #[test]
+    fn a_smart_playlists_row_takes_no_drop() {
+        use crate::playlists::{Playlists, SmartRules};
+
+        let mut app = imported();
+        {
+            let library = app.library_mut().expect("a library");
+            Playlists::new(library.repository_mut())
+                .create_smart("Loud", &SmartRules::default())
+                .expect("a smart playlist");
+        }
+        app.refresh().expect("the playlist reaches the summaries");
+
+        let ctx = egui::Context::default();
+        let shapes = paint_events(&ctx, &mut app, vec![]);
+
+        let row = drawn_at(&shapes, "Roygbiv").center();
+        let shelf = drawn_at(&shapes, "Loud").center();
+
+        paint_events(&ctx, &mut app, vec![moved(row), pressed(row)]);
+        paint_events(&ctx, &mut app, vec![moved(shelf)]);
+        let shapes = paint_events(&ctx, &mut app, vec![moved(shelf)]);
+        assert!(
+            !a_row_is_ringing(&shapes),
+            "the smart playlist's row rang for a drop it cannot take"
+        );
+
+        paint_events(&ctx, &mut app, vec![moved(shelf), released(shelf)]);
+        paint_events(&ctx, &mut app, vec![]);
+
+        assert!(
+            app.playlist_error().is_none(),
+            "the refused drop complained: {:?}",
+            app.playlist_error()
+        );
+    }
+
+    /// The other half of the pointer's filing: a song already inside one
+    /// playlist can be picked up from its rows and dropped on another's row
+    /// — the same single-copying the drag from the Music table does, and
+    /// proof the playlist's own rows are picked-up-able too.
+    #[test]
+    fn a_song_copied_out_of_one_playlist_lands_in_another() {
+        use crate::playlists::Playlists;
+
+        let mut app = imported();
+        let track = app.browse().visible_track_ids()[0];
+        let filed;
+        {
+            let library = app.library_mut().expect("a library");
+            let mut playlists = Playlists::new(library.repository_mut());
+            filed = playlists.create("Filed").expect("a filed playlist");
+            playlists
+                .add_tracks(filed, &[track])
+                .expect("the song arrives");
+            playlists
+                .create("Elsewhere")
+                .expect("an empty second playlist");
+        }
+        app.refresh().expect("both playlists reach the summaries");
+        app.set_section(NavSection::Playlists);
+        app.open_playlist(filed);
+
+        let ctx = egui::Context::default();
+        let shapes = paint_events(&ctx, &mut app, vec![]);
+
+        // The song as the open playlist's row draws it, and the second
+        // playlist's row down the source list.
+        let row = drawn_at(&shapes, "Roygbiv").center();
+        let shelf = drawn_at(&shapes, "Elsewhere").center();
+
+        paint_events(&ctx, &mut app, vec![moved(row), pressed(row)]);
+        paint_events(&ctx, &mut app, vec![moved(shelf)]);
+        paint_events(&ctx, &mut app, vec![moved(shelf)]);
+        paint_events(&ctx, &mut app, vec![moved(shelf), released(shelf)]);
+        paint_events(&ctx, &mut app, vec![]);
+
+        let elsewhere = app
+            .playlists()
+            .iter()
+            .find(|playlist| playlist.name == "Elsewhere")
+            .expect("the second playlist")
+            .id;
+        assert!(app.open_playlist(elsewhere));
+        let titles: Vec<&str> = app
+            .playlist_tracks()
+            .iter()
+            .map(|playlist_track| playlist_track.title.as_str())
+            .collect();
+        assert_eq!(
+            titles,
+            ["Roygbiv"],
+            "the song did not travel from playlist to playlist"
         );
     }
 

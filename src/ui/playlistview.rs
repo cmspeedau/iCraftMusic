@@ -20,6 +20,7 @@ use crate::app::MusicCraftApp;
 use crate::library::{PlaylistId, Track, TrackId};
 use crate::playlists::PlaylistEditKind;
 
+use super::DraggedTracks;
 use super::keyboard_activated;
 use super::theme;
 
@@ -228,8 +229,20 @@ fn track_rows(app: &MusicCraftApp, ui: &mut egui::Ui, action: &mut Option<Action
         .is_some_and(|summary| summary.smart);
 
     for (index, track) in tracks.iter().enumerate() {
-        let (rect, response) =
-            ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_HEIGHT), Sense::click());
+        let (rect, response) = ui.allocate_exact_size(
+            Vec2::new(ui.available_width(), ROW_HEIGHT),
+            Sense::click_and_drag(),
+        );
+
+        // The playlist's own rows can be picked up too: dragging one out to
+        // another playlist's row in the sidebar copies the same track across,
+        // smart playlist included — a song a rule chose can be put by hand
+        // somewhere it will stay.
+        if response.drag_started()
+            && let Some(id) = track.id
+        {
+            response.dnd_set_drag_payload(DraggedTracks(vec![id]));
+        }
 
         let visuals = ui.visuals();
         let background = if response.hovered() {

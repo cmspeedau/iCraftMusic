@@ -200,7 +200,7 @@ indexed where they stand.
 | Music — Albums        | Album grid with cover art, decoded once per album and re-decoded when the texture cache fills                         |
 | Music — Artists       | Artist list, virtualised like the track table                                                                        |
 | Search                | Live filtering as the query is typed, over the rows already in memory; typing never touches the database              |
-| Playlists             | Create, rename, copy and delete; add tracks from the Music list's context menu; reorder entries; play the whole list, or from any row by double-click |
+| Playlists             | Create, rename, copy and delete; add tracks from the Music list's context menu or by dragging a track row (or the whole selection) onto a playlist's row in the sidebar; reorder entries; play the whole list, or from any row by double-click |
 | Smart playlists       | Rules on the fields the library really holds, matched all-or-any, with a limit by most-played or recently-added; membership is a compiled query, so the list is never stale and a duplicate copies the rules, not today's answer |
 | Metadata editing      | Title, artist, album, album artist, genre, track and disc numbers, and the cover; save to the database or write the tags into the file |
 | Play counts           | A **Plays** column, counted by the library rather than by the file, so a rescan does not reset it                     |

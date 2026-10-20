@@ -24,7 +24,7 @@ use crate::app::MusicCraftApp;
 use crate::library::browse::{AlbumCard, BrowseKind, ClickMode};
 use crate::library::{Track, TrackId};
 use crate::search::SortKey;
-use crate::ui::{empty_state, keyboard_activated, theme};
+use crate::ui::{DraggedTracks, empty_state, keyboard_activated, theme};
 
 /// Height of a track or artist row, in points.
 const ROW_HEIGHT: f32 = 24.0;
@@ -352,6 +352,21 @@ fn tracks_page(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
                 let response = track_row(ui, &columns, index + 1, track, selected, is_current);
 
+                // A row can also be picked up: the drag carries the row's
+                // track, or the whole selection when the row stands within
+                // it — the pointer's way of saying "these songs, over there",
+                // with the playlist rows down the sidebar waiting to receive.
+                if response.drag_started()
+                    && let Some(id) = track.id
+                {
+                    let carried: Vec<TrackId> = if selection.contains(&id) {
+                        selection.iter().copied().collect()
+                    } else {
+                        vec![id]
+                    };
+                    response.dnd_set_drag_payload(DraggedTracks(carried));
+                }
+
                 // Enter on the ring the row wears is the keyboard's double-click.
                 // The row still answers to egui's Space/Enter-as-click while it
                 // has focus, so a plain `clicked()` cannot be trusted to mean
@@ -582,7 +597,8 @@ fn track_row(
     playing: bool,
 ) -> egui::Response {
     let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, ROW_HEIGHT), Sense::click());
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(width, ROW_HEIGHT), Sense::click_and_drag());
 
     let visuals = ui.visuals();
     let background = if selected {
