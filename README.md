@@ -1,11 +1,10 @@
 # iCraftMusic
 
-![iCraftMusic's Library, on the All Tracks page](docs/screenshot.png)
-
-A native desktop player inspired by [iTunes 11](#itunes-11-and-the-year-in-the-brief),
-written entirely in Rust: a local library, album artwork, playlists, a queue, a
-search field that is always a keystroke away, and one window with the navigation
-on the left, the list in the middle and the player across the top.
+A native desktop player dressed in the idiom of [iTunes 7](#itunes-7-and-the-source-list),
+written entirely in Rust: a local library, album artwork, playlists that fill
+themselves from rules, a queue, a search field that is always a keystroke away,
+and one window with the source list on the left, the page in the middle, the
+player across the top and a status strip along the foot.
 
 **Written entirely in Rust** — every line of application code, from the audio
 engine to the tag writer to the UI. The only non-Rust things in the tree are the
@@ -41,15 +40,22 @@ pretending otherwise.
 | 10    | Optional Future Enhancements        | Partial  |
 
 Stage 10 collects features that are optional rather than prerequisites, and
-three of them have been built: **gapless playback**, **crossfade** and a
-**graphic equalizer**. Consecutive tracks whose order the queue already knows
-change over with no silence between them, because the track that follows is
-handed to the audio device before the current one ends and the hand-over is
-reported from the audio itself. A crossfade length above zero blends the two
-instead, overlapping them by that many seconds on the engine's two decks. The
-equalizer is a ten-band peaking-filter bank with a preamp and presets, applied to
-every track as it plays. The other additions the roadmap lists are not started.
-See [ROADMAP.md](ROADMAP.md#stage-10--optional-future-enhancements) for the detail.
+four of them have been built: **gapless playback**, **crossfade**, a **graphic
+equalizer** and **smart playlists**. Consecutive tracks whose order the queue
+already knows change over with no silence between them, because the track that
+follows is handed to the audio device before the current one ends and the
+hand-over is reported from the audio itself. A crossfade length above zero
+blends the two instead, overlapping them by that many seconds on the engine's
+two decks. The equalizer is a ten-band peaking-filter bank with a preamp and
+presets, applied to every track as it plays. A smart playlist stores rules —
+clauses on title, artist, album, genre, track number, play count, length and
+date added, matched all-or-any with an optional limit by most-played or
+recently-added — and the application turns those rules into one SQL query every
+time the playlist is read, so the list fills itself and stays current: a track
+that begins matching the moment it joins the library is already in the list the
+next time it is opened. The other additions the roadmap lists are not started.
+See [ROADMAP.md](ROADMAP.md#stage-10--optional-future-enhancements) for the
+detail.
 
 Beyond music, five further stages are recorded in
 [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md):
@@ -151,23 +157,32 @@ open-source references (GPL-3.0, reference-only here) out of this MIT project,
 are written down in
 [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md#stage-15--rockbox-device-synchronization).
 
-### The three Library pages
+## The source list and the three pages
 
-The Library browses the same rows three ways, and both of the pages below are
-one keystroke from the sidebar: `Ctrl/⌘ 1` for All Tracks, `Ctrl/⌘ 2` for
-Albums, `Ctrl/⌘ 3` for Artists.
+The left panel is a source list in the old sense: under the **LIBRARY** heading
+sits **Music**, and under a **PLAYLISTS** heading the playlists themselves, the
+open one marked by the blue bar that runs the panel's whole width. Clicking a
+playlist opens the Playlists page on it; there is no separate Playlists row
+because the list under the heading already is that page.
 
-**All Tracks** — the whole library as one sortable, filterable table:
+Music browses the same rows three ways. The three page buttons — a note, a jewel
+case, a person — sit on the playback bar, and `Ctrl/⌘ 1`, `2` and `3` are the
+keystrokes for the same choices.
 
-![The Library's All Tracks table, sorted by title](docs/screenshot.png)
+**All Tracks** — the whole library as one sortable, filterable table.
 
 **Albums** — one tile per album, with the cover the scanner cached, the artist
-and the track count:
+and the track count.
 
-![The Library's Albums grid](docs/albums.png)
+**Artists** — the artist list, which narrows Music to one name when a row is
+picked, the same way clicking an album tile does.
 
-**Artists** — the artist list, which narrows the Library to one name when a row
-is picked, the same way clicking an album tile does.
+Music comes in two ways, both from the gear at the right of the status bar:
+**Add files…** and **Add folder…** open the desktop's choosers, and folders or
+files can be dropped onto the window. A copy adds files by asking the desktop
+to place them in the **Music home** — the first watched folder is the media
+home, and it is where copies land — while files already somewhere else in the
+library are indexed where they stand.
 
 ## Current functionality
 
@@ -176,68 +191,72 @@ is picked, the same way clicking an album tile does.
 | Playback              | Play, pause, stop, seek, volume, previous and next; device, decoder and missing-file failures reported in place of the track detail |
 | Gapless playback      | The queue lines up the next track's audio behind the current one, so consecutive tracks change over with no silence between them; the change-over is reported from the audio, not a frame late |
 | Queue                 | Move a track earlier or later, remove it, clear the list, jump to any entry; shuffle and repeat                       |
-| Library — All Tracks  | Sortable table (title, artist, album, genre, duration, plays) with click, ctrl-click and shift-click selection        |
-| Library — Albums      | Album grid with cover art, decoded once per album and re-decoded when the texture cache fills                         |
-| Library — Artists     | Artist list, virtualised like the track table                                                                        |
+| Music — All Tracks    | Sortable table (title, artist, album, genre, duration, plays) with click, ctrl-click and shift-click selection        |
+| Music — Albums        | Album grid with cover art, decoded once per album and re-decoded when the texture cache fills                         |
+| Music — Artists       | Artist list, virtualised like the track table                                                                        |
 | Search                | Live filtering as the query is typed, over the rows already in memory; typing never touches the database              |
-| Playlists             | Create, rename, copy and delete; add tracks from the Library's context menu; reorder entries; play the whole list, or from any row by double-click |
+| Playlists             | Create, rename, copy and delete; add tracks from the Music list's context menu; reorder entries; play the whole list, or from any row by double-click |
+| Smart playlists       | Rules on the fields the library really holds, matched all-or-any, with a limit by most-played or recently-added; membership is a compiled query, so the list is never stale and a duplicate copies the rules, not today's answer |
 | Metadata editing      | Title, artist, album, album artist, genre, track and disc numbers, and the cover; save to the database or write the tags into the file |
 | Play counts           | A **Plays** column, counted by the library rather than by the file, so a rescan does not reset it                     |
 | Sorting and filtering | A leading article is ignored (`The Beatles` files under B); the table can be narrowed to tracks whose files have vanished |
 | Keyboard              | Space, `Ctrl/⌘ ←/→/↑/↓`, `Ctrl/⌘ L/P/,/1/2/3/E`, `Delete` and `Esc`; Tab and the arrow keys walk a visible focus ring, and Enter acts on the row it rests on — the table, the albums, the artists, a playlist — as a double-click would; listed in Settings, and none fires while a text field has focus |
 | Accessibility         | Every focusable control shows the ring, and every glyph-only button and slider gives a screen reader the words the pointer gets as hover text (`Repeat: this track`, not `🔁`) through AccessKit |
-| Settings              | Theme, volume, watched folders, output device, the crossfade length and the equalizer, each persisted as it changes     |
+| Settings              | Library management (watched folders, rescan), Playback (volume, crossfade, output device), the Equalizer, the keyboard table, Storage, Diagnostics and About, each change persisted as it happens |
 | Diagnostics           | Build, schema version, library counts, exact paths, the audio stream in use, and an on-demand `PRAGMA integrity_check` |
 | Recovery              | A versioned database copied beside itself (`VACUUM INTO`) before a migration rewrites it                             |
-| Logging               | stderr and a rotated, bounded log file under the data directory                                                      |
 | Packaging             | Release profile, desktop entry and SVG icon prepared under `packaging/`                                              |
-| Updates               | One check of the releases API at startup; when a newer release than this build exists, the status bar says so and opens its page |
+| Updates               | One check of the releases API at startup; when a newer release than this build exists, the centre box says so and the gear menu carries the row that installs it — which swaps the running file only when the application is running from an AppImage, and downloads nothing until it is asked |
 
 Known limitations: a scan can be stopped but is not resumed after the application
 exits. Editing a track's details keeps them in the library until the file changes
 or the tags are written into the file itself. A file played without being indexed
-(the play field, or the command line) has no row to count a play against. Gapless
-playback covers every track order the queue can name before the current track
-ends, but an edit to the queue in the moment before a change-over — removing or
-moving the track that was lined up — makes the player follow the queue with a
-normal load, which can be heard as a short gap; this is the one case where a
-change is not seamless. A crossfade is stepped on the frame clock rather than
-per sample, so a fade is smooth but not exact; it also needs a track whose length
-the decoder reported, and a track shorter than the fade finishes before the fade
-does. The equalizer has ten fixed bands and one preset shape per band. There
-is no installer and no release artifact yet; packaging is prepared under
-`packaging/`, not finished. The update check is the only network request the
-application makes: it sends nothing but this build's own name and version to the
-releases API, and it stays silent — no notice at all — while no release has been
-published, which is the case for this build. Nothing about the library, the
-listening history or the machine is sent. These are deliberate and tracked in
-the roadmap, not presented as finished features.
+(or dragged onto the window from outside the library) has no row to count a play
+against. Gapless playback covers every track order the queue can name before the
+current track ends, but an edit to the queue in the moment before a change-over —
+removing or moving the track that was lined up — makes the player follow the
+queue with a normal load, which can be heard as a short gap; this is the one case
+where a change is not seamless. A crossfade is stepped on the frame clock rather
+than per sample, so a fade is smooth but not exact; it also needs a track whose
+length the decoder reported, and a track shorter than the fade finishes before
+the fade does. The equalizer has ten fixed bands and one preset shape per band.
+Smart playlists rule over the fields the database has columns for; year and
+rating join the rule fields the day those columns exist. The theme follows the
+system's light/dark setting — `theme` can be set in the settings file, but there
+is no control for it in the interface yet. There is no published release yet:
+the update check is the only network request the application makes — it sends
+nothing but this build's own name and version to the releases API — and while no
+release has been published it stays silent, no notice at all. Nothing about the
+library, the listening history or the machine is sent. These are deliberate and
+tracked in the roadmap, not presented as finished features.
 
-## iTunes 11, and the year in the brief
+## iTunes 7, and the source list
 
-iTunes 11 shipped in **late 2012**; 2008 was the iTunes 8 era. iCraftMusic treats
-11 as the visual reference because that is the release whose layout this window
-is copying: the sidebar on the left, the content area in the middle, one bar
-across the top carrying the transport and the cover of what is playing, and a
-status strip along the foot. The album grid and the cover-driven centre box are
-that release's idiom. What the two eras share, and what this project actually
-follows, is the shape of the thing — a local library you own, browsed rather
-than fed to you.
+The reference is **iTunes 7** — the October 2006 release that introduced the
+source list. That is what the left panel copies: grey capital group headings,
+the flat blue bar with its lit top edge across the open row, a paler one under
+the pointer's row, and a note or a disc beside each name. The rest of the window
+follows the same year's idiom: the bevelled, slightly glossy chrome of the
+centre box, the rounded groove of the progress bar, the jewel-case page icons.
+What the era really stands for, and what this project follows, is the shape of
+the thing — a local library you own, browsed rather than fed to you.
 
 ## Prerequisites
 
-- Stable Rust toolchain (install via [rustup](https://rustup.rs)).
-- A desktop session with GPU/OpenGL support (the UI uses `egui`/`eframe`).
-- On Linux, the usual `eframe` system libraries, for example:
+- Stable Rust toolchain (install via [rustup](https://rustup.rs)), and a C
+  compiler — SQLite is compiled in, and that is the one crate with C in it.
+- On Linux, the audio backend links ALSA at build time:
 
   ```sh
   # Debian/Ubuntu
-  sudo apt install libxkbcommon-dev libgtk-3-dev libgl1-mesa-dev
+  sudo apt install libasound2-dev pkg-config
   # Fedora
-  sudo dnf install libxkbcommon-devel gtk3-devel mesa-libGL-devel
+  sudo dnf install alsa-lib-devel pkgconf-pkg-config
   ```
 
-  Exact package names vary by distribution.
+  Everything else the UI needs — the display server and OpenGL — is opened at
+  run time, so the only run-time requirement is a desktop session with a
+  driver that speaks OpenGL 3.3 or newer.
 
 - The folder chooser in Settings → Library management is the desktop's own file
   dialog. On Linux that is `xdg-desktop-portal`, which every KDE/GNOME session
@@ -257,7 +276,7 @@ cargo build --release  # optimized build
 cargo run
 ```
 
-The window opens with the navigation sidebar, content area, and playback bar.
+The window opens with the source list, the content page, and the playback bar.
 
 ## Quality checks
 
@@ -277,10 +296,12 @@ User settings are stored as TOML in the platform configuration directory
 falls back to defaults rather than failing; save errors are surfaced in the top
 bar instead of crashing.
 
-What is stored: the theme, the volume, the folders the library watches, and the
-output device iCraftMusic plays through (`output_device`, omitted entirely when
-the system default is wanted). Changing any of them writes the file at the end
-of the frame.
+What is stored: the theme (which follows the system unless the file says
+otherwise), the volume, the folders the library watches — the first of them is
+the Music home where copies are placed — the output device iCraftMusic plays
+through (`output_device`, omitted entirely when the system default is wanted),
+whether playback shuffles and repeats, the crossfade length, and the equalizer.
+Changing any of them writes the file at the end of the frame.
 
 The library database, the cached cover art and the log live in the platform's
 data directory, apart from the settings:
@@ -319,7 +340,7 @@ migration rewrites a database written by an older build, iCraftMusic writes a
 consistent copy beside it with SQLite's `VACUUM INTO`:
 
 ```
-library.sqlite.pre-v2.bak
+library.sqlite.pre-vN.bak
 ```
 
 If an upgrade goes wrong, that file is the library as the previous version left
@@ -349,18 +370,17 @@ update-desktop-database ~/.local/share/applications  # optional, for MimeType
   sizes the icon theme asks for.
 
 The release profile in `Cargo.toml` builds one stripped binary with link-time
-optimisation. There is no installer, and no artifact is published yet — that is
-Stage 9's job; what is here is the preparation for it.
+optimisation. There is no published release yet — that is Stage 9's job; what is
+here is the preparation for it. The in-app updater is ready for it: it looks at
+the latest GitHub release for an asset named after this machine's architecture
+(`-x86_64.AppImage`), and installs by renaming that file over the running
+AppImage, which is a swap only an AppImage copy can make.
 
 ## Project layout
 
 ```
-docs/
-├── screenshot.png     # the Library's All Tracks table
-└── albums.png         # the Library's Albums grid
-
 ROADMAP.md             # music: stages 0–10
-ROADMAP-MEDIA.md       # movies, TV shows and podcasts: stages 11–13
+ROADMAP-MEDIA.md       # movies, TV shows, podcasts and devices: stages 11–15
 
 src/
 ├── main.rs            # binary entry point
@@ -369,17 +389,20 @@ src/
 ├── config.rs          # settings model and persistence
 ├── diagnostics.rs     # what the installation looks like, and the integrity report
 ├── error.rs           # typed errors (thiserror) and Result alias
+├── fixtures.rs        # the sample library the tests share
 ├── logging.rs         # tracing subscriber: stderr and a rotated log file
-├── audio/             # output device, queue, transport
+├── update.rs          # the releases check and the AppImage swap
+├── audio/             # output device, queue, transport, equalizer
 ├── library/           # models, scanning, tag reading and writing, browse state
 ├── database/          # SQLite schema and repository
-├── playlists/         # playlists and their membership
+├── playlists/         # playlists, their membership, and smart rules
 ├── search/            # pure query, sort and filtering over library rows
 └── ui/
     ├── mod.rs         # shell composition
-    ├── navigation.rs  # sidebar sections and the playlist list
+    ├── navigation.rs  # the source list: sections and the playlist list
     ├── theme.rs       # light/dark theming, the focus ring, and accessible names
-    ├── libraryview.rs # library view: tracks, albums, artists
+    ├── artwork.rs     # the texture cache behind the album grid
+    ├── libraryview.rs # the Music pages: tracks, albums, artists
     ├── editview.rs    # the metadata editor
     ├── dialog.rs      # confirmation for destructive library actions
     ├── shortcuts.rs   # playback and navigation keys
@@ -387,8 +410,9 @@ src/
     ├── queueview.rs   # the queue popover
     ├── playlistview.rs# the open playlist and its tracks
     ├── playlistedit.rs# the playlist name editor
+    ├── smartplaylist.rs# the smart playlist rule editor
     ├── settingsview.rs# settings view
-    └── statusbar.rs   # the bar across the foot of the window
+    └── statusbar.rs   # the bar across the foot of the window, and the gear
 ```
 
 ## License
