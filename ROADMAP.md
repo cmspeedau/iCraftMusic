@@ -284,16 +284,23 @@ Goal: Extend the application after the core product is stable.
 Possible additions:
 
     Smart playlists and saved filters.
+    Album detail view below the album grid, as iTunes 11 shows it (design
+    agreed — see the status note below).
+    Artist master–detail view, as iTunes 11 shows it (design agreed — see the
+    status note below).
     Lyrics display and synchronized lyrics.
     Equalizer and audio effects.
     Crossfade (the fade half of the gapless item below).
     Ratings and listening history (play counts are counted already — see the
     Status section below).
     Playlist import and export.
+    Import from an iTunes library (design agreed — see the status note below).
     External media-key integration.
     Additional audio formats and decoder backends.
     Portable mode.
-    Optional device synchronization.
+    Optional device synchronization. (This one has grown into a stage of its
+    own: Stage 15, Rockbox device synchronization, in ROADMAP-MEDIA.md, marked
+    Unknown.)
     Optional network streaming or remote library integrations.
 
 These features are not prerequisites for the initial release. Each must be assessed for technical complexity, dependencies, privacy, licensing, and platform support before implementation.
@@ -320,15 +327,101 @@ per sample, and needs a track whose length the decoder reported.
 Equalizer: a ten-band bank of peaking biquads with a preamp, an on/off switch and
 named presets, applied to every track before it reaches the device. Each track
 re-reads the settings as it runs, so moving a slider is heard on the track
-already playing. The remaining additions above are unstarted.
+already playing. The remaining additions above are unstarted — with one in
+design: the album detail view is agreed and written down below, so the session
+that builds it does not have to re-argue it.
+
+Album detail view: designed October 2026, not started. Clicking an album on the
+Albums page is to open the panel iTunes 11 opens under the grid, replacing what
+the click does now, which is typing the album's name into the search field and
+jumping to the All Tracks table. The data comes first: tracks gain a **year**,
+kept as the string the tag carries (`TYER` and `DATE` hold `2007/UK` as often as
+`2007`) and displayed only as a leading four digits when there is one, added by
+one schema migration, settable in the metadata editor, and summed into an
+album's year by the rule the album artist already follows. The state is one
+`Option` in `LibraryBrowse`, keyed by the album name the queue commands already
+use: it opens on a single click, swaps to another album, toggles back from the
+same one, closes on its ✕ or on Esc, and survives whatever the search field
+filters the grid down to — the panel is the album's own, not a search result.
+Clicking an album tile never touches the search field again; double-clicking
+still plays the album, the tile's context menu keeps Play, Queue and **Show its
+tracks**, and the Artists page keeps its current shape until the artist
+master–detail view noted below replaces it. The panel fills the bottom of the
+library's centre area under the scrolled grid: the title, a credit line of
+artist, year, track count and total time, Play / Shuffle / Add to queue
+buttons, and the numbered track list in two columns when the panel is wide —
+split at a disc boundary when the release has more than one — where
+double-clicking a row plays the album from that track. The cover sits enlarged
+and blurred at the right as the backdrop, the blur a downscale and bilinear
+return cached per album beside the artwork cache's cover rather than a filter
+run every frame, and the panel is tinted with the theme's own colours. What
+does not cross over is the screenshot's other half: there is **no “In the
+Store” button** and nothing store-shaped is planned beside this panel, which
+belongs to the library and not to a shop.
+
+Artist master–detail view: designed October 2026, not started; it supersedes the
+sentence above promising the Artists page is unchanged. The Artists page becomes
+the two panes iTunes 11 gives it, inside the central area: a selectable,
+alphabetical artist list on the left — the initial tile standing in for the
+avatar, as it does for a missing cover in the album grid — and the selected
+artist's discography on the right. That shape deliberately differs from the
+album page's list-plus-panel-below, for the reason iTunes itself had: a
+discography stack needs the height. The right pane opens with the artist's name,
+an “N Albums · M Songs” line, and Play / Shuffle / Add to queue buttons; below
+them, one section per album — cover at the left, “Title (1980)” as its header,
+the numbered track list in two columns — and double-clicking a row plays that
+album from that track. An album earns a section when the artist has credited
+tracks on it, and the section lists **every** track of that album, whole
+compilations included; the alternative, credited-tracks-only, reads as a
+truncated album whenever anyone else plays on it. The machinery is shared with
+the album view and the build order follows from that: the year layer first, then
+one two-column track-list helper serving both views, then the two pages.
+Selecting an artist never touches the search field; search filters the left
+list only, and the selected artist's pane persists while valid, under the same
+rule the album panel lives by. No Gallery, no Store, no tabs.
+
+iTunes library import: designed October 2026, not started. A one-off migration,
+not a sync: Settings → Library management offers **Import from iTunes…**, which
+opens the file picker at an `iTunes Library.xml` — Apple's own documented plist,
+read with one crate, no reverse-engineering and nothing that asks iTunes to
+still exist. Import invents nothing and changes no file: the user has already
+added the `iTunes Media` folder — that folder tree works as a scanned folder
+today — and the import matches the XML's entries by path onto the indexed
+tracks, applying library state only. `Play Count` goes into the existing Plays
+column under `max(existing, imported)`, so playing since the last iTunes is not
+lost. `Rating` lands on a new rating field at 0–10 — the unbuilt *Ratings and
+listening history* addition finally has its reason, and 0–10 is the scale
+Rockbox's runtime data uses too (Stage 15), so one scale serves the whole
+application. `Year` lands on the year the album and artist views already need,
+the import doubling as a backfill where a tag lacks one; date-added follows the
+same path. `Master Playlists` become playlists in order through the existing
+create-or-find path, the master pseudo-playlists skipped, and the smart ones —
+which speak iTunes' private query language — skipped and named rather than
+silently dropped. The `Album Artist Location` paths feed the artwork cache for
+albums that carry no embedded cover. The honesty rules are gPodder's, restated:
+a track matching nothing is counted and named, not swallowed; a missing XML
+says plainly that iTunes keeps it private until *Share XML with other applications* is ticked —
+and in the newer Music apps, which generate no XML at all, that it is a
+one-time **File → Library → Export Library** away — a library that is `.itl`
+only is refused with the reason: the binary format is reverse-engineered, and
+this project does not read it. The modern-looking alternative database is not
+the relief it appears: the Music app's `Music Library.musiclibrary` package
+holds `Library.musicdb` and friends whose files begin with an **`hfma`**
+header — a FileMaker-lineage binary, not SQLite — undocumented, and publicly
+readable only through Apple's macOS-only `iTunesLibrary` framework. That is a
+second `.itl`, not an openable database; a parse failure changes nothing. Not
+in the design, and on purpose: no `.itl`, no `.musicdb`, no moving or exporting
+folders, no live connection to a running iTunes.
 
 
-## Beyond music — stages 11 to 13
+## Beyond music — stages 11 to 15
 
 Stages 0 to 10 above are the music player, and all of them that are marked
 Complete have been verified against the running application. The plan for the
 rest — one library and one player holding films, TV shows and podcast episodes
-as well as songs, with gPodder synchronization for the podcasts — lives in
+as well as songs, with gPodder synchronization for the podcasts, and two device
+synchronization stages (Apple iPod, and players running Rockbox) that are marked
+Unknown rather than pretending a decision has been made — lives in
 [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md):
 
 | Stage | Description                          | State   |
@@ -336,6 +429,8 @@ as well as songs, with gPodder synchronization for the podcasts — lives in
 | 11    | Media Library Generalisation         | Planned |
 | 12    | Movies and TV Shows                  | Planned |
 | 13    | Podcasts and gPodder Synchronization | Planned |
+| 14    | Apple iPod Synchronization           | Unknown |
+| 15    | Rockbox Device Synchronization       | Unknown |
 
 It is kept in its own file on purpose: these stages are unstarted, and mixing
 them in here made the music work look unfinished. That file also carries the
@@ -355,9 +450,12 @@ M7 — Expansion	10	Optional advanced capabilities
 M8 — Generalisation	11	One library and player holding more than music
 M9 — Film and TV	12	Films and series indexed, browsed and played locally
 M10 — Podcasts	13	Subscriptions, downloads and playback, with gPodder sync
+M11 — iPod (unknown)	14	Apple iPod synchronization, once the approach is decided
+M12 — Rockbox (unknown)	15	Rockbox device synchronization, once the stage is committed
 
-M8 to M10 are the stages in [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md). M8 must land
-before M9 and M10; those two do not depend on each other.
+M8 to M12 are the stages in [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md). M8 must land
+before M9 and M10; those two do not depend on each other, and M11 and M12 sit
+off to one side, undated, until their open questions are answered.
 Development Rules
 
     Complete stages in order unless a dependency requires otherwise.

@@ -19,8 +19,9 @@ and the name on the tin says so.
 iCraftMusic is built incrementally against [ROADMAP.md](ROADMAP.md), which is the
 authority on what each stage delivers and on what is still missing.
 [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md) is the second roadmap: movies, TV shows and
-podcasts, with gPodder synchronization — and Apple iPod synchronization, whose
-approach is not yet decided and which that file marks **Unknown** rather than
+podcasts, with gPodder synchronization — and two kinds of device synchronization,
+Apple iPod and [Rockbox](https://www.rockbox.org/)-running players, whose
+approaches are not yet decided and which that file marks **Unknown** rather than
 pretending otherwise.
 
 ## Status
@@ -50,7 +51,7 @@ equalizer is a ten-band peaking-filter bank with a preamp and presets, applied t
 every track as it plays. The other additions the roadmap lists are not started.
 See [ROADMAP.md](ROADMAP.md#stage-10--optional-future-enhancements) for the detail.
 
-Beyond music, four further stages are planned in
+Beyond music, five further stages are recorded in
 [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md):
 
 | Stage | Description                          | State   |
@@ -59,6 +60,7 @@ Beyond music, four further stages are planned in
 | 12    | Movies and TV Shows                  | Planned |
 | 13    | Podcasts and gPodder Synchronization | Planned |
 | 14    | Apple iPod Synchronization           | Unknown |
+| 15    | Rockbox Device Synchronization       | Unknown |
 
 The two roadmaps share one foundation: Stage 11 generalises the library and the
 player so that a film, an episode and a podcast episode are rows beside a song
@@ -67,12 +69,17 @@ those rows need.
 
 **Unknown** is a state of its own, not a shy way of writing Planned. Stages 11 to
 13 each have an approach that has been thought through and only the work left;
-Stage 14 does not. An iPod verifies a checksummed database against a hash that,
-on the newer generations, cannot be derived without a file only iTunes can
-produce — so writing to the device is a different class of operation from
-anything else in this application, and there are three candidate approaches with
-no obvious winner. [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md) records the research and
-the three open questions rather than inventing a plan to have one.
+Stages 14 and 15 do not, for opposite reasons. Stage 14 cannot yet decide: an
+iPod verifies a checksummed database against a hash that, on the newer
+generations, cannot be derived without a file only iTunes can produce — so
+writing to the device is a different class of operation from anything else in
+this application, and its three candidate approaches have no obvious winner.
+Stage 15 has decided nothing because it is scope that is undecided, not method: a
+player running Rockbox reads the filesystem directly, so syncing one is a managed
+file copy — `.m3u8` playlists and a `cover.jpg` per album — and what remains open
+is how far the application reaches into Rockbox's own databases, and whether the
+stage is built at all. [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md) records the research
+and the open questions for both rather than inventing plans to have them.
 
 ## What it plays
 
@@ -115,12 +122,13 @@ Nothing else is a media file as far as iCraftMusic is concerned.
 | Podcasts      | 13    | Planned | RSS/Atom feed parsing, episode download, resume position           |
 | gPodder sync  | 13    | Planned | Subscription and episode-action sync with gpodder.net or a self-hosted instance |
 | Apple iPod sync | 14  | Unknown | Writing the device's checksummed database; approach undecided      |
+| Rockbox device sync | 15 | Unknown | Managed file copy plus `.m3u8` to Rockbox players; researched, uncommitted |
 
 The roadmap for these is [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md), which also carries
 the gPodder API reference those stages are written against.
 
-Apple iPod sync is the one entry here with no agreed approach, and it is listed
-as **Unknown** rather than Planned for that reason. An iPod reads a database of
+The two **Unknown** entries are listed as such for different reasons. Apple iPod
+sync has three candidate approaches and no decision. An iPod reads a database of
 what is on it, and since the iPod classic that database is verified against a
 cryptographic hash — so a sync means rewriting the database and recomputing the
 hash, and on the newer generations that hash depends on a `HashInfo` file only
@@ -129,6 +137,19 @@ iTunes can generate. Three approaches are on the table (bindings to the C
 never write to the device); the trade-offs, the generation-by-generation
 requirements and the open questions are written down in
 [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md#stage-14--apple-ipod-synchronization).
+
+Rockbox device sync is the reverse case: the research is done and the commitment
+is what is missing. A player running Rockbox browses the filesystem instead of a
+verified database, so a sync there is a managed file copy — `.m3u8` playlists, a
+`cover.jpg` per album, the same tags lofty already reads — with no `iTunesDB`, no
+hashes and no C library. Undecided is the first version's scope (files,
+playlists and cover art, with hi-res files the target is not confirmed to play
+named and skipped), whether the application ever reaches into Rockbox's own
+databases for play counts and ratings, and whether the stage is built at all.
+The findings, and the licence boundary that keeps the larger of the two
+open-source references (GPL-3.0, reference-only here) out of this MIT project,
+are written down in
+[ROADMAP-MEDIA.md](ROADMAP-MEDIA.md#stage-15--rockbox-device-synchronization).
 
 ### The three Library pages
 
