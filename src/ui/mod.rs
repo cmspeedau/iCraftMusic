@@ -7,18 +7,21 @@
 //!
 //! The window has no header strip: what one showed (the application name and
 //! version, and the failure to load the stored settings) lives in the Settings
-//! section's About pane, so the first row of the window is the transport.
+//! window's About pane, so the first row of the window is the transport.
 //!
-//! Two things are drawn over everything rather than inside a section: the
-//! metadata editor ([`editview`]) and the confirmation a destructive library
-//! action asks for ([`dialog`]). Both are floating windows, so they can be
-//! opened from any section and cannot be clipped by one. The keyboard is read
-//! last ([`shortcuts`]), which is what keeps a shortcut from stealing a key
-//! from a widget that has just claimed it.
+//! Some things are drawn over everything rather than inside a section: the
+//! metadata editor ([`editview`]), the playlist editors ([`playlistedit`] and
+//! [`smartplaylist`]) and the confirmation a destructive library action asks
+//! for ([`dialog`]); and two windows live of their own accord, opened from the
+//! gear — Settings ([`settingsview`]) and the Equalizer ([`equalizerview`]).
+//! All are floating windows, so they can be opened from any section and cannot
+//! be clipped by one. The keyboard is read last ([`shortcuts`]), which is what
+//! keeps a shortcut from stealing a key from a widget that has just claimed it.
 
 pub mod artwork;
 pub mod dialog;
 pub mod editview;
+pub mod equalizerview;
 pub mod libraryview;
 pub mod navigation;
 pub mod nowplaying;
@@ -48,11 +51,14 @@ pub fn render(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     content(app, ui);
 
     // The editor and the confirmation are overlays on top of whatever section
-    // is open, and the keyboard is read last so a shortcut cannot fight with a
-    // widget that has just claimed the key for itself.
+    // is open, and the Settings and Equalizer windows ride above the page too
+    // rather than replacing it. The keyboard is read last so a shortcut cannot
+    // fight with a widget that has just claimed the key for itself.
     editview::window(app, ui);
     playlistedit::window(app, ui);
     smartplaylist::window(app, ui);
+    settingsview::window(app, ui);
+    equalizerview::window(app, ui);
     dialog::confirm(app, ui);
     dialog::add_music(app, ui);
     shortcuts::handle(app, ui);
@@ -111,7 +117,6 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 .show(ui, |ui| match app.section() {
                     NavSection::Library => libraryview::show(app, ui),
                     NavSection::Playlists => playlistview::show(app, ui),
-                    NavSection::Settings => settingsview::show(app, ui),
                 });
         });
 }
@@ -323,26 +328,27 @@ mod tests {
 
     /// And the words on the sheet are the light style's dark ink even when
     /// the rest of the style is dark — the sheet and its ink travel together,
-    /// because near-white ink on a white page is nothing at all.
+    /// because near-white ink on a white page is nothing at all. The track
+    /// table anchors the check: it is the page's own ink, drawn by hand in
+    /// whatever style the page carries.
     #[test]
     fn the_page_wears_dark_ink_even_in_the_dark_theme() {
         use crate::config::ThemeMode;
 
         let mut app = imported();
         app.set_theme(ThemeMode::Dark);
-        app.set_section(NavSection::Settings);
 
         let shapes = frame(&mut app);
 
         let ink = shapes
             .iter()
             .find_map(|clipped| match &clipped.shape {
-                egui::Shape::Text(text) if text.galley.text() == "Playback" => {
+                egui::Shape::Text(text) if text.galley.text() == "Roygbiv" => {
                     Some(text.galley.job.sections[0].format.color)
                 }
                 _ => None,
             })
-            .expect("the Settings page names its Playback pane");
+            .expect("the track table names a track");
 
         let (r, g, b, _) = ink.to_tuple();
         assert!(

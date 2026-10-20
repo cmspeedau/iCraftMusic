@@ -39,6 +39,10 @@ use crate::library::PlaylistId;
 use super::theme;
 
 /// A top-level area of the application.
+///
+/// Settings is not among them, and no longer was: it rides in its own window
+/// opened from the gear, beside the page it belongs to, rather than as a
+/// page that replaces the one you were looking at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NavSection {
     /// The user's music library.
@@ -46,22 +50,19 @@ pub enum NavSection {
     Library,
     /// User-created playlists.
     Playlists,
-    /// Application preferences.
-    Settings,
 }
 
 impl NavSection {
     /// Every section, in the order shown in the sidebar.
-    pub const ALL: [NavSection; 3] = [Self::Library, Self::Playlists, Self::Settings];
+    pub const ALL: [NavSection; 2] = [Self::Library, Self::Playlists];
 
     /// Sections pinned to the top of the sidebar, under the "Library"
     /// heading.
     ///
-    /// Settings is not among them: it is opened from the gear in the status
-    /// bar, and `ALL` is what the app can be in rather than what is listed.
-    /// Playlists is not either: its section only ever shows one of the lists
-    /// drawn under it, so the entry was a row that led nowhere of its own —
-    /// the lists themselves are the way in, along with the `+` that makes one.
+    /// Playlists is not among them: its section only ever shows one of the
+    /// lists drawn under it, so the entry was a row that led nowhere of its
+    /// own — the lists themselves are the way in, along with the `+` that
+    /// makes one.
     pub const TOP: [NavSection; 1] = [Self::Library];
 
     /// Name shown in the sidebar. The Library section is the source list's
@@ -72,7 +73,6 @@ impl NavSection {
         match self {
             Self::Library => "Music",
             Self::Playlists => "Playlists",
-            Self::Settings => "Settings",
         }
     }
 
@@ -81,7 +81,6 @@ impl NavSection {
         match self {
             Self::Library => "Your music, by artist, album and track",
             Self::Playlists => "Collections you have put together",
-            Self::Settings => "Appearance and playback preferences",
         }
     }
 }
@@ -413,15 +412,20 @@ mod tests {
         }
     }
 
+    /// Settings is no longer one of the sections at all — it rides in its own
+    /// window now — so the sidebar, which lists the sections, can no more show
+    /// it than show a colour. What remains of the rule is that exactly Music
+    /// and Playlists are the areas a page can be.
     #[test]
-    fn settings_has_no_sidebar_entry() {
-        assert!(
-            !NavSection::TOP.contains(&NavSection::Settings),
-            "the status bar's gear opens Settings now, not the sidebar"
+    fn settings_is_no_longer_a_section_to_list() {
+        assert_eq!(
+            NavSection::ALL,
+            [NavSection::Library, NavSection::Playlists],
+            "the sections are the pages the window can be on, and Settings has left them"
         );
         assert!(
-            NavSection::ALL.contains(&NavSection::Settings),
-            "…but the app can still be in Settings"
+            !NavSection::TOP.contains(&NavSection::Playlists),
+            "Playlists reaches its lists directly, not by a pinned entry"
         );
     }
 

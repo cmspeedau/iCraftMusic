@@ -37,7 +37,7 @@ pub enum Command {
     Library,
     /// Open the Playlists section.
     Playlists,
-    /// Open the Settings section.
+    /// Open the Settings window.
     Settings,
     /// Show every track.
     Tracks,
@@ -104,7 +104,7 @@ impl Command {
             Self::VolumeDown => "Quieter",
             Self::Library => "Go to the music",
             Self::Playlists => "Go to the playlists",
-            Self::Settings => "Go to settings",
+            Self::Settings => "Open the Settings window",
             Self::Tracks => "Show all tracks",
             Self::Albums => "Show the albums",
             Self::Artists => "Show the artists",
@@ -125,7 +125,7 @@ pub fn run(app: &mut MusicCraftApp, command: Command) {
         Command::VolumeDown => change_volume(app, -VOLUME_STEP),
         Command::Library => app.set_section(NavSection::Library),
         Command::Playlists => app.set_section(NavSection::Playlists),
-        Command::Settings => app.set_section(NavSection::Settings),
+        Command::Settings => app.open_settings(),
         Command::Tracks => show_page(app, BrowseKind::Tracks),
         Command::Albums => show_page(app, BrowseKind::Albums),
         Command::Artists => show_page(app, BrowseKind::Artists),
@@ -154,8 +154,9 @@ pub fn handle(app: &mut MusicCraftApp, ui: &egui::Ui) {
 
 /// Close the topmost thing that is open.
 ///
-/// One key, three levels, innermost first: a question the user is being asked
-/// outranks the editor that asked it, and both outrank the queue popover.
+/// One key, and the levels come off innermost first: a question the user is
+/// being asked outranks the editor that asked it, the floating Settings and
+/// Equalizer windows outrank the queue popover, and the queue is last.
 fn dismiss(app: &mut MusicCraftApp) {
     if app.pending_confirmation().is_some() {
         app.cancel_confirmation();
@@ -163,6 +164,14 @@ fn dismiss(app: &mut MusicCraftApp) {
     }
     if app.editor().is_some() {
         app.close_editor();
+        return;
+    }
+    if app.settings_open() {
+        app.close_settings();
+        return;
+    }
+    if app.equalizer_open() {
+        app.close_equalizer();
         return;
     }
     app.close_queue();
@@ -431,11 +440,47 @@ mod tests {
         press(&mut app, vec![key(Key::P, Modifiers::COMMAND)]);
         assert_eq!(app.section(), NavSection::Playlists);
 
-        press(&mut app, vec![key(Key::Comma, Modifiers::COMMAND)]);
-        assert_eq!(app.section(), NavSection::Settings);
-
         press(&mut app, vec![key(Key::L, Modifiers::COMMAND)]);
         assert_eq!(app.section(), NavSection::Library);
+    }
+
+    /// `Ctrl/⌘ ,` opens the Settings window rather than a page — and the
+    /// window arriving must not move the page underneath it, because the
+    /// keystroke means "change something", not "stop looking at this".
+    #[test]
+    fn the_comma_opens_the_settings_window_over_the_page() {
+        let mut app = app();
+        press(&mut app, vec![key(Key::P, Modifiers::COMMAND)]);
+
+        press(&mut app, vec![key(Key::Comma, Modifiers::COMMAND)]);
+        assert!(app.settings_open(), "the comma opened nothing");
+        assert_eq!(
+            app.section(),
+            NavSection::Playlists,
+            "the Settings window pushed the page off screen"
+        );
+    }
+
+    /// `Esc` puts away the floating windows too, topmost of the open things
+    /// first, the way it already closes the question and the editor.
+    #[test]
+    fn the_escape_key_closes_the_floating_windows() {
+        let mut app = app();
+
+        press(&mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        app.toggle_equalizer();
+        app.open_settings();
+
+        press(&mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(
+            !app.settings_open() && app.equalizer_open(),
+            "Esc closed the wrong window: settings {}, equalizer {}",
+            app.settings_open(),
+            app.equalizer_open()
+        );
+
+        press(&mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(!app.equalizer_open(), "Esc let the equalizer stay");
     }
 
     #[test]

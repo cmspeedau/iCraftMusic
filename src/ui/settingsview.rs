@@ -1,4 +1,9 @@
-//! The Settings section.
+//! The Settings window.
+//!
+//! The gear in the status bar opens it and `Ctrl/⌘ ,` brings it up: the
+//! preferences ride in their own window rather than a page, because wanting
+//! them never means wanting to stop looking at the music — a page made
+//! changing one volume slider a trip out of the library and back.
 //!
 //! Every control here writes straight through to [`MusicCraftApp`], which is
 //! what marks the settings dirty and schedules the write to disk at the end of
@@ -12,13 +17,65 @@
 //! library. It reads rather than writes — the only action there is asking
 //! SQLite to check itself, and even that changes nothing.
 
-use egui::{RichText, Slider, TextEdit, Vec2};
+use egui::{RichText, ScrollArea, Slider, TextEdit, Vec2, Window};
 
 use crate::app::MusicCraftApp;
-use crate::audio::{BAND_FREQUENCIES, MAX_CROSSFADE_SECONDS, MAX_GAIN_DB, MIN_GAIN_DB, PRESETS};
+use crate::audio::MAX_CROSSFADE_SECONDS;
 use crate::config::DEFAULT_VOLUME;
 use crate::ui::shortcuts::Command;
 use crate::ui::theme;
+
+/// Width the Settings window opens at, in points.
+const WINDOW_WIDTH: f32 = 560.0;
+/// Height it opens at when the screen is one the platform has not described.
+const WINDOW_FALLBACK_HEIGHT: f32 = 620.0;
+
+/// Draw the Settings window, when it is open.
+pub fn window(app: &mut MusicCraftApp, ui: &egui::Ui) {
+    if !app.settings_open() {
+        return;
+    }
+
+    // The panes are long — every preference plus the shortcuts list — so the
+    // contents scroll, and the window opens as tall as the window it lives in
+    // has room to spare: a short window gets a settings window that fits it,
+    // and a tall one shows the panes end to end. When the platform has not
+    // said how tall the window is (Wayland never does), the window takes the
+    // height that suits most screens. `default_size` only speaks on the first
+    // opening; after that the user's resize wins.
+    let height = {
+        let room = ui.ctx().input(|input| input.content_rect());
+        if room.is_finite() {
+            (room.height() - 120.0).max(360.0)
+        } else {
+            WINDOW_FALLBACK_HEIGHT
+        }
+    };
+
+    // The window opens with its top-left where the middle of a first-run
+    // screen leaves room for it, and after that stays wherever the user put
+    // it — `default_pos` only speaks on the first opening. An anchor would
+    // nail it to the centre and fight every drag, which suits a question but
+    // not a window one lives beside.
+    let mut open = true;
+    Window::new("Settings")
+        .collapsible(false)
+        .resizable(true)
+        .default_pos([310.0, 90.0])
+        .default_size([WINDOW_WIDTH, height])
+        .open(&mut open)
+        .show(ui.ctx(), |ui| {
+            ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| show(app, ui));
+        });
+
+    // The ✕ closes the window; the gear asks for it again, and `Ctrl/⌘ ,`
+    // asks in the middle of typing nowhere near it.
+    if !open {
+        app.close_settings();
+    }
+}
 
 /// Draw the settings pane.
 pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
@@ -29,11 +86,6 @@ pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     ui.separator();
     ui.add_space(12.0);
     playback(app, ui);
-
-    ui.add_space(12.0);
-    ui.separator();
-    ui.add_space(12.0);
-    equalizer(app, ui);
 
     ui.add_space(12.0);
     ui.separator();
@@ -112,95 +164,6 @@ fn crossfade(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         format!("The last {seconds:.1} s of each track is mixed into the next.")
     };
     ui.label(RichText::new(hint).small().weak());
-}
-
-/// Height of each band's slider, in points.
-const BAND_SLIDER_HEIGHT: f32 = 96.0;
-
-/// The graphic equalizer: ten band gains, a preamp and preset buttons.
-///
-/// The settings are copied out of the application before anything is drawn and
-/// written back once, at the end, if any control moved. That keeps the values
-/// the sliders edit from being the ones on screen, and means a drag is one
-/// settings change however many frames it spans.
-fn equalizer(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    ui.label(RichText::new("Equalizer").strong());
-    ui.add_space(6.0);
-
-    let mut settings = app.equalizer().clone();
-    let mut changed = false;
-
-    changed |= ui
-        .checkbox(&mut settings.enabled, "Enable equalizer")
-        .changed();
-
-    ui.add_space(6.0);
-    ui.horizontal_wrapped(|ui| {
-        for preset in PRESETS {
-            if ui
-                .selectable_label(false, preset.name)
-                .on_hover_text("Copy this preset into the sliders")
-                .clicked()
-            {
-                settings.bands = preset.gains;
-                settings.enabled = true;
-                changed = true;
-            }
-        }
-    });
-
-    ui.add_space(8.0);
-    changed |= ui
-        .add(
-            Slider::new(&mut settings.preamp_db, MIN_GAIN_DB..=MAX_GAIN_DB)
-                .text("Preamp (dB)")
-                .fixed_decimals(0),
-        )
-        .changed();
-
-    ui.add_space(10.0);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().slider_width = BAND_SLIDER_HEIGHT;
-        for (index, frequency) in BAND_FREQUENCIES.iter().enumerate() {
-            ui.vertical(|ui| {
-                let gain = &mut settings.bands[index];
-                let response = ui.add(
-                    Slider::new(gain, MIN_GAIN_DB..=MAX_GAIN_DB)
-                        .vertical()
-                        .show_value(false),
-                );
-                changed |= response.changed();
-                ui.label(RichText::new(band_label(*frequency)).small().weak());
-            });
-        }
-    });
-
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        if ui.button("Flat").clicked() {
-            settings.bands = [0.0; crate::audio::BANDS];
-            settings.preamp_db = 0.0;
-            changed = true;
-        }
-        ui.label(
-            RichText::new("Each band moves its own frequency; the preamp trims the whole signal.")
-                .small()
-                .weak(),
-        );
-    });
-
-    if changed {
-        app.set_equalizer(settings);
-    }
-}
-
-/// A band's frequency as its slider label: `31`, `125`, `1k`, `16k`.
-fn band_label(frequency: u32) -> String {
-    if frequency >= 1_000 {
-        format!("{}k", frequency / 1_000)
-    } else {
-        frequency.to_string()
-    }
 }
 
 /// Which device the music comes out of, and what it came out at.
@@ -670,7 +633,7 @@ mod tests {
     #[test]
     fn the_location_box_and_scan_buttons_fit_the_pane_they_are_drawn_in() {
         let mut app = app(None);
-        app.set_section(crate::ui::navigation::NavSection::Settings);
+        app.open_settings();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0));
 
         let texts = painted(&mut app, screen);
@@ -976,7 +939,7 @@ mod tests {
     /// and the part below the fold never reaches the painter, so a short screen
     /// would only test the sections that happen to come first.
     fn everything(app: &mut MusicCraftApp) -> Vec<String> {
-        app.set_section(crate::ui::navigation::NavSection::Settings);
+        app.open_settings();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 2400.0));
 
         painted(app, screen)

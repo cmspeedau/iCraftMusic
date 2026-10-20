@@ -139,6 +139,10 @@ pub struct MusicCraftApp {
     section: NavSection,
     /// Whether the queue popover, opened from the playback bar, is showing.
     queue_open: bool,
+    /// Whether the settings window, opened from the gear menu, is showing.
+    settings_open: bool,
+    /// Whether the equalizer window, opened from the gear menu, is showing.
+    equalizer_open: bool,
     /// The output device, the queue and the transport, as one object.
     playback: Playback,
     /// The database and the watched folders, or `None` when the database could
@@ -313,6 +317,8 @@ impl MusicCraftApp {
             config_error: error,
             section: NavSection::default(),
             queue_open: false,
+            settings_open: false,
+            equalizer_open: false,
             playback,
             library,
             database_path: None,
@@ -385,6 +391,44 @@ impl MusicCraftApp {
     /// Close the queue popover.
     pub fn close_queue(&mut self) {
         self.queue_open = false;
+    }
+
+    /// Whether the Settings window is showing.
+    pub fn settings_open(&self) -> bool {
+        self.settings_open
+    }
+
+    /// Raise the Settings window, opening it if it is closed.
+    ///
+    /// The window is a floating panel, not a section: opening it leaves the
+    /// Music or Playlists page underneath untouched, the way the Edit-details
+    /// editor does.
+    pub fn open_settings(&mut self) {
+        self.settings_open = true;
+    }
+
+    /// Close the Settings window.
+    pub fn close_settings(&mut self) {
+        self.settings_open = false;
+    }
+
+    /// Whether the Equalizer window is showing.
+    pub fn equalizer_open(&self) -> bool {
+        self.equalizer_open
+    }
+
+    /// Open the Equalizer window, or close it if it is already up.
+    ///
+    /// The equalizer rides in its own window rather than a settings pane so it
+    /// can stay open beside the music while a band is trimmed by ear — a pane
+    /// inside a page you have to keep scrolling back to cannot do that.
+    pub fn toggle_equalizer(&mut self) {
+        self.equalizer_open = !self.equalizer_open;
+    }
+
+    /// Close the Equalizer window.
+    pub fn close_equalizer(&mut self) {
+        self.equalizer_open = false;
     }
 
     /// Begin looking for a newer release than this build.
@@ -3149,8 +3193,8 @@ mod tests {
         let mut app = app();
         assert_eq!(app.section(), NavSection::Library);
 
-        app.set_section(NavSection::Settings);
-        assert_eq!(app.section(), NavSection::Settings);
+        app.set_section(NavSection::Playlists);
+        assert_eq!(app.section(), NavSection::Playlists);
     }
 
     #[test]

@@ -1696,7 +1696,7 @@ mod tests {
     #[test]
     fn the_page_buttons_are_only_on_the_library() {
         let mut app = app();
-        app.set_section(crate::ui::navigation::NavSection::Settings);
+        app.set_section(crate::ui::navigation::NavSection::Playlists);
 
         let painted = paint_bar(&mut app);
 
@@ -3480,7 +3480,7 @@ mod tests {
     #[test]
     fn the_search_field_is_only_on_the_library() {
         let mut app = app();
-        app.set_section(crate::ui::navigation::NavSection::Settings);
+        app.set_section(crate::ui::navigation::NavSection::Playlists);
 
         let painted = paint_bar(&mut app);
 

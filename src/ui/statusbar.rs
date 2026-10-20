@@ -21,7 +21,6 @@ use egui::{Button, Panel, Rect, RichText};
 
 use crate::app::{MusicCraftApp, UpdateStatus};
 use crate::playlists::PlaylistEditKind;
-use crate::ui::navigation::NavSection;
 use crate::ui::theme;
 use crate::update;
 
@@ -184,7 +183,7 @@ fn settings(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let response = ui.put(
         rect,
         Button::selectable(
-            app.section() == NavSection::Settings || app.gear_menu_open(),
+            app.settings_open() || app.gear_menu_open(),
             RichText::new(GEAR_GLYPH)
                 .size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)
                 .strong(),
@@ -235,9 +234,13 @@ fn settings(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
             ui.separator();
 
+            if ui.button("Equalizer").clicked() {
+                app.close_gear_menu();
+                app.toggle_equalizer();
+            }
             if ui.button("Settings").clicked() {
                 app.close_gear_menu();
-                app.set_section(NavSection::Settings);
+                app.open_settings();
             }
         });
 
@@ -516,6 +519,7 @@ mod tests {
 
     use crate::app::Startup;
     use crate::audio::{AudioEngine, Playback, RepeatMode};
+    use crate::ui::navigation::NavSection;
 
     #[test]
     fn the_line_counts_songs_albums_and_artists_in_order() {
@@ -615,7 +619,7 @@ mod tests {
     }
 
     #[test]
-    fn the_gear_menu_offers_the_ways_to_add_music_and_the_way_to_settings() {
+    fn the_gear_menu_offers_the_ways_to_add_music_and_the_ways_out() {
         let mut app = app();
         app.toggle_gear_menu();
 
@@ -625,6 +629,7 @@ mod tests {
             "Add music",
             "Add files…",
             "Add folder…",
+            "Equalizer",
             "Settings",
             "Check for updates…",
         ] {
@@ -638,6 +643,10 @@ mod tests {
             app.section(),
             NavSection::Library,
             "the menu is open, but no section has been opened"
+        );
+        assert!(
+            !app.settings_open() && !app.equalizer_open(),
+            "an open menu must not have opened a window behind itself"
         );
     }
 

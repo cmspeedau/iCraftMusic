@@ -204,7 +204,8 @@ library are indexed where they stand.
 | Sorting and filtering | A leading article is ignored (`The Beatles` files under B); the table can be narrowed to tracks whose files have vanished |
 | Keyboard              | Space, `Ctrl/⌘ ←/→/↑/↓`, `Ctrl/⌘ L/P/,/1/2/3/E`, `Delete` and `Esc`; Tab and the arrow keys walk a visible focus ring, and Enter acts on the row it rests on — the table, the albums, the artists, a playlist — as a double-click would; listed in Settings, and none fires while a text field has focus |
 | Accessibility         | Every focusable control shows the ring, and every glyph-only button and slider gives a screen reader the words the pointer gets as hover text (`Repeat: this track`, not `🔁`) through AccessKit |
-| Settings              | Library management (watched folders, rescan), Playback (volume, crossfade, output device), the Equalizer, the keyboard table, Storage, Diagnostics and About, each change persisted as it happens |
+| Settings              | A window of its own (gear or `Ctrl/⌘ ,`, never a page that replaces the music): Library management (watched folders, rescan), Playback (volume, crossfade, output device), the keyboard table, Storage, Diagnostics and About, each change persisted as it happens        |
+| Equalizer             | A window of its own from the gear: ten band gains, a preamp and presets, able to stay open beside the music so a band is trimmed by ear                                                             |
 | Diagnostics           | Build, schema version, library counts, exact paths, the audio stream in use, and an on-demand `PRAGMA integrity_check` |
 | Recovery              | A versioned database copied beside itself (`VACUUM INTO`) before a migration rewrites it                             |
 | Packaging             | Release profile, desktop entry and SVG icon prepared under `packaging/`                                              |
@@ -413,7 +414,8 @@ src/
     ├── playlistview.rs# the open playlist and its tracks
     ├── playlistedit.rs# the playlist name editor
     ├── smartplaylist.rs# the smart playlist rule editor
-    ├── settingsview.rs# settings view
+    ├── settingsview.rs# the Settings window and its panes
+    ├── equalizerview.rs# the Equalizer window
     └── statusbar.rs   # the bar across the foot of the window, and the gear
 ```
 
