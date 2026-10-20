@@ -227,7 +227,7 @@ mod tests {
         let painted = shell(&mut app);
 
         assert!(
-            painted.iter().any(|text| text == "Playlists"),
+            painted.iter().any(|text| text == "PLAYLISTS"),
             "the sidebar no longer names the section: {painted:?}"
         );
         assert!(

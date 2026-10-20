@@ -21,6 +21,16 @@ pub const PLAYBACK_BAR_HEIGHT: f32 = 92.0;
 /// Height of a single sidebar entry, in points.
 pub const NAV_ITEM_HEIGHT: f32 = 28.0;
 
+/// Where a row's painted icon begins, from the sidebar's left inner edge.
+pub const SIDEBAR_ICON_INSET: f32 = 6.0;
+
+/// Where a row's label begins, from the sidebar's left inner edge.
+///
+/// Past the icon column — the source list hangs every label off the right
+/// edge of its icons, so the labels start on one line however wide each icon
+/// happens to be.
+pub const SIDEBAR_LABEL_INSET: f32 = 24.0;
+
 /// Height of one playlist in the sidebar's list, in points.
 ///
 /// A playlist name is the whole of what a list entry says, so it can be a
@@ -165,11 +175,57 @@ pub fn accessible_name(ui: &Ui, response: &Response, name: &str) {
 
 /// Background colour of the navigation sidebar.
 ///
-/// A light blue keeps navigation visually separate from the content area without
-/// competing with [`ACCENT`], the colour of the selected entry. It is
-/// deliberately not taken from the active theme: the sidebar is a light surface
-/// in both the light and the dark theme.
-pub const SIDEBAR_FILL: Color32 = Color32::from_rgb(214, 233, 250);
+/// The pale blue-white of iTunes 7's source list: a surface light enough that
+/// the white card of a playlist's icon still stands on it, and quiet enough
+/// that the blue selection bar is the only loud thing in the panel. It is
+/// deliberately not taken from the active theme: the sidebar is a light
+/// surface in both the light and the dark theme.
+pub const SIDEBAR_FILL: Color32 = Color32::from_rgb(238, 245, 252);
+
+/// The top end of the selected row's bar.
+///
+/// The iTunes 7 source list selected a row not with a rounded button fill but
+/// with a flat bar across the panel's whole width, lit along its top and
+/// deepening to full blue at its bottom. The top end of that ramp is where
+/// the white label has the hardest time reading, so it sits darker than the
+/// app's own candy blue: the player got the same white text over a paler
+/// gradient by shadowing it, which this build does not copy. The tests below
+/// ask the bar's two ends for the contrast the label needs.
+pub const SIDEBAR_SELECTED_TOP: Color32 = Color32::from_rgb(72, 133, 232);
+
+/// The bottom end of the selected row's bar — full selection blue.
+pub const SIDEBAR_SELECTED_BOTTOM: Color32 = Color32::from_rgb(17, 87, 212);
+
+/// The top end of the hover bar: the same ramp a step quieter, because the
+/// pointer's claim has to stay under the selection's.
+pub const SIDEBAR_HOVER_TOP: Color32 = Color32::from_rgb(216, 232, 248);
+
+/// The bottom end of the hover bar.
+pub const SIDEBAR_HOVER_BOTTOM: Color32 = Color32::from_rgb(186, 211, 240);
+
+/// Row label colour while the selection bar lies under it.
+///
+/// White, because the bar is the deep end of Aqua's blue — the label steps
+/// onto white exactly when the blue arrives, the way iTunes 7's did.
+pub const SIDEBAR_INK_SELECTED: Color32 = Color32::WHITE;
+
+/// Colour of the sidebar's group headings.
+///
+/// iTunes 7 set its source-list groups ("LIBRARY", "DEVICES") in grey capitals
+/// rather than in the list's own ink, so the heading reads as a name for what
+/// follows instead of as another row waiting to be clicked.
+pub const SIDEBAR_HEADING: Color32 = Color32::from_rgb(96, 102, 110);
+
+/// Colour of the row icons — the note's head, stem and flag, and the card's
+/// edge and ruling.
+pub const SIDEBAR_ICON: Color32 = Color32::from_rgb(43, 108, 205);
+
+/// The hairline that separates the sidebar from the page beside it.
+///
+/// The source list had exactly one divider, and the panel's light fill needs
+/// it: without a line the sidebar and the window's own panel melt into one
+/// surface at the edge.
+pub const SIDEBAR_EDGE: Color32 = Color32::from_rgb(150, 158, 170);
 
 /// Label colour of the navigation sidebar.
 ///
@@ -178,11 +234,10 @@ pub const SIDEBAR_FILL: Color32 = Color32::from_rgb(214, 233, 250);
 /// carries its own dark ink in every theme.
 pub const SIDEBAR_INK: Color32 = Color32::from_rgb(26, 45, 66);
 
-/// Muted [`SIDEBAR_INK`], for the sidebar's group heading.
+/// Muted [`SIDEBAR_INK`], for the placeholder line the list shows while it
+/// has nothing to list. The group headings took this colour too, until the
+/// sidebar learned iTunes 7's grey capitals — [`SIDEBAR_HEADING`].
 pub const SIDEBAR_INK_MUTED: Color32 = Color32::from_rgb(70, 92, 116);
-
-/// Fill behind a sidebar entry the pointer is over.
-pub const SIDEBAR_HOVER: Color32 = Color32::from_rgb(170, 203, 234);
 
 /// Background colour of the playback bar.
 ///
@@ -504,14 +559,14 @@ fn ink_surface(visuals: &mut Visuals, ink: Color32, ink_muted: Color32) {
 /// Call this inside a `Ui::scope` around the sidebar body. The sidebar paints
 /// [`SIDEBAR_FILL`], so it supplies its own ink rather than inheriting the
 /// theme's foreground, which is unreadable on a light fill in the dark theme.
+///
+/// Ink is all the style is asked for now. A row's hover and selection bars are
+/// painted by the sidebar itself — the source list's ramps are flat, panel-wide
+/// gradients, not the rounded button fill a widget style hands out — so the
+/// style no longer dyes any widget fill: the only button in the panel is a
+/// row's own, and it strips its fill off entirely.
 pub fn apply_sidebar_visuals(visuals: &mut Visuals) {
     ink_surface(visuals, SIDEBAR_INK, SIDEBAR_INK_MUTED);
-
-    // A hovered entry needs a frame that is visible against the blue fill.
-    for widget in [&mut visuals.widgets.hovered, &mut visuals.widgets.active] {
-        widget.bg_fill = SIDEBAR_HOVER;
-        widget.weak_bg_fill = SIDEBAR_HOVER;
-    }
 }
 
 /// Frame used by the playback bar.
@@ -682,17 +737,76 @@ mod tests {
         let [r, g, b, a] = SIDEBAR_FILL.to_array();
         assert_eq!(a, 255, "the sidebar surface must be opaque");
         assert!(b > g && g > r, "blue must lead the sidebar's channels");
-        assert!(luminance(SIDEBAR_FILL) > 0.6, "the sidebar must stay light");
+        assert!(
+            luminance(SIDEBAR_FILL) > 0.6,
+            "the sidebar must stay light — a source-list pale, not a mid-tone"
+        );
     }
 
     #[test]
     fn the_sidebar_labels_stay_readable_on_the_sidebar() {
-        for ink in [SIDEBAR_INK, SIDEBAR_INK_MUTED] {
+        for ink in [
+            SIDEBAR_INK,
+            SIDEBAR_INK_MUTED,
+            SIDEBAR_HEADING,
+            SIDEBAR_ICON,
+        ] {
             assert!(
                 contrast(ink, SIDEBAR_FILL) >= 4.5,
                 "sidebar ink {ink:?} is too faint on {SIDEBAR_FILL:?}"
             );
         }
+    }
+
+    /// The selected row's bar is the source list's own shape: a flat ramp that
+    /// darkens downward, standing clear of the panel's pale surface, with the
+    /// white label reading on it at BOTH ends — the top being the hard case,
+    /// since this build copies the ramp without the player's text shadow.
+    #[test]
+    fn the_selection_bar_darkens_downwards_under_white_ink() {
+        assert!(
+            luminance(SIDEBAR_SELECTED_TOP) > luminance(SIDEBAR_SELECTED_BOTTOM),
+            "the selection bar must be lit along its top, not its bottom"
+        );
+        assert!(
+            contrast(SIDEBAR_SELECTED_TOP, SIDEBAR_FILL) >= 1.5,
+            "the bar's lighter end must still stand on the pale panel"
+        );
+        for end in [SIDEBAR_SELECTED_TOP, SIDEBAR_SELECTED_BOTTOM] {
+            assert!(
+                contrast(SIDEBAR_INK_SELECTED, end) >= 3.0,
+                "the white label cannot read on the bar's {end:?} end"
+            );
+        }
+    }
+
+    /// The pointer's bar is the selection bar's ramp a step quieter: it has
+    /// to show on the panel, and it must never outshine the bar that says a
+    /// row is the open one.
+    #[test]
+    fn the_hover_bar_shows_on_the_panel_and_defers_to_the_selection() {
+        assert!(
+            contrast(SIDEBAR_HOVER_BOTTOM, SIDEBAR_FILL) > 1.2,
+            "the hover bar's deeper end must be visible on the panel"
+        );
+        assert!(
+            luminance(SIDEBAR_HOVER_TOP) > luminance(SIDEBAR_SELECTED_TOP),
+            "the hover bar is darker than the selection bar, so they read alike"
+        );
+    }
+
+    /// The panel's one divider against the page: a hairline, and unmistakably
+    /// one — neither the panel's fill nor anything close to the row inks.
+    #[test]
+    fn the_sidebar_edge_is_a_darker_hairline_than_the_panel() {
+        assert!(
+            contrast(SIDEBAR_EDGE, SIDEBAR_FILL) >= 1.5,
+            "the divider is invisible against the panel"
+        );
+        assert!(
+            luminance(SIDEBAR_EDGE) > luminance(SIDEBAR_INK),
+            "the divider must read as a line, not as text weight"
+        );
     }
 
     #[test]
@@ -714,23 +828,25 @@ mod tests {
         }
 
         assert_eq!(visuals.weak_text_color, Some(SIDEBAR_INK_MUTED));
-        assert_eq!(
-            visuals.selection.stroke.color,
-            Color32::WHITE,
-            "the selected entry is filled with ACCENT, so its text must be white"
-        );
     }
 
+    /// The style is asked for ink only: whatever fill a hovered or selected
+    /// widget would reach for, the style must not dye it the panel's colour —
+    /// the row's painted bars are the panel's whole width and a widget fill
+    /// underneath them would fight their ramp.
     #[test]
-    fn a_hovered_entry_shows_itself_against_the_sidebar() {
-        let mut visuals = Visuals::dark();
-        apply_sidebar_visuals(&mut visuals);
+    fn the_sidebar_style_dyes_no_widget_fill() {
+        for mut visuals in [Visuals::light(), Visuals::dark()] {
+            apply_sidebar_visuals(&mut visuals);
 
-        assert_ne!(visuals.widgets.hovered.bg_fill, SIDEBAR_FILL);
-        assert!(
-            contrast(visuals.widgets.hovered.bg_fill, SIDEBAR_FILL) > 1.2,
-            "the hover fill must be distinguishable from the sidebar"
-        );
+            for widget in [
+                &visuals.widgets.hovered,
+                &visuals.widgets.active,
+                &visuals.widgets.noninteractive,
+            ] {
+                assert_ne!(widget.bg_fill, SIDEBAR_FILL);
+            }
+        }
     }
 
     #[test]
