@@ -26,4 +26,6 @@ open menus, `Escape` closes dialogs.
 
 Images and this directory's helpers land under `target/reference/` when used
 from there; keep captured images out of git — they are screenshots of
-someone else's application. The scripts are ours.
+someone else's application. The scripts are ours. Captures of Store, account
+or sign-in surfaces are not kept even untracked: measure from them, then
+delete them.
