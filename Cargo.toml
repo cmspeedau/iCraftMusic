@@ -19,7 +19,12 @@ lofty = "0.25"
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal", "wayland"] }
 rodio = "0.23.0"
 rusqlite = { version = "0.40", features = ["bundled"] }
+# The release check reads a version and a URL out of GitHub's reply, so the
+# version comparison is the same one Cargo itself makes (`semver`) and the
+# reply is parsed rather than string-scanned (`serde_json`).
+semver = "1"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
 toml = "0.9"
 tracing = "0.1"

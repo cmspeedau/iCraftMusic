@@ -39,7 +39,8 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 /// The API call that names the newest published release.
 ///
 /// GitHub answers with the repository's latest release as JSON, or 404 while
-/// the repository has none; either way the only field read is `tag_name`.
+/// the repository has none; from the reply only `tag_name` and the assets'
+/// download URLs are read.
 const LATEST_RELEASE_API: &str =
     "https://api.github.com/repos/cmspeedau/iCraftMusic/releases/latest";
 
@@ -169,31 +170,27 @@ fn look_up() -> Update {
 
 /// The download URL of this platform's AppImage among a release's assets.
 ///
-/// The same deliberately small reader as [`tag_name`]: it scans every
-/// `browser_download_url` in the body — GitHub's asset objects carry the
+/// Walks the reply's `assets` array — GitHub's asset objects carry the
 /// asset's own file name as the URL's last path part, so the URL alone says
 /// what it is — and keeps the one whose name ends in this architecture's
 /// `.AppImage`. The `.zsync` sibling is deliberately not chosen: it is the
 /// delta recipe, and reading it is the `zsync` tool's job, not something to
 /// fetch into a file as if it were the image.
 fn asset_url(body: &str) -> Option<String> {
-    let needle = "\"browser_download_url\"";
+    let Ok(reply) = serde_json::from_str::<serde_json::Value>(body) else {
+        return None;
+    };
     let arch = format!("-{}.AppImage", std::env::consts::ARCH);
 
     let mut plain = None;
-    let mut rest = body;
 
-    while let Some(at) = rest.find(needle) {
-        rest = &rest[at + needle.len()..];
-        let Some(colon) = rest.find(':') else {
-            return plain;
+    for asset in reply.get("assets")?.as_array()? {
+        let Some(url) = asset
+            .get("browser_download_url")
+            .and_then(|value| value.as_str())
+        else {
+            continue;
         };
-        rest = &rest[colon + 1..];
-        let Some(url) = quoted(rest) else {
-            return plain;
-        };
-        // Past the opening quote, the value, and its closing quote.
-        rest = &rest[url.len() + 2..];
 
         let name = url.rsplit('/').next().unwrap_or("");
         if name.ends_with(&arch) {
@@ -207,13 +204,6 @@ fn asset_url(body: &str) -> Option<String> {
     plain
 }
 
-/// The string a JSON field's value starts with, without the quotes.
-fn quoted(field: &str) -> Option<&str> {
-    let rest = &field[field.find('"')? + 1..];
-    let end = rest.find('"')?;
-    Some(&rest[..end])
-}
-
 /// The running AppImage's own file, if this build is running from one.
 ///
 /// The AppImage runtime sets `APPIMAGE` to the file it mounted, so the
@@ -225,53 +215,40 @@ pub fn app_image() -> Option<std::path::PathBuf> {
     std::env::var_os("APPIMAGE").map(std::path::PathBuf::from)
 }
 
-/// The `tag_name` a release JSON body carries.
+/// The `tag_name` a release JSON body carries, and nothing else.
 ///
-/// A deliberately small reader rather than a JSON dependency: the application
-/// needs one plain string out of one stable field, and a parser for that is a
-/// few lines with a test over a real reply, where pulling in a second crate to
-/// read it would weigh more than the read.
+/// A body that is not JSON at all — a proxy page, an empty 204 — reads as no
+/// tag, which is the same "there is nothing published" that a hand-written
+/// scan would have given.
 fn tag_name(body: &str) -> Option<String> {
-    let needle = "\"tag_name\"";
-    let rest = &body[body.find(needle)? + needle.len()..];
-    let rest = &rest[rest.find(':')? + 1..];
-    let rest = &rest[rest.find('"')? + 1..];
-    let end = rest.find('"')?;
-
-    Some(rest[..end].to_owned())
+    Some(
+        serde_json::from_str::<serde_json::Value>(body)
+            .ok()?
+            .get("tag_name")?
+            .as_str()?
+            .to_owned(),
+    )
 }
 
 /// Whether `candidate` names a later version than `current`.
 ///
-/// Compared component by component on the numbers a version is made of, with a
-/// leading `v` and any pre-release suffix dropped: `v0.2.0` is later than
-/// `0.1.0`, and `1.2.0-beta.1` is read as `1.2.0`. This is the check that
-/// decides whether to point the user at a release, so a build must never come
-/// out newer than itself.
+/// Compared with the ordering Cargo itself uses — this crate's `Version` —
+/// once a leading `v` is dropped: `v0.2.0` is later than `0.1.0`, and a
+/// pre-release sorts before the release it precedes, so `1.2.0-beta.1` is
+/// older than `1.2.0` and newer than `1.1.0`. A tag that is not a version at
+/// all is never advertised: this check points the user at a download, and it
+/// only ever points at one it has actually read.
 fn newer(candidate: &str, current: &str) -> bool {
-    let candidate = components(candidate);
-    let current = components(current);
+    let (Ok(candidate), Ok(current)) = (parse_version(candidate), parse_version(current)) else {
+        return false;
+    };
 
-    for index in 0..candidate.len().max(current.len()) {
-        let left = candidate.get(index).copied().unwrap_or(0);
-        let right = current.get(index).copied().unwrap_or(0);
-
-        if left != right {
-            return left > right;
-        }
-    }
-
-    false
+    candidate > current
 }
 
-/// The numeric components of a version: `v1.2.0-beta.1` is `[1, 2, 0]`.
-fn components(version: &str) -> Vec<u64> {
-    let core = version.trim_start_matches(['v', 'V']);
-    let core = core.split(['-', '+']).next().unwrap_or(core);
-
-    core.split('.')
-        .filter_map(|part| part.parse().ok())
-        .collect()
+/// A release tag read as a version: `v0.2.0` parses as `0.2.0`.
+fn parse_version(tag: &str) -> Result<semver::Version, semver::Error> {
+    tag.trim_start_matches(['v', 'V']).parse()
 }
 
 /// The user-agent every request carries.
@@ -552,7 +529,6 @@ mod tests {
         assert!(newer("v0.2.0", "0.1.0"));
         assert!(newer("1.0.0", "0.9.9"));
         assert!(newer("0.1.1", "0.1.0"));
-        assert!(newer("0.1.0.1", "0.1.0"));
     }
 
     #[test]
@@ -569,10 +545,19 @@ mod tests {
     }
 
     #[test]
-    fn a_pre_release_reads_as_the_version_it_is_built_on() {
-        // `1.2.0-beta.1` is not offered as newer than the `1.2.0` it precedes.
+    fn a_pre_release_sorts_where_semver_puts_it() {
+        // Not offered as newer than the `1.2.0` it precedes, but newer than
+        // the `1.1.0` it is a pre-release after; and the release, once out,
+        // is newer than its own pre-release.
         assert!(!newer("1.2.0-beta.1", "1.2.0"));
-        assert_eq!(components("1.2.0-beta.1"), vec![1, 2, 0]);
+        assert!(newer("1.2.0-beta.1", "1.1.0"));
+        assert!(newer("1.2.0", "1.2.0-beta.1"));
+    }
+
+    #[test]
+    fn a_tag_that_is_not_a_version_is_never_advertised() {
+        assert!(!newer("nightly", "0.1.0"));
+        assert!(!newer("0.2.0", "not-a-version"));
     }
 
     #[test]
