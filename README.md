@@ -407,7 +407,7 @@ update-desktop-database ~/.local/share/applications  # optional, for MimeType
 The release profile in `Cargo.toml` builds one stripped binary with link-time
 optimisation. A published release comes with the `v1.0.0` tag and everything
 after it: pushing the tag is the deliberate act, and `.github/workflows/release.yml`
-builds the locked binary and publishes it as a GitHub Release. The in-app
+builds the locked binary into an AppImage and publishes that as a GitHub Release. The in-app
 updater is ready for it: it looks at
 the latest GitHub release for an asset named after this machine's architecture
 (`-x86_64.AppImage`), and installs by renaming that file over the running

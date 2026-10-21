@@ -1,8 +1,12 @@
 # The release pipeline for 1.0 and everything after it: pushing a tag —
 # v1.0.0 once the Stage 8½ gate in ROADMAP.md closes — builds the same
-# locked release binary CI has been guarding and publishes it as a
-# GitHub Release. Nothing here can be triggered by a pull request; the
-# tag is the trigger, and the tag is a deliberate act.
+# locked release binary CI has been guarding, packs it into an AppImage
+# and publishes that as the GitHub Release. The AppImage is what the
+# application itself knows how to update: the gear's update check looks
+# for the release asset named `-x86_64.AppImage` and swaps it over the
+# running file, so a tarball would be a release the app cannot answer.
+# Nothing here can be triggered by a pull request; the tag is the
+# trigger, and the tag is a deliberate act.
 name: Release
 
 on:
@@ -27,19 +31,51 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: System dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config squashfs-tools
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked
-      - name: Package
+      # linuxdeploy ships on a single rolling "continuous" channel — there
+      # is no older tag to pin; this is the tool, freshly, at build time.
+      - name: Fetch linuxdeploy
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+      # The bundle is linuxdeploy's doing, not scripted by hand: it lays the
+      # binary, the desktop entry and the icon into an AppDir, runs the
+      # dependency check over the ELF (which leaves ALSA and the C library
+      # to the host, where they belong), and emits the squashfs image
+      # named `iCraftMusic-<version>-x86_64.AppImage` after the desktop
+      # file — the name the in-app update check finds by its suffix.
+      - name: Build AppImage
+        env:
+          VERSION: ${{ github.ref_name }}
         run: |
           set -eu
-          name=musiccraft-${GITHUB_REF_NAME}-x86_64-linux
-          mkdir -p package/"$name"
-          cp target/release/musiccraft package/"$name"/
-          cp LICENSE README.md package/"$name"/
-          tar -C package -czf "$name".tar.gz "$name"
+          version="${VERSION#v}"
+          # linuxdeploy and its appimagetool run from their own FUSE mount
+          # (the runners have /dev/fuse): extract-and-run would resolve the
+          # relative paths against the tool's temporary copy and bury the
+          # output there too, so the job does the mount.
+          LINUXDEPLOY_OUTPUT_VERSION="$version" VERSION="$version" ARCH=x86_64 \
+            ./linuxdeploy-x86_64.AppImage \
+              --appdir AppDir \
+              -e target/release/musiccraft \
+              -d packaging/musiccraft.desktop \
+              -i packaging/musiccraft.svg \
+              --output appimage
+      # Unpack what was built rather than run it: a release job has no
+      # display to open, and the failure worth catching here is the empty
+      # or half-populated image, which the payload list shows at once.
+      - name: Check the image
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          "./iCraftMusic-${version}-x86_64.AppImage" --appimage-extract
+          test -x squashfs-root/usr/bin/musiccraft
+          test -f squashfs-root/musiccraft.desktop
+          test -f squashfs-root/usr/share/icons/hicolor/scalable/apps/musiccraft.svg
       - uses: softprops/action-gh-release@v2
         with:
-          files: musiccraft-*.tar.gz
+          files: iCraftMusic-*.AppImage
           generate_release_notes: true
