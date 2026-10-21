@@ -95,11 +95,25 @@ fn content(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     // light inks and widget fills together. Text, buttons and combo boxes
     // on the sheet stay the light theme's even when the rest of the style
     // is dark; a dark button on a white page is neither theme's.
+    // The track page runs its header up to the chrome: in the reference the
+    // header band sits directly under the bar's dark rule. Every other page
+    // opens with words, which want the sheet's inset — and words the page
+    // has to say about a filter or missing files push even the header back
+    // down, honestly, as they do below.
+    let flush = app.section() == NavSection::Library
+        && app.browse().kind() == crate::library::browse::BrowseKind::Tracks;
+
     CentralPanel::default_margins()
-        .frame(theme::page_frame())
+        .frame(if flush {
+            theme::page_frame_flush()
+        } else {
+            theme::page_frame()
+        })
         .show(ui, |ui| {
             ui.style_mut().visuals = theme::page_visuals();
-            ui.add_space(4.0);
+            if !flush {
+                ui.add_space(4.0);
+            }
 
             // Only the Playlists section takes the open playlist's name: a playlist
             // left open in the sidebar must not come up over the Library. The two

@@ -28,11 +28,12 @@ use crate::ui::{DraggedTracks, empty_state, keyboard_activated, theme};
 
 /// Height of a track or artist row, in points.
 const ROW_HEIGHT: f32 = theme::TRACK_ROW_HEIGHT;
-/// Height of the table's column headings.
+/// Height of the table's column headings' band, in points.
 ///
-/// Shorter than a row: the heading is a line of 12pt text with nothing else on
-/// it, so it needs only the leading the font asks for. At a row's height it
-/// read as an empty row sitting above the table rather than as its heading.
+/// The measured header band: shallower than a row, since the heading is a
+/// line of 12pt text with nothing else on it. The (85,85,85) rule the
+/// capture closes the band with costs a further point, which `header`
+/// allocates and paints along with it.
 const HEADER_HEIGHT: f32 = 16.0;
 /// Padding between a column's edge and its text.
 const CELL_PADDING: f32 = theme::CELL_PADDING;
@@ -116,8 +117,17 @@ enum GroupAction {
 
 /// Draw the Library.
 pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    let before = ui.cursor().top();
     status(app, ui);
-    ui.add_space(6.0);
+    // The six points part whatever the page had to say above its rows from
+    // the rows themselves. Where it had nothing to say and those rows are
+    // the flat track list — the one page whose header the reference seats
+    // against the chrome — the six would only rebuild the white strip the
+    // flush header exists to take away.
+    let said = ui.cursor().top() > before;
+    if said || app.browse().kind() != BrowseKind::Tracks {
+        ui.add_space(6.0);
+    }
 
     match app.library() {
         None => error_state(app, ui),
@@ -524,27 +534,33 @@ fn playlist_menu(
 fn header(app: &MusicCraftApp, ui: &mut egui::Ui, columns: &Columns) -> Option<SortKey> {
     let sort = app.browse().sort();
     let width = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, HEADER_HEIGHT), Sense::hover());
+    // The measured band, and the point of rule that closes it, allocated
+    // together: a stroke stands centred on its line, and a rule drawn on the
+    // band's very edge has its outer half eaten by the clip — this way the
+    // rule owns a row of its own and paints whole.
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, HEADER_HEIGHT + 1.0), Sense::hover());
 
     let font = FontId::proportional(12.0);
     let color = ui.visuals().weak_text_color();
     let mut clicked = None;
+    let band_centre_y = rect.top() + HEADER_HEIGHT / 2.0;
 
     {
         let painter = ui.painter().with_clip_rect(rect);
         // The measured header band is a shallow 219 to 187 ramp closed by its
         // dark bottom rule, not a flat tone.
         painter.add(egui::epaint::Shape::gradient_rect(
-            rect,
+            Rect::from_min_size(rect.min, Vec2::new(rect.width(), HEADER_HEIGHT)),
             egui::epaint::Direction::TopDown,
             [theme::TABLE_HEADER_TOP, theme::TABLE_HEADER_BOTTOM],
         ));
-        painter.line_segment(
-            [rect.left_bottom(), rect.right_bottom()],
+        painter.hline(
+            rect.x_range(),
+            rect.bottom() - 0.5,
             egui::Stroke::new(1.0, theme::TABLE_HEADER_RULE),
         );
         painter.text(
-            Pos2::new(rect.left() + CELL_PADDING, rect.center().y),
+            Pos2::new(rect.left() + CELL_PADDING, band_centre_y),
             Align2::LEFT_CENTER,
             "#",
             font.clone(),
@@ -567,7 +583,7 @@ fn header(app: &MusicCraftApp, ui: &mut egui::Ui, columns: &Columns) -> Option<S
             painter.text(
                 Pos2::new(
                     rect.left() + columns.offset_for(key) + CELL_PADDING,
-                    rect.center().y,
+                    band_centre_y,
                 ),
                 Align2::LEFT_CENTER,
                 label,
@@ -1641,6 +1657,76 @@ mod tests {
         app.refresh().expect("the library should refresh");
 
         app
+    }
+
+    /// The header sits where the reference seats it: the band's first row is
+    /// the sheet's first row — directly under the chrome, no strip of white
+    /// between — and the band is closed by its (85,85,85) rule on a row of
+    /// its own. Through the whole shell, because the flush is the shell's
+    /// decision: the page frame loses its top inset only on this page.
+    #[test]
+    fn the_header_band_sits_flush_under_the_chrome() {
+        let mut app = imported();
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1180.0, 808.0),
+                )),
+                ..Default::default()
+            },
+            |ui| crate::ui::render(&mut app, ui),
+        );
+        let shapes = std::mem::take(&mut output.shapes);
+        output.textures_delta.clear();
+
+        // The top edge of the mesh that carries the band's ramp.
+        let band_top = shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::Shape::Mesh(mesh) => mesh
+                    .vertices
+                    .iter()
+                    .any(|v| v.color == theme::TABLE_HEADER_TOP)
+                    .then(|| {
+                        mesh.vertices
+                            .iter()
+                            .map(|v| v.pos.y)
+                            .fold(f32::MAX, f32::min)
+                    }),
+                _ => None,
+            })
+            .expect("the header band's ramp was not painted");
+        assert!(
+            (band_top - (theme::MENU_BAND_HEIGHT + theme::TOOLBAR_HEIGHT)).abs() < 0.5,
+            "the header hangs below the chrome: band at {band_top}, not at the chrome's foot"
+        );
+
+        // The rule closing the band's foot — whole, on the row the header
+        // allocates it, not sheared in half by the band's own edge. The
+        // status bar's divider wears the same grey, so the header's own is
+        // the one lying up in the chrome's neighbourhood.
+        let rule = shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::LineSegment { points, stroke, .. }
+                    if stroke.color == theme::TABLE_HEADER_RULE =>
+                {
+                    Some(*points)
+                }
+                _ => None,
+            })
+            .find(|points| points[0].y < 200.0)
+            .expect("the header's bottom rule was not painted");
+        assert!(
+            (rule[1].y - rule[0].y).abs() < 0.1
+                && (rule[0].y
+                    - (theme::MENU_BAND_HEIGHT + theme::TOOLBAR_HEIGHT + HEADER_HEIGHT + 0.5))
+                    .abs()
+                    < 0.5,
+            "the header rule is not level on its own row under the band: {rule:?}"
+        );
     }
 
     /// A track with an identifier, ready to be stored.

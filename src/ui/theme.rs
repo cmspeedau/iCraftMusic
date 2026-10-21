@@ -705,6 +705,24 @@ pub fn page_frame() -> Frame {
     Frame::new().inner_margin(Margin::same(8)).fill(PAGE_FILL)
 }
 
+/// [`page_frame`] with its top inset gone.
+///
+/// The Library's track page runs its table header up to the chrome: in the
+/// reference the header band sits directly under the bar's dark rule, the
+/// two sharing an edge with no strip of the sheet's white between them.
+/// Every other page starts with words, which want the inset — this frame
+/// is for the one page whose first row is a band meant to touch.
+pub fn page_frame_flush() -> Frame {
+    Frame::new()
+        .inner_margin(Margin {
+            left: 8,
+            right: 8,
+            top: 0,
+            bottom: 8,
+        })
+        .fill(PAGE_FILL)
+}
+
 /// The visuals for the page area, the same in every theme.
 ///
 /// Because the page paints [`PAGE_FILL`] in both themes, it takes the light
