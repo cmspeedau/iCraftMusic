@@ -1594,6 +1594,12 @@ mod tests {
     /// twice: it compares the two bars' own fills, and a bar that changed its
     /// copy of the palette without the other following fails here where a test
     /// of either frame alone would pass.
+    ///
+    /// The menu band above the top bar is passed over: its own frame is painted
+    /// transparent so the measured gradient under it shows, and it is a band of
+    /// labels rather than one of the two grey bars that frame the content. The
+    /// first and last OPAQUE strips across the window's width are the transport
+    /// and the status bar, and those are the two this rule is about.
     #[test]
     fn the_two_bars_that_frame_the_window_are_one_colour() {
         let screen = screen();
@@ -1602,7 +1608,9 @@ mod tests {
         let mut full_width: Vec<(egui::Rect, egui::Color32)> = shapes
             .iter()
             .filter_map(|cs| match &cs.shape {
-                egui::Shape::Rect(r) if (r.rect.width() - screen.width()).abs() < 0.5 => {
+                egui::Shape::Rect(r)
+                    if (r.rect.width() - screen.width()).abs() < 0.5 && r.fill.a() > 0 =>
+                {
                     Some((r.rect, r.fill))
                 }
                 _ => None,
@@ -1618,7 +1626,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("nothing spans the {of} of the window"))
         };
         let top = band(
-            &mut |(rect, _)| (rect.top() - screen.top()).abs() < 1.0,
+            &mut |(rect, _)| (rect.top() - screen.top()).abs() < 20.0,
             "top",
         );
         let foot = band(

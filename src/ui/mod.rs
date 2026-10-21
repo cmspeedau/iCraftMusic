@@ -55,9 +55,11 @@ pub struct DraggedTracks(pub Vec<TrackId>);
 /// Draw the whole window.
 pub fn render(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     // Panels are added in the order they should claim space: the two bars that
-    // frame the window first — the status bar below, the transport above — then
-    // the sidebar, then whatever is left over.
+    // frame the window first — the status bar below, the menu band and the
+    // transport above, in that order so the band takes the window's first
+    // rows — then the sidebar, then whatever is left over.
     statusbar::bar(app, ui);
+    navigation::menu_band(app, ui);
     nowplaying::bar(app, ui);
     navigation::sidebar(app, ui);
     content(app, ui);

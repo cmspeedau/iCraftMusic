@@ -37,6 +37,33 @@ pub const CENTRE_DISC_BOTTOM: Color32 = Color32::from_rgb(220, 224, 197);
 /// Height of the playback bar across the top of the window, in points.
 pub const PLAYBACK_BAR_HEIGHT: f32 = TOOLBAR_HEIGHT;
 
+/// The top end of the menu band's gradient, in points.
+///
+/// The band across the very top of the window carries the five menu labels;
+/// the two colours here are the measured pixel rows of the reference's band,
+/// light at its top and deepening down its sixteen points.
+pub const MENU_BAND_TOP: Color32 = Color32::from_rgb(226, 226, 226);
+
+/// The bottom end of the menu band's gradient.
+pub const MENU_BAND_BOTTOM: Color32 = Color32::from_rgb(190, 190, 190);
+
+/// The ink the five menu labels are set in.
+pub const MENU_BAND_INK: Color32 = Color32::from_rgb(43, 43, 43);
+
+/// Paint the menu band's measured gradient across its strip.
+///
+/// Square corners, edge to edge: the band is the window's own first rows, not
+/// a control sitting on them. Call it inside the band's panel before the
+/// labels are laid out, so the labels stand on the gradient rather than under
+/// it.
+pub fn menu_band_surface(painter: &Painter, rect: Rect) {
+    painter.add(egui::epaint::Shape::gradient_rect(
+        rect,
+        egui::epaint::Direction::TopDown,
+        [MENU_BAND_TOP, MENU_BAND_BOTTOM],
+    ));
+}
+
 /// Height of a single sidebar entry, in points.
 ///
 /// Measured off the reference: its rows are 20 pixels tall, and every row of
@@ -370,13 +397,13 @@ pub const CENTRE_BOX_INK_MUTED: Color32 = Color32::from_rgb(92, 84, 62);
 /// the box stays part of the box.
 pub const CENTRE_BOX_CONTROL: Color32 = Color32::from_rgb(226, 214, 180);
 
-/// The centre box's rim: a warm dark cream, darker than the bar's gray and
-/// far darker than the box's own fill.
+/// The centre box's rim: the measured border of the reference's disc panel,
+/// (86, 88, 76) — an olive so dark it reads as an outline rather than a colour.
 ///
 /// The player drew everything as an object — no edge-less fields — and on a
-/// gray bar a cream field with no edge dissolves into it. One hairline is
+/// gray bar a pale field with no edge dissolves into it. One hairline is
 /// what makes the box a thing sitting ON the bar rather than a hole in it.
-pub const CENTRE_BOX_EDGE: Color32 = Color32::from_rgb(150, 140, 114);
+pub const CENTRE_BOX_EDGE: Color32 = Color32::from_rgb(86, 88, 76);
 
 /// The light that gathers on raised edges: the inner line just inside the
 /// rim, and the lit top half of a push button.
@@ -396,17 +423,14 @@ pub const CENTRE_BOX_PRESSED: Color32 = Color32::from_rgb(213, 199, 163);
 /// box up by its fill — tests and callers alike — still finds it.
 pub fn centre_box_surface(painter: &Painter, rect: Rect) {
     let radius = CornerRadius::same(CENTRE_BOX_RADIUS);
+    // The measured panel is a pale so even across forty-four points that a
+    // flat fill reads alike with it; the rim is the measured border, one
+    // hairline, and the box's controls carry their own glosses on top.
     painter.rect_filled(rect, radius, CENTRE_BOX_FILL);
     painter.rect_stroke(
         rect,
         radius,
         Stroke::new(1.0, CENTRE_BOX_EDGE),
-        StrokeKind::Inside,
-    );
-    painter.rect_stroke(
-        rect.shrink(1.0),
-        CornerRadius::same(CENTRE_BOX_RADIUS - 1),
-        Stroke::new(1.0, CENTRE_BOX_GLOSS),
         StrokeKind::Inside,
     );
 }
@@ -674,7 +698,10 @@ pub fn apply_sidebar_visuals(visuals: &mut Visuals) {
 /// takes no style.
 pub fn playback_bar_frame() -> Frame {
     Frame::new()
-        .inner_margin(Margin::symmetric(16, 10))
+        // The inner height is the measured disc panel's own forty-four points:
+        // the box fills the bar's insides exactly, as it fills the reference's
+        // band, and the transport and the volume ride centred in the same strip.
+        .inner_margin(Margin::symmetric(16, 8))
         .fill(PLAYBACK_BAR_FILL)
 }
 
@@ -733,9 +760,10 @@ pub const CENTRE_BOX_PAD_Y: i8 = 6;
 
 /// Corner radius of the centre box, in points.
 ///
-/// Half the box's height, which is what makes it the pill the bar is built
-/// around rather than a rectangle sitting on it.
-pub const CENTRE_BOX_RADIUS: u8 = 26;
+/// The measured radius of the reference's disc panel: a soft corner on a
+/// rectangle, not the full round a pill would wear. Half the old box's height
+/// is what it used to be, back when the box was as tall as two stacked rows.
+pub const CENTRE_BOX_RADIUS: u8 = 6;
 
 /// Point a style at the centre box's own palette.
 ///
@@ -1577,12 +1605,12 @@ mod tests {
         );
     }
 
-    /// The centre box's surface is three bands, and all three are painted:
-    /// the fill that every caller looks the box up by, the rim that stands
-    /// it off the bar, and the lighter line just inside the rim that is the
-    /// raised edge catching the light.
+    /// The centre box's surface is a pale field with the one rim the reference
+    /// measured around it. The raised-panel gloss the box used to wear is gone:
+    /// the measured disc panel is a flat pale, and it is the controls inside it
+    /// — the seek rail, the queue button — that carry the glosses, not the box.
     #[test]
-    fn the_centre_box_surface_paints_its_three_bands() {
+    fn the_centre_box_surface_paints_the_measured_pale_and_rim() {
         let rect = Rect::from_min_size(egui::Pos2::ZERO, vec2(304.0, 64.0));
         let ctx = Context::default();
 
@@ -1612,9 +1640,12 @@ mod tests {
             rims.contains(&(rect, CENTRE_BOX_EDGE)),
             "no rim on the box's own edge: {rims:?}"
         );
+        // The inner gloss line must not have come back. Its colour being all
+        // but identical to the fill is why it was never seen, and the measured
+        // panel does without it: nothing on the surface is stroked in the gloss.
         assert!(
-            rims.contains(&(rect.shrink(1.0), CENTRE_BOX_GLOSS)),
-            "no light along the inner edge: {rims:?}"
+            !rims.iter().any(|&(_r, c)| c == CENTRE_BOX_GLOSS),
+            "the box stroked its inner gloss, which the measured panel has no line for: {rims:?}"
         );
     }
 

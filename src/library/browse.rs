@@ -150,6 +150,19 @@ impl Selection {
         self.anchor = None;
     }
 
+    /// Select every visible row — the Edit menu's "Select All".
+    ///
+    /// What was already selected stays selected: the command adds the page to
+    /// the selection rather than trading it for one. The anchor falls on the
+    /// topmost row when nothing was focused yet, because a selection with no
+    /// anchor has no row for a shift-click or the keyboard to work from.
+    pub fn select_all(&mut self, visible: &[TrackId]) {
+        self.ids.extend(visible.iter().copied());
+        if self.anchor.is_none() {
+            self.anchor = visible.first().copied();
+        }
+    }
+
     /// Forget identifiers that are no longer in `visible`.
     ///
     /// A rescan or a new query removes rows; selecting tracks that are gone

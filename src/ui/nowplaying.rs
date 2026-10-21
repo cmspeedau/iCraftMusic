@@ -3011,12 +3011,13 @@ mod tests {
         assert!(!app.queue_open(), "drawing is not clicking");
     }
 
-    /// The box's cream stood off the bar rather than dissolving into it: a
-    /// hairline rim on the outside, and a lighter line just inside it — the
-    /// edge catching the light, which is what makes a flat shape read as a
-    /// raised one. Painted from the constants, and asserted as painted.
+    /// The box's pale stood off the bar rather than dissolving into it: the one
+    /// hairline rim the reference measured around its disc panel. The lighter
+    /// inner line it used to wear is gone — the measured panel is a flat pale,
+    /// and it is the controls within it that catch the light. Painted from the
+    /// constants, and asserted as painted.
     #[test]
-    fn the_centre_box_is_rimmed_and_lit_like_a_raised_panel() {
+    fn the_centre_box_is_rimmed_like_the_measured_disc_panel() {
         let mut app = app_with_a_loaded_track();
         let painted = paint_bar(&mut app);
         let pill = painted
@@ -3030,10 +3031,10 @@ mod tests {
             "the box has no rim of its own against the bar: {pill:?}"
         );
         assert!(
-            painted
+            !painted
                 .stroked_with(theme::CENTRE_BOX_GLOSS)
                 .contains(&pill.shrink(1.0)),
-            "nothing catches the light along the box's inner edge"
+            "the inner gloss line came back on a panel the reference paints flat"
         );
     }
 

@@ -1,5 +1,9 @@
 //! Left-hand navigation sidebar and the list of top-level sections.
 //!
+//! The file also draws the window's menu band — the five reference labels and
+//! the dropdowns behind them — because the band, like the sidebar, belongs to
+//! the window rather than to any page, and its commands are the window's own.
+//!
 //! The sidebar holds the places you browse. Under the 'Library' heading — the
 //! source list's own word for the group — is Music; under a 'Playlists'
 //! heading of its own, level with it, are the playlists themselves. There is
@@ -35,16 +39,19 @@
 //! it.
 
 use egui::{
-    Button, Color32, CornerRadius, Id, Panel, Pos2, Rect, RichText, ScrollArea, Sense, Stroke,
-    StrokeKind, Vec2, vec2,
+    Atoms, Button, Color32, CornerRadius, Id, IntoAtoms, Margin, Panel, Pos2, Rect, RichText,
+    ScrollArea, Sense, Stroke, StrokeKind, Vec2, ViewportCommand, vec2,
 };
 
 use crate::app::MusicCraftApp;
+use crate::audio::RepeatMode;
 use crate::library::PlaylistId;
+use crate::library::browse::BrowseKind;
 
 /// The five reference menu labels are kept in one place for the app chrome.
 pub const REFERENCE_MENUS: [&str; 5] = ["File", "Edit", "Controls", "Advanced", "Help"];
 
+use super::shortcuts::{self, Command};
 use super::{DraggedTracks, theme};
 
 /// A top-level area of the application.
@@ -92,6 +99,229 @@ impl NavSection {
             Self::Playlists => "Collections you have put together",
         }
     }
+}
+
+/// Draw the window's menu band: the reference's five labels across its
+/// measured sixteen points, each opening a dropdown of commands the app has.
+///
+/// The band belongs to the window rather than to any page, and every item in
+/// it runs something real. The transport and window commands share
+/// [`shortcuts::run`] with the keyboard, so one implementation answers both
+/// the label and the key and the two cannot drift apart; the library and file
+/// commands call the app's own methods, the same the gear and the pages call.
+/// Nothing is painted in as decoration: a command the app does not have —
+/// faster and slower playback, the Store, help it does not hold — is simply
+/// not offered, however much the reference's band offered it. The View menu
+/// the reference showed is absent for the same reason the sidebar no longer
+/// lists the Library's pages: those commands ride the keyboard and the page
+/// buttons, and the band pins to the five labels the capture measured.
+pub fn menu_band(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    Panel::top("reference_menu_band")
+        .resizable(false)
+        .exact_size(theme::MENU_BAND_HEIGHT)
+        .frame(
+            egui::Frame::new()
+                .inner_margin(Margin::ZERO)
+                .fill(egui::Color32::TRANSPARENT),
+        )
+        .show(ui, |ui| {
+            // The gradient first, edge to edge: the band is the window's own
+            // first rows rather than a frame holding labels, so it wears the
+            // fill itself before a single word is laid out.
+            theme::menu_band_surface(ui.painter(), ui.max_rect());
+            // One point above the fourteen the labels ask for seats them in
+            // the band's sixteen the way the reference seats its words.
+            ui.add_space(1.0);
+            egui::menu::MenuBar::new()
+                // The reference's own menu dressing comes first, because
+                // passing a style replaces the default one and the flat
+                // borderless labels are what that default gives them. Then
+                // fourteen points of interaction: the bar would otherwise
+                // claim the twenty-four an ordinary row takes, and the labels
+                // are the tallest thing the band carries.
+                .style(|style: &mut egui::Style| {
+                    egui::menu::menu_style(style);
+                    style.spacing.interact_size.y = 14.0;
+                })
+                .ui(ui, |ui| {
+                    file_menu(app, ui);
+                    edit_menu(app, ui);
+                    controls_menu(app, ui);
+                    advanced_menu(app, ui);
+                    help_menu(app, ui);
+                });
+        });
+}
+
+/// One of the band's five words, in the band's own ink and size.
+fn band_label(word: &str) -> RichText {
+    RichText::new(word).color(theme::MENU_BAND_INK).size(11.0)
+}
+
+/// A command item: its name, then the keys that also run it set in a weak
+/// caption behind. The keys are [`Command::keys`], the very words the Settings
+/// list prints, so menu and table cannot say one binding twice.
+fn command_item(name: &str, command: Command) -> Atoms<'static> {
+    (
+        RichText::new(name),
+        RichText::new(format!("   {}", command.keys())).weak(),
+    )
+        .into_atoms()
+}
+
+/// Run a command item: named like the command, keyed with its keys, and
+/// answered by the keyboard's own dispatcher.
+fn command_button(ui: &mut egui::Ui, name: &str, command: Command, app: &mut MusicCraftApp) {
+    if ui.button(command_item(name, command)).clicked() {
+        shortcuts::run(app, command);
+    }
+}
+
+/// File: the two ways music comes into the app — the gear's own pair — and the
+/// way the window goes away.
+fn file_menu(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    ui.menu_button(band_label("File"), |ui| {
+        if ui.button("Add File…").clicked() {
+            app.add_files();
+        }
+        if ui.button("Add Folder…").clicked() {
+            app.add_folder();
+        }
+        ui.separator();
+        if ui.button("Exit").clicked() {
+            ui.ctx().send_viewport_cmd(ViewportCommand::Close);
+        }
+    });
+}
+
+/// Edit: what can be done to the rows the page is showing, and the way into
+/// Settings — the reference's own placement of Preferences under Edit.
+fn edit_menu(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    ui.menu_button(band_label("Edit"), |ui| {
+        // Select All is honest only where rows answer to this selection: the
+        // Library's track table. Elsewhere the list on screen is not the one
+        // the command would act on, so the item sits disabled rather than
+        // silently selecting a page the user cannot see.
+        let selectable =
+            app.section() == NavSection::Library && app.browse().kind() == BrowseKind::Tracks;
+        let visible = app.browse().visible_track_ids();
+        let has_selection = !app.browse().selection().is_empty();
+
+        let select = ui.add_enabled(
+            selectable && !visible.is_empty(),
+            egui::Button::new("Select All"),
+        );
+        if select.clicked() {
+            app.browse_mut().selection_mut().select_all(&visible);
+        }
+        let deselect = ui.add_enabled(
+            selectable && has_selection,
+            egui::Button::new("Deselect All"),
+        );
+        if deselect.clicked() {
+            app.browse_mut().selection_mut().clear();
+        }
+        ui.separator();
+        command_button(ui, "Edit Details…", Command::EditDetails, app);
+        command_button(ui, "Remove from Library", Command::RemoveSelection, app);
+        ui.separator();
+        command_button(ui, "Settings…", Command::Settings, app);
+    });
+}
+
+/// Controls: the transport, the volume, and the two modes — exactly the
+/// commands the keys run, since this is what the reference's Controls menu
+/// held. Faster and slower playback are not among them because this player has
+/// none.
+fn controls_menu(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    ui.menu_button(band_label("Controls"), |ui| {
+        command_button(ui, "Play or Pause", Command::PlayPause, app);
+        command_button(ui, "Next Track", Command::Next, app);
+        command_button(ui, "Previous Track", Command::Previous, app);
+        ui.separator();
+        command_button(ui, "Louder", Command::VolumeUp, app);
+        command_button(ui, "Quieter", Command::VolumeDown, app);
+        ui.separator();
+        if ui
+            .selectable_label(app.playback().shuffle(), "Shuffle")
+            .clicked()
+        {
+            app.toggle_shuffle();
+        }
+        // The modes sit under their own heading as they do in the reference,
+        // the current one marked, and choosing one sets it outright rather
+        // than cycling — the status bar's button is the cycler.
+        ui.menu_button("Repeat", |ui| {
+            let repeat = app.playback().repeat();
+            for mode in [RepeatMode::Off, RepeatMode::One, RepeatMode::All] {
+                if ui.selectable_label(repeat == mode, mode.label()).clicked() {
+                    app.set_repeat_mode(mode);
+                }
+            }
+        });
+    });
+}
+
+/// Advanced: the two library chores the app can really do. The rest of the
+/// reference's menu — the Store commands, conversions, the account — is not
+/// here because this app is not that.
+fn advanced_menu(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    ui.menu_button(band_label("Advanced"), |ui| {
+        let has_library = app.library().is_some();
+        let scanning = app.is_scanning();
+        let rescan = ui.add_enabled(
+            has_library && !scanning,
+            egui::Button::new("Rescan Library"),
+        );
+        let rescan = if scanning {
+            rescan.on_disabled_hover_text("a scan is already running")
+        } else if !has_library {
+            rescan.on_disabled_hover_text("there is no library to scan yet")
+        } else {
+            rescan
+        };
+        if rescan.clicked() {
+            app.start_scan();
+        }
+
+        // The fetch is the album page's own button moved up to the band: it
+        // asks the archive for the album whose page is open, because that is
+        // the album the words on the item point at.
+        let album = app.browse().open_album().map(str::to_owned);
+        let busy = app.album_artwork_busy();
+        let fetch = ui.add_enabled(
+            album.is_some() && !busy,
+            egui::Button::new("Get Album Artwork"),
+        );
+        let fetch = match (album.as_deref(), busy) {
+            (None, _) => fetch.on_disabled_hover_text("open an album page first"),
+            (Some(_), true) => fetch.on_disabled_hover_text("one cover is on its way already"),
+            _ => fetch,
+        };
+        if fetch.clicked()
+            && let Some(name) = album
+        {
+            app.download_album_artwork(&name);
+        }
+    });
+}
+
+/// Help: the update check the gear also runs, and the two questions the
+/// Settings window answers — its list of keys, and its About section. There is
+/// no separate help browser to open, so none is offered.
+fn help_menu(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    ui.menu_button(band_label("Help"), |ui| {
+        if ui.button("Check for Updates…").clicked() {
+            app.check_for_release();
+        }
+        ui.separator();
+        if ui.button("Keyboard Shortcuts").clicked() {
+            app.open_settings();
+        }
+        if ui.button("About iCraftMusic").clicked() {
+            app.open_settings();
+        }
+    });
 }
 
 /// Draw the sidebar and switch sections when an entry is clicked.
@@ -1409,6 +1639,116 @@ mod tests {
 
         app.refresh().expect("the library should refresh");
         app
+    }
+
+    /// Every band label is drawn, all five sit inside the band's measured
+    /// sixteen points, and they read left to right in the order the reference
+    /// listed them — the pinned `REFERENCE_MENUS` order, not whatever order the
+    /// menu functions happen to be called in.
+    #[test]
+    fn the_band_draws_the_five_reference_labels_in_order() {
+        let context = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0));
+        let mut app = imported();
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| menu_band(&mut app, ui),
+        );
+
+        let mut left = f32::MIN;
+        for word in REFERENCE_MENUS {
+            let rect = painted_name(&output.shapes, word)
+                .unwrap_or_else(|| panic!("{word} is not painted on the band"));
+            assert!(
+                rect.top() >= 0.0 && rect.bottom() <= theme::MENU_BAND_HEIGHT + 1.0,
+                "{word} spills past the band's {} points: {rect:?}",
+                theme::MENU_BAND_HEIGHT
+            );
+            assert!(
+                rect.left() > left,
+                "{word} does not read after the label before it: {rect:?} after x={left}"
+            );
+            left = rect.left();
+        }
+        output.textures_delta.clear();
+    }
+
+    /// The band is not paint-only: a label opens a dropdown, and the dropdown
+    /// lists commands the app really runs. Clicking `File` the way a pointer
+    /// does — hover, press, release — brings up `Add File…`, `Add Folder…` and
+    /// `Exit`; the two ways music arrives and the way the window leaves.
+    #[test]
+    fn a_band_label_opens_its_dropdown_of_real_commands() {
+        let context = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0));
+        let mut app = imported();
+
+        // One pass so egui learns the label's rectangle: a hit is decided
+        // against the previous frame, as the queue-button test found.
+        let first = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| menu_band(&mut app, ui),
+        );
+        let pos = painted_name(&first.shapes, "File")
+            .expect("the File label is drawn")
+            .center();
+        first.drop_without_applying_deltas();
+
+        let mut click = |events: Vec<egui::Event>| {
+            let out = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ui| menu_band(&mut app, ui),
+            );
+            out.drop_without_applying_deltas();
+        };
+        click(vec![egui::Event::PointerMoved(pos)]);
+        click(vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+        }]);
+        click(vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::default(),
+        }]);
+
+        // The open menu paints on a later frame.
+        let mut open = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| menu_band(&mut app, ui),
+        );
+        let words: Vec<String> = open
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+        open.textures_delta.clear();
+
+        for item in ["Add File…", "Add Folder…", "Exit"] {
+            assert!(
+                words.iter().any(|w| w == item),
+                "the File menu did not list {item}: {words:?}"
+            );
+        }
     }
 }
 
