@@ -1,0 +1,307 @@
+<!doctype html>
+<!--
+  Reference UI — what the iTunes 7 window measured under Wine looks like.
+
+  This is NOT iCraftMusic. It is a replica of the reference itself, built
+  from the numbers `tools/reference/` captured: the chrome gradients, the
+  pale-green disc panel, the 203px sidebar and its selection ramp, the
+  17px striped table, the 28px status-bar gradient. Toggle the ruler to
+  see every measurement the fidelity pass is matching, on the window it
+  came from. Store, account and sign-in surfaces are absent by rule, and
+  there is no Apple mark — the disc panel shows a plain disc.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reference UI — iTunes 7 as measured under Wine</title>
+<style>
+  :root{
+    --menu-hi:226; --menu-lo:189;          /* chrome top band, y0..21 */
+    --rule-dark:#404040;                    /* (64,64,64) under the chrome */
+    --strip-hi:219; --strip-lo:197;         /* toolbar strip, y77..86 */
+    --disc-hi:rgb(254,255,232); --disc-lo:rgb(217,222,194);
+    --disc-border:#56584c;                  /* (86,88,76) */
+    --side-fill:rgb(209,215,226);
+    --side-heading:rgb(80,93,109);
+    --side-ink:rgb(28,30,38);
+    --sel-hi:rgb(161,176,207); --sel-lo:rgb(113,133,171); --sel-seat:rgb(145,160,192);
+    --hover-hi:rgb(222,229,243); --hover-lo:rgb(181,195,222);
+    --navy:#072d67;                         /* icon ink on the selection, (7,45,103) */
+    --row-h:17px; --side-row:20px;
+    --stripe:rgb(241,245,250);
+    --table-sel:#eff2f5;
+    --head-hi:rgb(219,219,219); --head-lo:rgb(187,187,187); --head-rule:#555;
+    --status-hi:rgb(224,224,224); --status-lo:rgb(150,150,150); --status-ink:#555;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    font-family:"Lucida Grande","Segoe UI",Tahoma,sans-serif;
+    color:var(--side-ink);
+    -webkit-font-smoothing:none;
+    padding:10px 0 18px;
+  }
+  .bar{
+    display:flex; align-items:center; gap:10px;
+    padding:0 14px 10px; font:12px/1 system-ui,sans-serif; color:var(--muted-foreground,#555);
+  }
+  .bar b{color:var(--foreground,#222); font-weight:600;}
+  .bar button{
+    font:12px/1 system-ui,sans-serif; padding:5px 10px; border-radius:6px;
+    border:1px solid var(--border,#bbb); background:var(--card,#f4f4f4); color:inherit; cursor:pointer;
+  }
+  .bar button[aria-pressed=true]{background:var(--sel-seat); border-color:#8fa3c9;}
+  #fit{width:100%; overflow:hidden;}
+  #scaler{width:1180px; height:780px; transform-origin:top left;}
+
+  #win{
+    position:relative; width:1180px; height:780px; overflow:hidden;
+    border:1px solid #3a3a3a; border-radius:5px 5px 3px 3px;
+    background:#fff; box-shadow:0 8px 26px rgba(0,0,0,.28);
+    font-size:12px;
+  }
+  /* ---- menu band: measured gradient 226→189 across y0..21 ---- */
+  #menu{
+    position:absolute; top:0; left:0; right:0; height:21px;
+    background:linear-gradient(rgb(var(--menu-hi)) 0%, rgb(var(--menu-lo)) 100%);
+    display:flex; align-items:center; gap:16px; padding:0 10px;
+    color:#2b2b2b; font-size:12px; border-bottom:1px solid rgba(90,90,90,.55);
+  }
+  #menu span:first-child{background:#68729a; color:#fff; padding:1px 7px; border-radius:3px;}
+  /* ---- toolbar: transport circles, volume, disc panel, search ---- */
+  #toolbar{
+    position:absolute; top:22px; left:0; right:0; height:54px; /* y22..75 */
+    background:linear-gradient(rgb(205) 0%, rgb(187) 100%);
+    display:flex; align-items:center; gap:14px; padding:0 12px;
+  }
+  .circles{display:flex; gap:6px;}
+  .cbtn{
+    width:29px; height:29px; border-radius:50%;
+    background:radial-gradient(circle at 50% 30%, #fdfdfd, #d2d2d2 62%, #a9a9a9);
+    border:1px solid #6f6f6f; box-shadow:inset 0 1px 0 #fff, 0 1px 2px rgba(0,0,0,.25);
+    display:flex; align-items:center; justify-content:center;
+    color:#3c3c3c; font-size:11px;
+  }
+  .cbtn.play{font-size:12px; padding-left:2px;}
+  #vol{display:flex; align-items:center; gap:6px; color:#4a4a4a; font-size:13px;}
+  #vol .track{position:relative; width:96px; height:4px; border-radius:2px; background:#8f8f8f; box-shadow:inset 0 1px 1px #5c5c5c;}
+  #vol .knob{position:absolute; top:-5px; left:56px; width:10px; height:13px; border-radius:3px;
+    background:linear-gradient(#fff,#c9c9c9); border:1px solid #7a7a7a;}
+  #disc{
+    flex:1; height:44px; border-radius:6px;
+    background:linear-gradient(var(--disc-hi), var(--disc-lo));
+    border:1px solid var(--disc-border);
+    display:flex; align-items:center; gap:10px; padding:0 12px;
+  }
+  #disc .discpic{
+    width:36px; height:36px; border-radius:50%;
+    background:conic-gradient(#e8e8ee, #b9bcc8, #f0f1f5, #a7aab6, #e8e8ee) ;
+    box-shadow:0 1px 2px rgba(0,0,0,.3); position:relative; flex:none;
+  }
+  #disc .discpic::after{content:""; position:absolute; inset:13px; border-radius:50%;
+    background:#f4f4ec; border:1px solid #8b8d7b;}
+  #disc .txt{color:#4b5138; font-size:11px; line-height:1.45;}
+  #search{
+    width:210px; height:21px; border-radius:11px; background:#fff;
+    border:1px solid #6e6e6e; box-shadow:inset 0 1px 2px rgba(0,0,0,.18);
+    display:flex; align-items:center; padding:0 9px; color:#9a9a9a; font-size:11px; gap:6px; flex:none;
+  }
+  /* ---- measured dark rule at y76, then the toolbar strip y77..86 ---- */
+  #darkrule{position:absolute; top:76px; left:0; right:0; height:1px; background:var(--rule-dark);}
+  #strip{
+    position:absolute; top:77px; left:0; right:0; height:10px;
+    background:linear-gradient(rgb(var(--strip-hi)), rgb(var(--strip-lo)));
+    border-bottom:1px solid #8f8f8f;
+  }
+  /* ---- body ---- */
+  #body{position:absolute; top:88px; left:0; right:0; bottom:28px; display:flex;}
+  #side{
+    width:203px; height:100%; background:var(--side-fill);
+    border-right:1px solid var(--rule-dark); flex:none; padding-top:7px;
+  }
+  .heading{
+    color:var(--side-heading); font-size:11px; font-weight:700; letter-spacing:.03em;
+    padding:2px 0 3px 12px; display:flex; align-items:center; gap:6px;
+  }
+  .tri{width:0;height:0;border:4px solid transparent;border-left:6px solid var(--side-heading);border-right:0;margin-left:6px;}
+  .srow{
+    height:var(--side-row); display:flex; align-items:center; gap:0; color:var(--side-ink);
+    font-size:12px; position:relative;
+  }
+  .srow .ico{width:28px; display:flex; justify-content:center; flex:none;}
+  .srow .lbl{padding-left:16px;}          /* icon col 28 + 16 = label at 44 */
+  .srow svg{display:block;}
+  .srow.selected{
+    background:linear-gradient(var(--sel-hi), var(--sel-lo));
+    border-top:1px solid var(--sel-seat);
+    color:#fff;
+  }
+  .srow.selected .ico svg{color:var(--navy);}
+  .srow.hoversample{background:linear-gradient(var(--hover-hi), var(--hover-lo));}
+  .placeholder{color:#757575; padding-left:44px; height:var(--side-row); display:flex; align-items:center;}
+  /* ---- table ---- */
+  #table{flex:1; height:100%; background:#fff; display:flex; flex-direction:column; min-width:0;}
+  #thead{
+    height:20px; flex:none; display:flex; align-items:center;
+    background:linear-gradient(var(--head-hi), var(--head-lo));
+    border-bottom:1px solid var(--head-rule);
+    color:#3f3f3f; font-size:11px;
+  }
+  #tbody{flex:1; overflow:hidden;}
+  .trow{height:var(--row-h); display:flex; align-items:center; font-size:11px; white-space:nowrap;}
+  .trow:nth-child(even){background:var(--stripe);}
+  .trow.sel{background:var(--table-sel);}
+  .trow.sel .c .v{font-weight:600;}
+  .c{padding:0 7px; overflow:hidden; text-overflow:ellipsis;}
+  .c .v{max-width:100%; overflow:hidden; text-overflow:ellipsis;}
+  .n{color:#5a5a5a; text-align:right;}
+  .sorted{display:flex; align-items:center; gap:4px; color:#333; font-weight:600;}
+  .sorted::after{content:"▵"; font-size:9px;}
+  /* ---- status bar: 28px, gradient 224→150, divider 85, text 85 ---- */
+  #status{
+    position:absolute; left:0; right:0; bottom:0; height:28px;
+    border-top:1px solid var(--status-ink);
+    background:linear-gradient(var(--status-hi), var(--status-lo));
+    display:flex; align-items:center; justify-content:center;
+    color:var(--status-ink); font-size:11px;
+  }
+  #status .gear{position:absolute; right:9px; font-size:14px; color:#4f4f4f;}
+  #status .plus{position:absolute; left:9px; font-size:15px; color:#4f4f4f;}
+  /* ---- measurement overlay ---- */
+  .ann{position:absolute; inset:0; pointer-events:none; display:none; z-index:9;}
+  #win.measured .ann{display:block;}
+  .ann .hline{position:absolute; left:0; right:0; height:0; border-top:1px dashed #e03030;}
+  .ann .vline{position:absolute; top:0; bottom:0; width:0; border-left:1px dashed #e03030;}
+  .ann .tag{
+    position:absolute; background:#e03030; color:#fff; font:10px/1.35 ui-monospace,monospace;
+    padding:2px 5px; border-radius:3px; white-space:pre; box-shadow:0 1px 3px rgba(0,0,0,.35);
+  }
+  .ann .chip{position:absolute; width:10px; height:10px; border:1px solid #fff; box-shadow:0 0 0 1px #333; border-radius:2px;}
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>Reference UI — iTunes 7 (Wine), 1180×780</b>
+  <button id="toggle" aria-pressed="false">show measurements</button>
+  <span>every gradient and metric below was read off captures taken with <i>tools/reference/</i>; no Store, account or sign-in surface, no Apple mark.</span>
+</div>
+<div id="fit"><div id="scaler"><div id="win">
+
+  <div id="menu"><span>File</span><span>Edit</span><span>Controls</span><span>View</span><span>Advanced</span><span>Help</span></div>
+
+  <div id="toolbar">
+    <div class="circles"><div class="cbtn">⏮</div><div class="cbtn play">▶</div><div class="cbtn">⏭</div></div>
+    <div id="vol">🔈<div class="track"><div class="knob"></div></div></div>
+    <div id="disc">
+      <div class="discpic"></div>
+      <div class="txt">now playing —<br><b style="color:#33381f">Nothing loaded</b></div>
+    </div>
+    <div id="search">🔎 <span>Search</span></div>
+  </div>
+
+  <div id="darkrule"></div>
+  <div id="strip"></div>
+
+  <div id="body">
+    <div id="side">
+      <div class="heading">LIBRARY</div>
+      <div class="srow selected">
+        <span class="ico"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.4" fill="#2b62b8"/><path d="M5.2 9.6V4.8l4-.9v4.4" fill="none" stroke="#fff" stroke-width="1.1"/><circle cx="4.3" cy="9.7" r="1.2" fill="#fff"/><circle cx="8.3" cy="8.9" r="1.2" fill="#fff"/></svg></span>
+        <span class="lbl">Music</span>
+      </div>
+      <div class="srow hoversample">
+        <span class="ico"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.4" fill="#e6a832"/><path d="M4 8.6h6M4 5.4h6M6 3.6v6.8M9 3.6v6.8" stroke="#fff" stroke-width="1.2"/></svg></span>
+        <span class="lbl">hover sample</span>
+      </div>
+      <div class="heading" style="margin-top:6px"><span class="tri"></span>PLAYLISTS</div>
+      <div class="placeholder">None yet</div>
+    </div>
+
+    <div id="table">
+      <div id="thead">
+        <div class="c" style="width:34px">#</div>
+        <div class="c sorted" style="width:300px; flex:none">Title</div>
+        <div class="c" style="width:120px; flex:none">Artist</div>
+        <div class="c" style="width:170px; flex:none">Album</div>
+        <div class="c" style="width:80px; flex:none">Genre</div>
+        <div class="c" style="width:56px; flex:none; text-align:right">Time</div>
+        <div class="c n" style="width:46px; flex:none">Plays</div>
+      </div>
+      <div id="tbody"></div>
+    </div>
+  </div>
+
+  <div id="status"><span class="plus">＋</span>57 songs, 5 albums<span class="gear">⚙</span></div>
+
+  <div class="ann">
+    <div class="hline" style="top:21px"></div><div class="tag" style="top:23px; right:8px">menu band y0..21 · gradient 226→189</div>
+    <div class="hline" style="top:76px"></div><div class="tag" style="top:60px; right:8px">dark rule y76 · rgb(64,64,64)</div>
+    <div class="hline" style="top:87px"></div><div class="tag" style="top:89px; right:8px">toolbar strip y77..86 · 219→197</div>
+    <div class="vline" style="left:202px"></div><div class="tag" style="top:330px; left:10px">sidebar 203px incl. rule · fill rgb(209,215,226) · rule x201.5</div>
+    <div class="hline" style="top:127px"></div><div class="tag" style="top:112px; left:212px">header band · 219→187 · border (85,85,85)</div>
+    <div class="tag" style="top:150px; left:212px">row 17px · stripes #fff / rgb(241,245,250)<br>selected row flat #eff2f5</div>
+    <div class="tag" style="top:410px; left:6px">row 20px · label x44 · icon col 28<br>selection 161,176,207→113,133,171<br>seat line (145,160,192) · hover 222,229,243→181,195,222</div>
+    <div class="chip" style="top:415px; left:150px; background:#a1b0cf"></div>
+    <div class="chip" style="top:432px; left:150px; background:#7185ab"></div>
+    <div class="chip" style="top:198px; left:150px; background:#eff2f5"></div>
+    <div class="hline" style="top:752px"></div><div class="tag" style="top:726px; right:8px">status 28px · gradient 224→150 · divider (85,85,85) · text (85,85,85)</div>
+    <div class="chip" style="top:760px; left:150px; background:linear-gradient(rgb(224,224,224),rgb(150,150,150))"></div>
+  </div>
+
+</div></div></div>
+<script>
+  const rows = [
+    ["42","Viva La Vida or Death and His Friends","Rock","3:57"],
+    ["Amsterdam","A Rush of Blood to the Hill","Rock","5:19"],
+    ["Amsterdam (Live in Sydney)","Live 2003","Rock","5:20"],
+    ["Cemeteries of London","Viva La Vida or Death and His Friends","Rock","3:21"],
+    ["Charlie Brown","Mylo Xyloto","Rock","4:45"],
+    ["Clocks","A Rush of Blood to the Hill","Rock","5:07"],
+    ["Clocks (Live in Sydney)","Live 2003","Rock","5:32"],
+    ["Daylight","A Rush of Blood to the Hill","Rock","5:27"],
+    ["Death and All His Friends","Viva La Vida or Death and His Friends","Rock","6:18"],
+    ["Don't Let It Break Your Heart","Mylo Xyloto","Rock","3:54"],
+    ["Don't Panic","Parachutes","Rock","2:16"],
+    ["Every Teardrop Is a Waterfall","Mylo Xyloto","Rock","4:00"],
+    ["Everything's Not Lost (Includes Hidden Track 'Life Is…","Parachutes","Rock","7:16"],
+    ["Everything's Not Lost (Live in Sydney)","Live 2003","Rock","8:47"],
+    ["God Put a Smile upon Your Face","A Rush of Blood to the Hill","Rock","4:57"],
+    ["God Put a Smile upon Your Face (Live in Sydney)","Live 2003","Rock","4:56"],
+    ["Green Eyes","A Rush of Blood to the Hill","Rock","3:43"],
+    ["High Speed","Parachutes","Rock","4:16"],
+    ["A Hopeful Transmission","Mylo Xyloto","Rock","0:33"],
+    ["Hurts Like Heaven","Mylo Xyloto","Rock","4:02"],
+  ];
+  const tb = document.getElementById("tbody");
+  rows.forEach((r, i) => {
+    const el = document.createElement("div");
+    el.className = "trow" + (i === 0 ? " sel" : "");
+    el.innerHTML =
+      '<div class="c n" style="width:34px; flex:none">' + (i + 1) + '</div>' +
+      '<div class="c" style="width:300px; flex:none"><span class="v">' + r[0] + '</span></div>' +
+      '<div class="c" style="width:120px; flex:none"><span class="v">Coldplay</span></div>' +
+      '<div class="c" style="width:170px; flex:none"><span class="v">' + r[1] + '</span></div>' +
+      '<div class="c" style="width:80px; flex:none"><span class="v">' + r[2] + '</span></div>' +
+      '<div class="c" style="width:56px; flex:none; text-align:right">' + r[3] + '</div>' +
+      '<div class="c n" style="width:46px; flex:none">0</div>';
+    tb.appendChild(el);
+  });
+
+  function fit(){
+    const w = document.getElementById("fit").clientWidth;
+    const s = Math.min(1, w / 1180);
+    const sc = document.getElementById("scaler");
+    sc.style.transform = "scale(" + s + ")";
+    document.getElementById("fit").style.height = Math.ceil(780 * s + 4) + "px";
+  }
+  addEventListener("resize", fit); fit();
+
+  const t = document.getElementById("toggle");
+  t.addEventListener("click", () => {
+    const on = t.getAttribute("aria-pressed") !== "true";
+    t.setAttribute("aria-pressed", String(on));
+    t.textContent = on ? "hide measurements" : "show measurements";
+    document.getElementById("win").classList.toggle("measured", on);
+  });
+</script>
+</body>
+</html>

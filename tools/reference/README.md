@@ -24,6 +24,11 @@ window, sends a key chord (modifiers held), and photographs every window the
 chord made appear. `F10` arms the menu bar, `Right`/`Down`/`Return` walk and
 open menus, `Escape` closes dialogs.
 
+`reference-ui.html` is the reference itself redrawn from those numbers: an
+HTML replica of the iTunes 7 window at 1180×780 with a toggle that overlays
+every measurement where it was taken. Open it beside a live capture to check
+an eye against the ruler.
+
 Working captures land under `target/reference/` (a gitignored scratch area);
 the ones worth keeping live in `captures/` beside these scripts, kept in git as
 the measurements the fidelity pass was drawn from. They are photographs of a
