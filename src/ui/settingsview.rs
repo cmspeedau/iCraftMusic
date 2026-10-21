@@ -26,9 +26,15 @@ use crate::ui::shortcuts::Command;
 use crate::ui::theme;
 
 /// Width the Settings window opens at, in points.
-const WINDOW_WIDTH: f32 = 560.0;
-/// Height it opens at when the screen is one the platform has not described.
-const WINDOW_FALLBACK_HEIGHT: f32 = 620.0;
+///
+/// Measured off the reference: its Preferences dialog is 573 across.
+const WINDOW_WIDTH: f32 = 573.0;
+/// Height the Settings window opens at, in points.
+///
+/// The other half of that measured dialog — 573×648 — which is why the
+/// window is no longer sized against the room the main window has to spare
+/// and no longer resizable: the reference dialog is a fixed sheet.
+const WINDOW_FALLBACK_HEIGHT: f32 = 648.0;
 
 /// Draw the Settings window, when it is open.
 pub fn window(app: &mut MusicCraftApp, ui: &egui::Ui) {
@@ -37,21 +43,10 @@ pub fn window(app: &mut MusicCraftApp, ui: &egui::Ui) {
     }
 
     // The panes are long — every preference plus the shortcuts list — so the
-    // contents scroll, and the window opens as tall as the window it lives in
-    // has room to spare: a short window gets a settings window that fits it,
-    // and a tall one shows the panes end to end. When the platform has not
-    // said how tall the window is (Wayland never does), the window takes the
-    // height that suits most screens. `default_size` only speaks on the first
-    // opening; after that the user's resize wins.
-    let height = {
-        let room = ui.ctx().input(|input| input.content_rect());
-        if room.is_finite() {
-            (room.height() - 120.0).max(360.0)
-        } else {
-            WINDOW_FALLBACK_HEIGHT
-        }
-    };
-
+    // contents scroll inside the sheet. The window itself opens at the
+    // reference dialog's measured 573×648 and stays there: `default_size`
+    // only speaks on the first opening, and the window is not resizable, so
+    // it keeps that size the way the reference's does.
     // The window opens with its top-left where the middle of a first-run
     // screen leaves room for it, and after that stays wherever the user put
     // it — `default_pos` only speaks on the first opening. An anchor would
@@ -60,9 +55,9 @@ pub fn window(app: &mut MusicCraftApp, ui: &egui::Ui) {
     let mut open = true;
     Window::new("Settings")
         .collapsible(false)
-        .resizable(true)
+        .resizable(false)
         .default_pos([310.0, 90.0])
-        .default_size([WINDOW_WIDTH, height])
+        .default_size([WINDOW_WIDTH, WINDOW_FALLBACK_HEIGHT])
         .open(&mut open)
         .show(ui.ctx(), |ui| {
             ScrollArea::vertical()
@@ -933,19 +928,36 @@ mod tests {
 
     /// Every line of text the whole Settings pane paints.
     ///
-    /// The pane is drawn through the shell so the section is set the way the
-    /// window sets it, and the existing `painted` helper collects the text. The
-    /// window is drawn tall on purpose: the pane is longer than any real window
-    /// and the part below the fold never reaches the painter, so a short screen
-    /// would only test the sections that happen to come first.
+    /// The sheet is fixed at the reference dialog's 573×648 now, and the part
+    /// below its fold never reaches the painter, so the pane is drawn here at
+    /// the sheet's own width but tall enough to hold every section — a short
+    /// screen would otherwise only test the sections that come first. The
+    /// same scroll area the window wraps the pane in wraps it here.
     fn everything(app: &mut MusicCraftApp) -> Vec<String> {
-        app.open_settings();
-        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 2400.0));
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(WINDOW_WIDTH, 2400.0));
+        let ctx = egui::Context::default();
+        let mut texts = Vec::new();
 
-        painted(app, screen)
-            .into_iter()
-            .map(|(text, _)| text)
-            .collect()
+        for _ in 0..3 {
+            let mut frame = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ui| {
+                    ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| show(app, ui));
+                },
+            );
+            frame.textures_delta.clear();
+            texts.clear();
+            for clipped in &frame.shapes {
+                collect(&clipped.shape, &mut texts);
+            }
+        }
+
+        texts.into_iter().map(|(text, _)| text).collect()
     }
 
     /// An application with a player that has no output device.
@@ -981,5 +993,14 @@ mod tests {
             Playback::with_engine(AudioEngine::without_device(), 1.0),
             library,
         )
+    }
+}
+
+#[cfg(test)]
+mod reference_settings_tests {
+    #[test]
+    fn preferences_window_matches_reference() {
+        assert_eq!(super::WINDOW_WIDTH, 573.0);
+        assert_eq!(super::WINDOW_FALLBACK_HEIGHT, 648.0);
     }
 }

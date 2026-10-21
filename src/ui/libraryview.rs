@@ -27,7 +27,7 @@ use crate::search::SortKey;
 use crate::ui::{DraggedTracks, empty_state, keyboard_activated, theme};
 
 /// Height of a track or artist row, in points.
-const ROW_HEIGHT: f32 = 24.0;
+const ROW_HEIGHT: f32 = theme::TRACK_ROW_HEIGHT;
 /// Height of the table's column headings.
 ///
 /// Shorter than a row: the heading is a line of 12pt text with nothing else on
@@ -35,7 +35,7 @@ const ROW_HEIGHT: f32 = 24.0;
 /// read as an empty row sitting above the table rather than as its heading.
 const HEADER_HEIGHT: f32 = 16.0;
 /// Padding between a column's edge and its text.
-const CELL_PADDING: f32 = 8.0;
+const CELL_PADDING: f32 = theme::CELL_PADDING;
 
 /// Width of the row-number column.
 const INDEX_WIDTH: f32 = 38.0;
@@ -67,6 +67,14 @@ const CHARACTERS_PER_POINT: f32 = 1.0 / 6.6;
 
 /// Size of one album tile in the grid.
 const ALBUM_TILE: Vec2 = Vec2::new(148.0, 190.0);
+/// Reference column-browser cover column width and horizontal scrollbar height.
+///
+/// Measured off the capture; the column browser adopts them when its own
+/// stage wires them in, so they are pinned here rather than forgotten.
+#[allow(dead_code)]
+const COLUMN_BROWSER_COVER_WIDTH: f32 = 188.0;
+#[allow(dead_code)]
+const COLUMN_BROWSER_SCROLLBAR_HEIGHT: f32 = 15.0;
 /// Height of the cover art inside a tile.
 const ALBUM_ART_HEIGHT: f32 = 132.0;
 
@@ -524,6 +532,17 @@ fn header(app: &MusicCraftApp, ui: &mut egui::Ui, columns: &Columns) -> Option<S
 
     {
         let painter = ui.painter().with_clip_rect(rect);
+        // The measured header band is a shallow 219 to 187 ramp closed by its
+        // dark bottom rule, not a flat tone.
+        painter.add(egui::epaint::Shape::gradient_rect(
+            rect,
+            egui::epaint::Direction::TopDown,
+            [theme::TABLE_HEADER_TOP, theme::TABLE_HEADER_BOTTOM],
+        ));
+        painter.line_segment(
+            [rect.left_bottom(), rect.right_bottom()],
+            egui::Stroke::new(1.0, theme::TABLE_HEADER_RULE),
+        );
         painter.text(
             Pos2::new(rect.left() + CELL_PADDING, rect.center().y),
             Align2::LEFT_CENTER,
@@ -600,11 +619,15 @@ fn track_row(
 
     let visuals = ui.visuals();
     let background = if selected {
-        visuals.selection.bg_fill
+        theme::FLAT_SELECTION
     } else if response.hovered() {
         visuals.widgets.hovered.weak_bg_fill
+    } else if number % 2 == 1 {
+        // Rows are numbered from one and the reference stripes the first of
+        // them, so an odd number is the striped row.
+        theme::TABLE_STRIPE
     } else {
-        Color32::TRANSPARENT
+        Color32::WHITE
     };
 
     let font = FontId::proportional(13.0);
@@ -620,7 +643,7 @@ fn track_row(
     };
 
     let painter = ui.painter().with_clip_rect(rect);
-    painter.rect_filled(rect, CornerRadius::same(4), background);
+    painter.rect_filled(rect, CornerRadius::ZERO, background);
 
     painter.text(
         Pos2::new(
@@ -2157,5 +2180,27 @@ mod tests {
             Some(std::path::PathBuf::from("/music/Vitrine.mp3")),
             "Enter on the ringed row did not start the record at that row"
         );
+    }
+}
+
+#[cfg(test)]
+mod reference_table_tests {
+    #[test]
+    fn table_metrics_are_reference_constants() {
+        assert_eq!(crate::ui::theme::TRACK_ROW_HEIGHT, 17.0);
+        assert_eq!(crate::ui::theme::CELL_PADDING, 6.0);
+        assert_eq!(
+            crate::ui::theme::TABLE_STRIPE,
+            egui::Color32::from_rgb(241, 245, 250)
+        );
+    }
+}
+
+#[cfg(test)]
+mod reference_column_browser_tests {
+    #[test]
+    fn column_browser_state_metrics_are_pinned() {
+        assert_eq!(super::COLUMN_BROWSER_COVER_WIDTH, 188.0);
+        assert_eq!(super::COLUMN_BROWSER_SCROLLBAR_HEIGHT, 15.0);
     }
 }

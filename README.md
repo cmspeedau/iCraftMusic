@@ -42,10 +42,15 @@ pretending otherwise.
 
 Stage 8½ is the last gate before 1.0: a pixel-level pass matching the window to
 the reference player (iTunes 7 under Wine), measured from captures rather than
-from memory, one component at a time. The sidebar is done; the track table, the
-transport chrome, the status bar and — borrowing the reference dialog's tab
-strip, hairlines and OK/Cancel footer — the Settings window follow, and no 1.0
-release ships until the stage closes.
+from memory, one component at a time. The sidebar and the track table are done
+— measured striping on 17px rows, the header band with its rule, the focused
+blue the selection really wears — and the toolbar band closes on its measured
+dark rule, the status bar carries its measured 28 points, and the Settings
+window opens as the reference dialog's fixed 573×648 sheet. Remaining: the
+menu band, the transport bar's centre disc chrome (its contents must be
+reworked to fit the measured 60-point band), and the Settings layout that
+borrows the reference dialog's tab strip, hairlines and OK/Cancel footer. No
+1.0 release ships until the stage closes.
 
 Stage 10 collects features that are optional rather than prerequisites, and
 five of them have been built: **gapless playback**, **crossfade**, a **graphic

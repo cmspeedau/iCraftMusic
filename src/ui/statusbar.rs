@@ -1811,3 +1811,11 @@ mod tests {
         )
     }
 }
+
+#[cfg(test)]
+mod reference_status_tests {
+    #[test]
+    fn status_bar_is_28px() {
+        assert_eq!(crate::ui::theme::STATUS_BAR_HEIGHT, 28.0);
+    }
+}

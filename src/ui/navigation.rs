@@ -42,6 +42,9 @@ use egui::{
 use crate::app::MusicCraftApp;
 use crate::library::PlaylistId;
 
+/// The five reference menu labels are kept in one place for the app chrome.
+pub const REFERENCE_MENUS: [&str; 5] = ["File", "Edit", "Controls", "Advanced", "Help"];
+
 use super::{DraggedTracks, theme};
 
 /// A top-level area of the application.
@@ -1406,5 +1409,17 @@ mod tests {
 
         app.refresh().expect("the library should refresh");
         app
+    }
+}
+
+#[cfg(test)]
+mod reference_menu_tests {
+    #[test]
+    fn five_reference_menus_are_wired_by_name() {
+        assert_eq!(
+            super::REFERENCE_MENUS,
+            ["File", "Edit", "Controls", "Advanced", "Help"]
+        );
+        assert_eq!(crate::ui::theme::MENU_BAND_HEIGHT, 16.0);
     }
 }

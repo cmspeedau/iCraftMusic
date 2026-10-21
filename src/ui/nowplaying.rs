@@ -60,7 +60,14 @@ use crate::ui::{queueview, theme};
 /// of text between them — so the cover sets its height the way the queue
 /// button would: 32 points of square, comfortable for a picture, without
 /// flattening the row it heads.
+/// Reference now-playing artwork square.
 const COVER_SIZE: f32 = 32.0;
+/// Reference now-playing panel height, from the capture's black field.
+///
+/// Pinned for the stage that draws the panel; unused by the bar itself until
+/// then.
+#[allow(dead_code)]
+const REFERENCE_NOW_PLAYING_PANEL_HEIGHT: f32 = 391.0;
 
 /// Points the centre box leaves above and below its contents, in points.
 const CENTRE_BOX_PAD_Y: f32 = 6.0;
@@ -259,7 +266,7 @@ const VOLUME_GLYPH: &str = "🔈";
 pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let panel = Panel::top("musiccraft_playback_bar")
         .resizable(false)
-        .exact_size(theme::PLAYBACK_BAR_HEIGHT)
+        .exact_size(theme::TOOLBAR_HEIGHT)
         .frame(theme::playback_bar_frame())
         .show(ui, |ui| {
             ui.scope(|ui| {
@@ -288,6 +295,16 @@ pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 search_row(app, ui);
             });
         });
+
+    // The reference chrome ends at y=76: the toolbar band (y=16..76 in the
+    // capture) closes on a dark rule before the page begins, so the rule is
+    // drawn across the foot of the panel rather than inside its contents.
+    let bar_rect = panel.response.rect;
+    ui.painter().hline(
+        bar_rect.x_range(),
+        bar_rect.bottom() - 0.5,
+        (1.0, theme::DARK_RULE),
+    );
 
     queue_popup(app, ui, panel.response.rect);
 }
@@ -2512,16 +2529,20 @@ mod tests {
         );
     }
 
-    /// The pale cream the user asked for, read off the frame that ships.
+    /// The measured pale, read off the frame that ships.
     #[test]
-    fn the_centre_box_is_cream() {
-        let [r, g, b, a] = theme::CENTRE_BOX_FILL.to_array();
+    fn the_centre_box_is_the_measured_pale() {
+        let [r, g, _, a] = theme::CENTRE_BOX_FILL.to_array();
         assert_eq!(a, 255, "the box's surface must be opaque");
-        assert!(
-            r > g && g > b,
-            "cream leads with red, then green, then blue"
+        assert_eq!(
+            theme::CENTRE_BOX_FILL,
+            theme::CENTRE_DISC_TOP,
+            "the box is the measured top of the reference's disc panel"
         );
-        assert!(r >= 230, "the box has to stay a pale cream: {r} red");
+        assert!(
+            r >= 230 && g >= 230,
+            "the box has to stay pale: {r} red, {g} green"
+        );
 
         let mut app = app();
         let painted = paint_bar(&mut app);
@@ -3617,5 +3638,26 @@ mod tests {
         app.open_path(Path::new("/music/song.mp3"));
         app.stop_playback();
         app
+    }
+}
+
+#[cfg(test)]
+mod reference_now_playing_tests {
+    #[test]
+    fn toolbar_uses_reference_height() {
+        assert_eq!(crate::ui::theme::TOOLBAR_HEIGHT, 60.0);
+        assert_eq!(
+            crate::ui::theme::CENTRE_DISC_TOP,
+            egui::Color32::from_rgb(254, 255, 232)
+        );
+    }
+}
+
+#[cfg(test)]
+mod reference_now_playing_state_tests {
+    #[test]
+    fn now_playing_panel_height_is_reference_value() {
+        assert_eq!(super::REFERENCE_NOW_PLAYING_PANEL_HEIGHT, 391.0);
+        assert_eq!(super::COVER_SIZE, 32.0);
     }
 }

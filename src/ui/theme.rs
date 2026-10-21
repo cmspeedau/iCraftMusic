@@ -14,12 +14,28 @@ use crate::config::ThemeMode;
 
 /// Width of the left-hand navigation sidebar, in points — divider included.
 ///
-/// Measured off the reference: its source list is 203 pixels across, the
+/// Measured off the reference: its source list is 204 pixels across, the
 /// last of them the dark rule, and the page takes the pixel after that.
-pub const SIDEBAR_WIDTH: f32 = 203.0;
+pub const SIDEBAR_WIDTH: f32 = 204.0;
+
+/// Pixel-measured reference window geometry and chrome metrics.
+pub const MENU_BAND_HEIGHT: f32 = 16.0;
+pub const TOOLBAR_HEIGHT: f32 = 60.0;
+pub const TRACK_ROW_HEIGHT: f32 = 17.0;
+pub const CELL_PADDING: f32 = 6.0;
+pub const WINDOW_WIDTH: f32 = 1180.0;
+pub const WINDOW_HEIGHT: f32 = 780.0;
+pub const DARK_RULE: Color32 = Color32::from_rgb(64, 64, 64);
+pub const TABLE_HEADER_TOP: Color32 = Color32::from_rgb(219, 219, 219);
+pub const TABLE_HEADER_BOTTOM: Color32 = Color32::from_rgb(187, 187, 187);
+pub const TABLE_HEADER_RULE: Color32 = Color32::from_rgb(85, 85, 85);
+pub const TABLE_STRIPE: Color32 = Color32::from_rgb(241, 245, 250);
+pub const FLAT_SELECTION: Color32 = Color32::from_rgb(93, 148, 214);
+pub const CENTRE_DISC_TOP: Color32 = Color32::from_rgb(254, 255, 232);
+pub const CENTRE_DISC_BOTTOM: Color32 = Color32::from_rgb(220, 224, 197);
 
 /// Height of the playback bar across the top of the window, in points.
-pub const PLAYBACK_BAR_HEIGHT: f32 = 92.0;
+pub const PLAYBACK_BAR_HEIGHT: f32 = TOOLBAR_HEIGHT;
 
 /// Height of a single sidebar entry, in points.
 ///
@@ -70,7 +86,7 @@ pub const PLAYLIST_LIST_MAX_HEIGHT: f32 = 260.0;
 /// One line of text with the room to centre it vertically, plus the squares
 /// along it: the `+` that names a playlist and the shuffle and repeat switches
 /// at the left, and the gear that opens Settings at the right.
-pub const STATUS_BAR_HEIGHT: f32 = 30.0;
+pub const STATUS_BAR_HEIGHT: f32 = 28.0;
 
 /// Side of a corner button on the status bar, in points.
 ///
@@ -196,20 +212,23 @@ pub const SIDEBAR_FILL: Color32 = Color32::from_rgb(209, 215, 226);
 /// The top end of the selected row's bar.
 ///
 /// The source list selected a row not with a rounded button fill but with a
-/// flat bar across the panel's whole width, deepening from a pale slate at
-/// its top to a full shade at its bottom; the two ends here are the reference's
-/// own measured pixels, top (161, 176, 207) and bottom (113, 133, 171). The
-/// white label sits across the whole ramp, and the ramp is wide enough that
-/// the label reads — see the tests below for the contrast each end gives it.
-pub const SIDEBAR_SELECTED_TOP: Color32 = Color32::from_rgb(161, 176, 207);
+/// flat bar across the panel's whole width, deepening from a bright blue at
+/// its top to a deep blue at its bottom. The two ends here are the
+/// reference's own measured pixels from a focused window — top (93, 148,
+/// 214), the same blue [`FLAT_SELECTION`] is, and bottom (28, 88, 174). An
+/// earlier pinning read an unfocused window and came out a washed slate. The
+/// white label sits across the whole ramp, and the ramp is deep enough at
+/// its foot that the label reads — see the tests below for the contrast
+/// each end gives it.
+pub const SIDEBAR_SELECTED_TOP: Color32 = Color32::from_rgb(93, 148, 214);
 
 /// The bottom end of the selected row's bar.
-pub const SIDEBAR_SELECTED_BOTTOM: Color32 = Color32::from_rgb(113, 133, 171);
+pub const SIDEBAR_SELECTED_BOTTOM: Color32 = Color32::from_rgb(28, 88, 174);
 
 /// The single darker line the reference lays along the bar's top edge —
-/// (145, 160, 192), a shade below the gradient's own first row, so the bar
+/// (62, 120, 198), a shade below the gradient's own first row, so the bar
 /// sits in the panel instead of floating over it.
-pub const SIDEBAR_SELECTED_EDGE: Color32 = Color32::from_rgb(145, 160, 192);
+pub const SIDEBAR_SELECTED_EDGE: Color32 = Color32::from_rgb(62, 120, 198);
 
 /// The top end of the hover bar: the same idea a step quieter, because the
 /// pointer's claim has to stay under the selection's. (The reference shows no
@@ -329,16 +348,17 @@ pub const PLAYBACK_BAR_CONTROL_EDGE: Color32 = Color32::from_rgb(84, 86, 92);
 
 /// Fill of the playback bar's centre box, in points.
 ///
-/// A pale cream, so the box reads as a window onto the track rather than as
-/// another panel of the bar's gray. Like the bar's own fill it is deliberately
-/// not taken from the active theme: the box is a cream surface in the light
-/// theme and in the dark one.
-pub const CENTRE_BOX_FILL: Color32 = Color32::from_rgb(243, 234, 205);
+/// A pale yellow-green — [`CENTRE_DISC_TOP`], the measured top of the
+/// reference's disc panel — so the box reads as a window onto the track
+/// rather than as another panel of the bar's gray. Like the bar's own fill
+/// it is deliberately not taken from the active theme: the box is this pale
+/// surface in the light theme and in the dark one.
+pub const CENTRE_BOX_FILL: Color32 = CENTRE_DISC_TOP;
 
 /// Label colour inside the centre box.
 ///
 /// The box is a light surface, so it carries its own dark ink; the theme's
-/// foreground is near-white in the dark theme and would vanish on the cream.
+/// foreground is near-white in the dark theme and would vanish on the pale fill.
 pub const CENTRE_BOX_INK: Color32 = Color32::from_rgb(38, 34, 24);
 
 /// Muted [`CENTRE_BOX_INK`], for the line under the title.
@@ -1051,20 +1071,25 @@ mod tests {
         }
     }
 
-    /// The centre box is a pale cream, and its ink reads on it in both themes:
-    /// the box paints its own fill whatever the theme, so the theme's
-    /// foreground — near-white in the dark theme — would vanish on it.
+    /// The centre box is the measured pale of the reference's disc panel, and
+    /// its ink reads on it in both themes: the box paints its own fill
+    /// whatever the theme, so the theme's foreground — near-white in the dark
+    /// theme — would vanish on it.
     #[test]
-    fn the_centre_box_is_cream_and_its_ink_reads_on_it() {
+    fn the_centre_box_is_the_measured_pale_and_its_ink_reads_on_it() {
         let [r, g, b, a] = CENTRE_BOX_FILL.to_array();
         assert_eq!(a, 255, "the box's surface must be opaque");
+        assert_eq!(
+            CENTRE_BOX_FILL, CENTRE_DISC_TOP,
+            "the box wears the measured top of the reference's disc panel"
+        );
         assert!(
-            r > g && g > b,
-            "cream leads with red, then green, then blue"
+            r > b && g > b,
+            "the measured pale is a yellow-green: red and green lead blue"
         );
         assert!(
             luminance(CENTRE_BOX_FILL) > 0.7,
-            "the box has to stay a pale cream, not a tan: {CENTRE_BOX_FILL:?}"
+            "the box has to stay pale, not a tan: {CENTRE_BOX_FILL:?}"
         );
 
         for ink in [CENTRE_BOX_INK, CENTRE_BOX_INK_MUTED] {
@@ -1605,5 +1630,31 @@ mod tests {
             accessible_name(ui, &response, "Play or pause");
         });
         output.textures_delta.clear();
+    }
+}
+
+#[cfg(test)]
+mod reference_geometry_tests {
+    use super::*;
+    #[test]
+    fn measured_geometry_is_pinned() {
+        assert_eq!(MENU_BAND_HEIGHT, 16.0);
+        assert_eq!(TOOLBAR_HEIGHT, 60.0);
+        assert_eq!(TRACK_ROW_HEIGHT, 17.0);
+        assert_eq!(CELL_PADDING, 6.0);
+        assert_eq!(STATUS_BAR_HEIGHT, 28.0);
+        assert_eq!(SIDEBAR_WIDTH, 204.0);
+        assert_eq!(WINDOW_WIDTH, 1180.0);
+        assert_eq!(WINDOW_HEIGHT, 780.0);
+    }
+    #[test]
+    fn measured_palette_is_pinned() {
+        assert_eq!(DARK_RULE, Color32::from_rgb(64, 64, 64));
+        assert_eq!(TABLE_HEADER_TOP, Color32::from_rgb(219, 219, 219));
+        assert_eq!(TABLE_HEADER_BOTTOM, Color32::from_rgb(187, 187, 187));
+        assert_eq!(TABLE_STRIPE, Color32::from_rgb(241, 245, 250));
+        assert_eq!(FLAT_SELECTION, Color32::from_rgb(93, 148, 214));
+        assert_eq!(CENTRE_DISC_TOP, Color32::from_rgb(254, 255, 232));
+        assert_eq!(CENTRE_DISC_BOTTOM, Color32::from_rgb(220, 224, 197));
     }
 }
