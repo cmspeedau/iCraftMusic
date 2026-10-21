@@ -24,8 +24,10 @@ window, sends a key chord (modifiers held), and photographs every window the
 chord made appear. `F10` arms the menu bar, `Right`/`Down`/`Return` walk and
 open menus, `Escape` closes dialogs.
 
-Images and this directory's helpers land under `target/reference/` when used
-from there; keep captured images out of git — they are screenshots of
-someone else's application. The scripts are ours. Captures of Store, account
-or sign-in surfaces are not kept even untracked: measure from them, then
-delete them.
+Working captures land under `target/reference/` (a gitignored scratch area);
+the ones worth keeping live in `captures/` beside these scripts, kept in git as
+the measurements the fidelity pass was drawn from. They are photographs of a
+third-party application and are here as reference only. The scripts are ours.
+Captures of Store, account or sign-in surfaces are never kept, tracked or
+untracked: measure from them, then delete them — which is why no such frame
+appears here.
