@@ -118,6 +118,10 @@ impl NavSection {
 pub fn menu_band(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     Panel::top("reference_menu_band")
         .resizable(false)
+        // The band's only rule is the gradient itself falling to the chrome
+        // below; the panel's generic separator line would lay a dark hair
+        // across the measured sixteen points.
+        .show_separator_line(false)
         .exact_size(theme::MENU_BAND_HEIGHT)
         .frame(
             egui::Frame::new()

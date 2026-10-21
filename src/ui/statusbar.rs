@@ -17,7 +17,7 @@
 //! None is a section — you reach for them from anywhere — so they sit on the
 //! bar, out of the way of the music.
 
-use egui::{Button, Panel, Rect, RichText};
+use egui::{Button, Color32, Panel, Rect, RichText, Stroke};
 
 use crate::app::{MusicCraftApp, UpdateStatus};
 use crate::playlists::PlaylistEditKind;
@@ -65,22 +65,29 @@ enum End {
 pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     Panel::bottom("musiccraft_status_bar")
         .resizable(false)
+        // The bar's top rule is the measured (85,85,85) divider painted by
+        // `status_bar_surface`; the panel's generic separator line would
+        // stand a dark hair above it.
+        .show_separator_line(false)
         .exact_size(theme::STATUS_BAR_HEIGHT)
         .frame(theme::status_bar_frame())
         .show(ui, |ui| {
             ui.scope(|ui| {
+                // The measured face first, edge to edge over the frame's flat
+                // gray: the gradient, its divider along the top and its border
+                // along the foot. The controls are laid out after, so they
+                // stand on the gradient rather than under it.
+                theme::status_bar_surface(ui.painter(), ui.max_rect());
+
                 // The bar paints its own fill in every theme, so its line and
                 // its buttons take the bar's ink rather than the theme's
                 // foreground, which is near-white in the dark theme and would
-                // vanish on the gray.
+                // vanish on the gradient.
                 theme::apply_status_bar_visuals(&mut ui.style_mut().visuals);
 
-                // Neither corner button pads its glyph. The bar is only as tall
-                // as what it holds, so at the size the glyphs are drawn,
-                // padding alone is enough to push a button -- and with it the
-                // bar's own fill -- past the foot of the window. The gray a
-                // button leaves around its glyph comes from
-                // [`theme::STATUS_BAR_BUTTON_SIZE`], not from its padding.
+                // The buttons pad nothing: each is a rectangle of the
+                // measured keycap and a glyph in it, and the keycap's own
+                // face is painted under the glyph by `bevel`, not by egui.
                 ui.style_mut().spacing.button_padding = egui::Vec2::ZERO;
 
                 // The line first, so the buttons draw over it rather than
@@ -127,13 +134,17 @@ fn counts(app: &MusicCraftApp, ui: &mut egui::Ui) {
 /// kind. It carries no highlight, unlike the gear: a new playlist is something
 /// you ask for, not somewhere you are.
 fn new_playlist(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    let rect = rect_for(ui.max_rect(), End::Left);
+    bevel(ui, rect, false);
     let response = ui.put(
-        rect_for(ui.max_rect(), End::Left),
+        rect,
         Button::new(
             RichText::new(PLUS_GLYPH)
                 .size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)
                 .strong(),
-        ),
+        )
+        .fill(Color32::TRANSPARENT)
+        .stroke(Stroke::NONE),
     );
 
     // The glyph is a cross to the eye and nothing at all to a screen reader;
@@ -171,23 +182,27 @@ fn new_playlist(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// It is how music comes in from anywhere: the menu offers the file and folder
 /// choosers, so adding does not wait on a page you have to find first. Clicking
 /// opens the menu rather than jumping straight to Settings — the destination
-/// that was the gear's only job is now one of three. The gear still carries the
-/// highlight while Settings is open, the same way the sidebar entries did — the
-/// gear is now the only place that shows where you are when you are there.
+/// that was the gear's only job is now one of three. The gear still wears the
+/// turned-over keycap while Settings or its own menu is open — the gear is now
+/// the only place that shows where you are when you are there.
 ///
 /// Every glyph on the bar is drawn at [`theme::STATUS_BAR_BUTTON_GLYPH_SIZE`]
-/// rather than at the bar's line size: each is a control to aim at, so each is
-/// drawn as tall as the bar has room for.
+/// rather than at the bar's line size: each is the mark on a keycap, and the
+/// measured keycap takes twelve points of it.
 fn settings(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let rect = rect_for(ui.max_rect(), End::Right);
+    let on = app.settings_open() || app.gear_menu_open();
+    bevel(ui, rect, on);
     let response = ui.put(
         rect,
         Button::selectable(
-            app.settings_open() || app.gear_menu_open(),
+            on,
             RichText::new(GEAR_GLYPH)
                 .size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)
                 .strong(),
-        ),
+        )
+        .fill(Color32::TRANSPARENT)
+        .stroke(Stroke::NONE),
     );
 
     theme::accessible_name(ui, &response, "Add music or open Settings");
@@ -346,19 +361,23 @@ fn update_item(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// playback controls to say one bit, and onto the bar where it says the same
 /// bit at the size of the bar's own controls. It reads as the other two do:
 /// the glyph struck through while shuffle is off, plain while it is on, and
-/// carrying the bar's button highlight while it is on — the slash would be
-/// invisible on the accent fill.
+/// wearing the turned-over keycap while it is on — a face the slash would
+/// only muddy.
 fn shuffle(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let on = app.playback().shuffle();
+    let rect = rect_for(ui.max_rect(), End::LeftBeside);
+    bevel(ui, rect, on);
     let response = ui
         .put(
-            rect_for(ui.max_rect(), End::LeftBeside),
+            rect,
             Button::selectable(
                 on,
                 RichText::new(SHUFFLE_GLYPH)
                     .size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)
                     .strong(),
-            ),
+            )
+            .fill(Color32::TRANSPARENT)
+            .stroke(Stroke::NONE),
         )
         .on_hover_text(shuffle_hover(on));
 
@@ -385,22 +404,26 @@ fn shuffle(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 /// shuffle switch's names its own state.
 ///
 /// Drawn like shuffle: struck through while repeat is off, plain while it is
-/// on, and carrying the bar's button highlight while it is on. Repeat has a
+/// on, and wearing the turned-over keycap while it is on. Repeat has a
 /// third state and one bit of ink cannot say it, so the glyph changes as well
 /// — the loop for the whole queue, the same loop with a 1 in it for the one
 /// track — and the hover text spells the mode out.
 fn repeat(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let mode = app.playback().repeat();
     let on = mode.is_enabled();
+    let rect = rect_for(ui.max_rect(), End::LeftThird);
+    bevel(ui, rect, on);
     let response = ui
         .put(
-            rect_for(ui.max_rect(), End::LeftThird),
+            rect,
             Button::selectable(
                 on,
                 RichText::new(repeat_glyph(mode))
                     .size(theme::STATUS_BAR_BUTTON_GLYPH_SIZE)
                     .strong(),
-            ),
+            )
+            .fill(Color32::TRANSPARENT)
+            .stroke(Stroke::NONE),
         )
         .on_hover_text(repeat_hover(mode));
 
@@ -465,43 +488,62 @@ fn strike_out(ui: &egui::Ui, rect: egui::Rect) {
     );
 }
 
-/// Where a bar button sits on a bar filling `bar`: a square tucked into one
-/// end, inset from it, and centred on the bar's own vertical centre.
+/// Where a bar button sits on a bar filling `bar`: the measured 43-by-17
+/// keycap tucked into one end, inset from it, and centred on the bar's own
+/// vertical centre.
 ///
 /// [`End::LeftBeside`] steps one button and one [`theme::STATUS_BAR_BUTTON_GAP`]
-/// further along, so the two at the left read as a pair with a hair of the bar
-/// between them.
+/// further along — the measured 47-point stride — so the buttons at the left
+/// read as a row of keys with a hair of the bar between them.
 fn rect_for(bar: Rect, end: End) -> Rect {
-    let side = theme::STATUS_BAR_BUTTON_SIZE;
-    let top = bar.center().y - side / 2.0;
+    let width = theme::STATUS_BAR_BUTTON_WIDTH;
+    let height = theme::STATUS_BAR_BUTTON_HEIGHT;
+    let top = bar.center().y - height / 2.0;
     let (left, right) = match end {
         End::Left => {
             let left = bar.left() + theme::STATUS_BAR_BUTTON_INSET;
-            (left, left + side)
+            (left, left + width)
         }
         End::LeftBeside => {
             let left = bar.left()
                 + theme::STATUS_BAR_BUTTON_INSET
-                + theme::STATUS_BAR_BUTTON_SIZE
+                + theme::STATUS_BAR_BUTTON_WIDTH
                 + theme::STATUS_BAR_BUTTON_GAP;
-            (left, left + side)
+            (left, left + width)
         }
         End::LeftThird => {
             let left = bar.left()
                 + theme::STATUS_BAR_BUTTON_INSET
-                + 2.0 * (theme::STATUS_BAR_BUTTON_SIZE + theme::STATUS_BAR_BUTTON_GAP);
-            (left, left + side)
+                + 2.0 * (theme::STATUS_BAR_BUTTON_WIDTH + theme::STATUS_BAR_BUTTON_GAP);
+            (left, left + width)
         }
         End::Right => {
             let right = bar.right() - theme::STATUS_BAR_BUTTON_INSET;
-            (right - side, right)
+            (right - width, right)
         }
     };
 
     Rect::from_min_max(
         egui::pos2(left, top),
-        egui::pos2(right, bar.center().y + side / 2.0),
+        egui::pos2(right, bar.center().y + height / 2.0),
     )
+}
+
+/// Paint the measured keycap under a bar button before the button is put on
+/// it: the resting fall from white to silver, the lit fall under the pointer,
+/// and the turned-over face — bottom where the top was — while the switch is
+/// on. The widget over it is transparent, so this is the whole of the face.
+fn bevel(ui: &egui::Ui, rect: Rect, on: bool) {
+    let hovered = ui.rect_contains_pointer(rect);
+    let (top, bottom) = match (on, hovered) {
+        (true, _) => (theme::STATUS_BUTTON_BOTTOM, theme::STATUS_BUTTON_TOP),
+        (false, true) => (
+            theme::STATUS_BUTTON_HOVER_TOP,
+            theme::STATUS_BUTTON_HOVER_BOTTOM,
+        ),
+        (false, false) => (theme::STATUS_BUTTON_TOP, theme::STATUS_BUTTON_BOTTOM),
+    };
+    theme::status_button_surface(ui.painter(), rect, top, bottom);
 }
 
 /// What the bar says: `18 songs · 5 albums · 4 artists`.
@@ -788,25 +830,38 @@ mod tests {
         );
     }
 
-    /// The `+` is painted in the bar's own gray, not in a tile of its own.
+    /// The `+` is painted on the measured keycap, not on a theme tile.
     ///
-    /// Measured off a real frame, in the fill it lands on the screen — and the
-    /// frame this helper runs is the dark theme, whose inactive button fill is
-    /// `#3C3C3C`, so matching the bar here is a real measurement rather than a
+    /// Measured off a real frame: the mesh under the glyph carries the bevel's
+    /// full fall, and nothing else painted is a flat fill big enough to be a
+    /// button background yet small enough to sit under the mark. The frame
+    /// this helper runs is the dark theme, whose inactive button fill is
+    /// `#3C3C3C`, so finding no such tile is a real measurement rather than a
     /// coincidence of the two palettes.
     #[test]
-    fn the_plus_sits_directly_on_the_bars_gray() {
+    fn the_plus_sits_on_the_measured_keycap_and_no_egui_tile() {
         let mut app = app();
         let drawn = draw(&mut app, bar);
 
-        let fill = drawn
-            .glyph_fill(PLUS_GLYPH)
+        let face = drawn
+            .glyph_face(PLUS_GLYPH)
             .expect("the + was drawn on the bar");
+        assert!(
+            face.1.contains(&theme::STATUS_BUTTON_TOP)
+                && face.1.contains(&theme::STATUS_BUTTON_BOTTOM),
+            "the + does not sit on the bevel's full fall: {:?}",
+            face.1
+        );
 
-        assert_eq!(
-            fill,
-            theme::STATUS_BAR_FILL,
-            "the + is not painted in the bar's own fill: got {fill:?}"
+        let ink = drawn.glyph_rect(PLUS_GLYPH).expect("the + was drawn");
+        assert!(
+            !drawn
+                .fills
+                .iter()
+                .any(|(rect, colour)| rect.contains_rect(ink)
+                    && rect.area() < face.0.area()
+                    && colour.a() > 0),
+            "an egui tile was painted over the keycap under the +"
         );
     }
 
@@ -875,11 +930,11 @@ mod tests {
 
     /// The `+` inks as wide as the glyphs beside it.
     ///
-    /// This is the assertion behind "bigger and bold", and it is measured in
-    /// ink widths rather than taste: the ASCII plus inked **12.4** points across
-    /// at the bar's glyph size while the gear inked **19.8**, which is what made
-    /// the `+` read as the runt of the three. The heavy cross inks **19.8** —
-    /// the gear's own width — so it needs no size of its own.
+    /// This is the assertion behind "the marks read as a set", and it is
+    /// measured in ink widths rather than taste: the ASCII plus inked about
+    /// two-thirds of the gear's width at the bar's glyph size, which is what
+    /// made a `+` read as the runt of the row. The heavy cross inks the
+    /// gear's own width, so it needs no size of its own.
     ///
     /// The expected widths are literals on purpose. Comparing the plus against
     /// `GEAR_GLYPH` would compare two numbers that move together, and would pass
@@ -906,7 +961,8 @@ mod tests {
 
         let (plus, gear, ascii) = widths.expect("the glyphs were measured");
 
-        // Measured off this render: the thin plus 12.4, the gear 19.8.
+        // Measured off this render: the thin plus about half the cross, the
+        // cross the gear's own width.
         assert!(
             ascii < 14.0,
             "the ASCII plus is expected to be the narrow one, but measured {ascii}"
@@ -915,9 +971,12 @@ mod tests {
             (gear - plus).abs() < 1.0,
             "the + ({plus}) and the gear ({gear}) do not ink the same width"
         );
+        // The marks are twelve-point engravings, not targets: it is the
+        // keycap that is sized to be aimed at. The ink has to be none the
+        // less a mark — not a speck — and inside the metal that carries it.
         assert!(
-            plus >= 19.0,
-            "the + inks only {plus} across, well short of the gear's width"
+            plus > 8.0 && plus <= theme::STATUS_BAR_BUTTON_HEIGHT,
+            "the + inks {plus} across, off the scale of its keycap"
         );
     }
 
@@ -958,8 +1017,8 @@ mod tests {
     /// Measured by width rather than by `has_glyphs`: epaint reports the emoji
     /// cluster glyphs as absent even though the fallback face draws them — the
     /// shuffle switch has been shipped with one for stages — so a zero-width
-    /// glyph is the signal that a face cannot supply it, and a 22-point one is
-    /// the signal that it can.
+    /// glyph is the signal that a face cannot supply it, and a mark with real
+    /// width in it is the signal that it can.
     #[test]
     fn both_repeat_glyphs_ink_the_width_of_the_switch_beside_them() {
         let size = theme::STATUS_BAR_BUTTON_GLYPH_SIZE;
@@ -986,9 +1045,9 @@ mod tests {
 
         let (whole, one, shuffle) = widths.expect("the glyphs were measured");
 
-        // Measured off this render: all three ink 22.6 across at 22 points.
-        // The single-track loop carries a digit and still matches the others,
-        // which is why it can stand in the same button.
+        // Measured off this render: all three ink the same width at the bar's
+        // glyph size. The single-track loop carries a digit and still matches
+        // the others, which is why it can stand in the same button.
         assert!(
             (whole - one).abs() < 1.0,
             "the single-track loop ({one}) is a different width from the plain one ({whole})"
@@ -997,9 +1056,11 @@ mod tests {
             (whole - shuffle).abs() < 1.0,
             "the repeat loop ({whole}) is a different width from the shuffle glyph ({shuffle})"
         );
+        // A real mark on the keycap: not a speck, and not overgrowing the
+        // metal it is engraved on.
         assert!(
-            whole >= 19.0,
-            "the repeat glyph inks only {whole} across, short of the other controls"
+            whole > 8.0 && whole <= theme::STATUS_BAR_BUTTON_HEIGHT,
+            "the repeat glyph inks {whole} across, off the scale of its keycap"
         );
     }
 
@@ -1126,8 +1187,8 @@ mod tests {
             "the repeat switch drifted out of the bar's left end: {repeat:?}"
         );
 
-        // It takes the bar's own ink and fill like the switches beside it,
-        // which is what the third trip through the same `put` buys.
+        // It takes the bar's own ink like the switches beside it, and no fill
+        // of its own: the hand-painted keycap is its face, in every state.
         let mut visuals = egui::Visuals::dark();
         theme::apply_status_bar_visuals(&mut visuals);
         assert_eq!(
@@ -1137,26 +1198,27 @@ mod tests {
         );
         assert_eq!(
             visuals.widgets.inactive.weak_bg_fill,
-            theme::STATUS_BAR_BUTTON_FILL,
-            "and rests in the bar's own fill, not a tile of its own"
+            egui::Color32::TRANSPARENT,
+            "and wears no tile of its own over the keycap"
         );
     }
 
     /// Every button on the bar lights up when the pointer is over it.
     ///
-    /// The `+` is a plain `Button::new`, and egui draws a plain button from its
-    /// `inactive` visuals even while it is hovered — the bar restyles those to
-    /// its own fill, so before this the `+` gave no sign at all that the pointer
-    /// had found it, while the gear (a `selectable`) did. This drives a real
-    /// pointer onto each control in turn and reads the fill that was painted
-    /// under it, so "alight" is measured off a frame rather than assumed.
+    /// The lit face is the hand-painted keycap's brighter fall, so this reads
+    /// the mesh under each glyph rather than any egui widget fill: frame one,
+    /// with no pointer, must show the resting face under the mark; frame two,
+    /// with the pointer sitting on it, must show the lit one. The bar's own
+    /// gradient is a mesh too, but it spans the window — the smallest mesh
+    /// covering the ink is whatever face sits closest, keycap included.
     #[test]
     fn every_button_on_the_bar_lights_up_under_the_pointer() {
-        for glyph in [PLUS_GLYPH, GEAR_GLYPH, SHUFFLE_GLYPH] {
+        for glyph in [PLUS_GLYPH, GEAR_GLYPH, SHUFFLE_GLYPH, REPEAT_GLYPH] {
             let mut app = app();
             let ctx = egui::Context::default();
 
-            // Frame 1: find the control the way a pointer would.
+            // Frame 1: find the control the way a pointer would, and see the
+            // face it wears while nothing points at it.
             let first = ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(screen()),
@@ -1166,7 +1228,25 @@ mod tests {
             );
             let rect =
                 written(&first.shapes, glyph).unwrap_or_else(|| panic!("the bar has no {glyph:?}"));
+            let mut rest = Drawn::default();
+            for clipped in &first.shapes {
+                collect(&clipped.shape, &mut rest);
+            }
             first.drop_without_applying_deltas();
+
+            let resting = rest
+                .glyph_face(glyph)
+                .unwrap_or_else(|| panic!("no keycap painted under {glyph:?} at rest"));
+            assert!(
+                resting.1.contains(&theme::STATUS_BUTTON_TOP),
+                "the keycap under {glyph:?} does not wear the resting fall: {:?}",
+                resting.1
+            );
+            assert!(
+                !resting.1.contains(&theme::STATUS_BUTTON_HOVER_TOP),
+                "{glyph:?} lit its keycap before the pointer arrived: {:?}",
+                resting.1
+            );
 
             // Frame 2: with the pointer sitting on it.
             let pos = rect.center();
@@ -1190,11 +1270,13 @@ mod tests {
             }
             hovered.drop_without_applying_deltas();
 
-            assert_eq!(
-                drawn.glyph_fill(glyph),
-                Some(theme::STATUS_BAR_HOVER),
+            let lit = drawn
+                .glyph_face(glyph)
+                .unwrap_or_else(|| panic!("no keycap painted under hovered {glyph:?}"));
+            assert!(
+                lit.1.contains(&theme::STATUS_BUTTON_HOVER_TOP),
                 "{glyph:?} does not light up under the pointer: got {:?}",
-                drawn.glyph_fill(glyph)
+                lit.1
             );
         }
     }
@@ -1205,6 +1287,7 @@ mod tests {
         glyphs: Vec<String>,
         rects: Vec<(String, egui::Rect)>,
         fills: Vec<(egui::Rect, egui::Color32)>,
+        meshes: Vec<(egui::Rect, Vec<egui::Color32>)>,
     }
 
     impl Drawn {
@@ -1215,17 +1298,19 @@ mod tests {
                 .map(|(_, rect)| *rect)
         }
 
-        /// The fill the given glyph is drawn on: the smallest painted
-        /// rectangle covering its ink, which is the widget's own background
-        /// rather than the panel behind the whole bar.
-        fn glyph_fill(&self, glyph: &str) -> Option<egui::Color32> {
+        /// The face the given glyph is drawn on: the smallest mesh whose
+        /// rectangle covers its ink, with the colours the mesh is made of.
+        /// A keycap is a mesh (its gradient cannot be a flat fill), and the
+        /// bar's own gradient is one too — but the bar spans the window, so
+        /// the smallest mesh over the ink is the keycap, when there is one.
+        fn glyph_face(&self, glyph: &str) -> Option<(egui::Rect, Vec<egui::Color32>)> {
             let ink = self.glyph_rect(glyph)?;
 
-            self.fills
+            self.meshes
                 .iter()
                 .filter(|(rect, _)| rect.contains_rect(ink))
                 .min_by(|a, b| a.0.area().total_cmp(&b.0.area()))
-                .map(|(_, fill)| *fill)
+                .cloned()
         }
     }
 
@@ -1258,6 +1343,15 @@ mod tests {
     fn collect(shape: &egui::Shape, drawn: &mut Drawn) {
         match shape {
             egui::Shape::Rect(rect) => drawn.fills.push((rect.rect, rect.fill)),
+            egui::Shape::Mesh(mesh) => {
+                let mut bounds = egui::Rect::NOTHING;
+                let mut colours = Vec::with_capacity(mesh.vertices.len());
+                for vertex in &mesh.vertices {
+                    bounds.extend_with(vertex.pos);
+                    colours.push(vertex.color);
+                }
+                drawn.meshes.push((bounds, colours));
+            }
             egui::Shape::Text(text) => {
                 let glyphs = text.galley.text().to_owned();
                 let size = text.galley.size();
@@ -1292,8 +1386,13 @@ mod tests {
         );
         assert_eq!(
             gear.right(),
-            gear.left() + theme::STATUS_BAR_BUTTON_SIZE,
-            "and square"
+            gear.left() + theme::STATUS_BAR_BUTTON_WIDTH,
+            "and as wide as the measured keycap"
+        );
+        assert_eq!(
+            gear.height(),
+            theme::STATUS_BAR_BUTTON_HEIGHT,
+            "as tall as it, leaving the bar's gradient above and below"
         );
         assert_eq!(
             gear.center().y,
@@ -1319,8 +1418,8 @@ mod tests {
         );
         assert_eq!(
             plus.right(),
-            plus.left() + theme::STATUS_BAR_BUTTON_SIZE,
-            "and square"
+            plus.left() + theme::STATUS_BAR_BUTTON_WIDTH,
+            "and as wide as the gear's keycap at the other end"
         );
         assert_eq!(
             plus.size(),
@@ -1343,25 +1442,31 @@ mod tests {
     }
 
     /// The shuffle switch sits immediately right of the `+`, the same size,
-    /// with the requested two points of bar showing between them.
+    /// at the measured 47-point stride: the keycap's 43 points and four of
+    /// gradient between them.
     #[test]
-    fn the_shuffle_switch_sits_beside_the_plus_with_a_two_point_gap() {
+    fn the_shuffle_switch_sits_beside_the_plus_at_the_measured_stride() {
         let bar = Rect::from_min_max(egui::pos2(0.0, 970.0), egui::pos2(1180.0, 1000.0));
         let plus = rect_for(bar, End::Left);
         let shuffle = rect_for(bar, End::LeftBeside);
 
-        // Two points, spelled out: the request was for this gap, so the test
-        // has to fail if the constant is changed rather than follow it.
+        // Four points, spelled out: the measurement was for this gap, so the
+        // test has to fail if the constant is changed rather than follow it.
         assert_eq!(
             shuffle.left() - plus.right(),
-            2.0,
-            "the gap between the + and the shuffle is not two points: \
-             {plus:?} vs {shuffle:?}"
+            4.0,
+            "the gap between the + and the shuffle is not the measured four \
+             points: {plus:?} vs {shuffle:?}"
         );
         assert_eq!(
             theme::STATUS_BAR_BUTTON_GAP,
-            2.0,
-            "the gap constant no longer says two points"
+            4.0,
+            "the gap constant no longer says the measured four points"
+        );
+        assert_eq!(
+            shuffle.left() - plus.left(),
+            theme::STATUS_BAR_BUTTON_WIDTH + theme::STATUS_BAR_BUTTON_GAP,
+            "the keycaps do not stand at the measured 47-point stride"
         );
         assert_eq!(
             shuffle.size(),
@@ -1402,8 +1507,10 @@ mod tests {
             "and so does the line it sits on"
         );
 
-        // The hover fill is the bar's own gray, not the theme's near-black.
-        assert_eq!(visuals.widgets.hovered.bg_fill, theme::STATUS_BAR_HOVER);
+        // The buttons wear no egui hover fill at all: the keycap's lit face
+        // is hand-painted under the glyph, and an egui tile laid over it
+        // would hide the very bevel that says the pointer is there.
+        assert_eq!(visuals.widgets.hovered.bg_fill, egui::Color32::TRANSPARENT);
         assert_ne!(
             visuals.widgets.hovered.bg_fill,
             egui::Visuals::dark().widgets.hovered.bg_fill,
@@ -1477,20 +1584,36 @@ mod tests {
         );
     }
 
+    /// The corner controls stand out from the counts line by their keycaps,
+    /// not by their letters: the measured keycap takes twelve points of mark,
+    /// the same twelve the `.small` line resolves to, and it is the metal —
+    /// taller than that line, with the bar's gradient above and below it —
+    /// that keeps a control from reading as one more word on the bar.
     #[test]
-    fn the_corner_glyphs_stand_out_from_the_bar_line() {
-        // The counts are drawn `.small`; the corner glyphs must not be, or the
-        // bar's controls read as more words on the bar. Resolved through the
-        // app's own style, so this reads the size the bar actually draws at.
+    fn the_corner_controls_stand_out_from_the_bar_line_by_their_keycaps() {
         let ctx = egui::Context::default();
         theme::apply(&ctx, crate::config::ThemeMode::Light);
         let line = egui::TextStyle::Small.resolve(&ctx.style_of(egui::Theme::Light));
 
-        assert!(
-            theme::STATUS_BAR_BUTTON_GLYPH_SIZE > line.size,
-            "the corner glyphs ({}) are no bigger than the bar's line ({})",
+        // The two agreed at twelve points, on the capture and in the type
+        // scale; if one of them moves alone, this fails and someone looks.
+        assert_eq!(
             theme::STATUS_BAR_BUTTON_GLYPH_SIZE,
-            line.size
+            line.size,
+            "the keycap's mark and the bar's line no longer agree at twelve points"
+        );
+
+        // And the metal says the rest, measured off a real frame: the keycap
+        // under the `+` outstands the counts' own line.
+        let mut app = app();
+        let drawn = draw(&mut app, bar);
+        let keycap = drawn.glyph_face(PLUS_GLYPH).expect("the + wears a keycap");
+        let counts = drawn.glyph_rect("song").expect("the bar counts its songs");
+
+        assert!(
+            keycap.0.height() > counts.height(),
+            "the keycap is no taller than the counts' line: {:?} against {counts:?}",
+            keycap.0
         );
     }
 
@@ -1644,8 +1767,12 @@ mod tests {
         );
     }
 
-    /// Each corner button paints on the bar, at its own end, bigger than the
-    /// line between them.
+    /// Each corner button paints on the bar, at its own end, on a keycap that
+    /// reads bigger than the line between them.
+    ///
+    /// The marks themselves are twelve-point engravings — the measured
+    /// keycap's caption size — so this compares the metal under them, found
+    /// by its rule, not the ink.
     #[test]
     fn the_corner_buttons_sit_at_their_ends_and_read_bigger_than_the_counts() {
         let screen = screen();
@@ -1655,16 +1782,46 @@ mod tests {
         let gear = written(&shapes, "⚙").expect("the bar has no gear");
         let plus = written(&shapes, PLUS_GLYPH).expect("the bar has no +");
 
+        // The keycaps, by their rules: no other stroke on the bar wears the
+        // bevel's grey at the keycap's width.
+        let faces: Vec<Rect> = shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(r)
+                    if r.stroke.color == theme::STATUS_BUTTON_BORDER
+                        && (r.rect.width() - theme::STATUS_BAR_BUTTON_WIDTH).abs() < 0.5 =>
+                {
+                    Some(r.rect)
+                }
+                _ => None,
+            })
+            .collect();
+        let face_under = |mark: &Rect| {
+            faces
+                .iter()
+                .find(|face| face.x_range().contains(mark.center().x))
+                .copied()
+                .unwrap_or_else(|| panic!("no keycap under {mark:?}"))
+        };
+
         for (label, button) in [("plus", plus), ("gear", gear)] {
+            let face = face_under(&button);
             assert!(
-                bar.contains_rect(button),
-                "the {label} is off the bar: {button:?} inside {bar:?}"
+                bar.contains_rect(face),
+                "the {label}'s keycap is off the bar: {face:?} inside {bar:?}"
             );
             assert!(
-                button.height() > counts.height(),
-                "the {label} ({}) does not read bigger than the counts ({}): {button:?} vs {counts:?}",
-                button.height(),
+                face.height() > counts.height(),
+                "the {label}'s keycap ({}) does not read bigger than the counts ({}): {face:?} vs {counts:?}",
+                face.height(),
                 counts.height()
+            );
+            // The measured keycap exactly, pinned through the paint: forty-
+            // three by seventeen, not whatever a widget would have made.
+            assert!(
+                (face.height() - theme::STATUS_BAR_BUTTON_HEIGHT).abs() < 0.5,
+                "the {label}'s keycap is {} tall, not the measured 17: {face:?}",
+                face.height()
             );
         }
 
@@ -1682,15 +1839,6 @@ mod tests {
         assert!(
             plus.right() < gear.left(),
             "the two corner buttons meet: {plus:?} overlaps {gear:?}"
-        );
-
-        // The gear's own move out of the sidebar replaced a 19-point glyph,
-        // which drew a 22-point box. It still has to stand taller than that, or
-        // having moved it bought nothing.
-        assert!(
-            gear.height() > 22.0,
-            "the gear reads {} points, no bigger than the 22 it replaced: {gear:?}",
-            gear.height()
         );
     }
 

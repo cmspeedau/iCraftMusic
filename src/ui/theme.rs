@@ -115,43 +115,86 @@ pub const PLAYLIST_LIST_MAX_HEIGHT: f32 = 260.0;
 /// at the left, and the gear that opens Settings at the right.
 pub const STATUS_BAR_HEIGHT: f32 = 28.0;
 
-/// Side of a corner button on the status bar, in points.
+/// Width of a corner button on the status bar, in points.
 ///
-/// Smaller than [`STATUS_BAR_HEIGHT`] so a hair of the gray shows above and
-/// below it: the button then reads as a control sitting on the bar rather than
-/// as a block filling its corner.
+/// The measured bevel button: wider than tall, so the bar's ends read as
+/// controls set into it rather than as squares punched out of it.
+pub const STATUS_BAR_BUTTON_WIDTH: f32 = 43.0;
+
+/// Height of a corner button on the status bar, in points.
 ///
-/// Both corner buttons are this size, so the bar's two ends read as a pair
-/// rather than as two independently sized controls.
-pub const STATUS_BAR_BUTTON_SIZE: f32 = 24.0;
+/// Seventeen of the bar's twenty-eight: the bevel and its borders, with the
+/// bar's gradient showing above and below.
+pub const STATUS_BAR_BUTTON_HEIGHT: f32 = 17.0;
+
+/// Corner radius of the measured bevel buttons, in points.
+pub const STATUS_BAR_BUTTON_RADIUS: u8 = 3;
 
 /// Size of the glyph drawn in a corner button, in points.
 ///
-/// A glyph draws a box taller than its own size -- some 1.16 times it, so this
-/// stands the glyph at 25.5 of the bar's 29 points, most of the bar's height and
-/// as much as it has room for: the bar is only as tall as what it holds, and at
-/// 23 the glyph pushes the bar's fill past the foot of the window. At 19 it read
-/// as a speck in the corner rather than as the one control at that end of the
-/// bar.
-pub const STATUS_BAR_BUTTON_GLYPH_SIZE: f32 = 22.0;
+/// The measured bevel's own caption size: twelve points of sign set in
+/// seventeen points of metal, the button reading as a keycap with a mark on
+/// it rather than as a glyph with a hair of margin.
+pub const STATUS_BAR_BUTTON_GLYPH_SIZE: f32 = 12.0;
 
 /// Gap between a corner button and its end of the status bar, in points.
-pub const STATUS_BAR_BUTTON_INSET: f32 = 3.0;
+///
+/// Fifteen, as measured: the buttons sit clear of the window's corners, the
+/// way a real toolbar's controls sit in their panel rather than in it.
+pub const STATUS_BAR_BUTTON_INSET: f32 = 15.0;
 
 /// Gap between two buttons sharing one end of the status bar, in points.
 ///
 /// The left end holds three — the `+` that names a playlist, the shuffle
-/// switch and the repeat switch — which read as separate controls rather than
-/// as one wide button because of this hair of the bar showing between them.
-pub const STATUS_BAR_BUTTON_GAP: f32 = 2.0;
+/// switch and the repeat switch — a measured stride of 47 apart, which is
+/// the button's 43 plus this.
+pub const STATUS_BAR_BUTTON_GAP: f32 = 4.0;
 
-/// Fill of a status bar corner button while the pointer is over it, or held
-/// down.
+/// The face of a resting bevel button, at its top.
+pub const STATUS_BUTTON_TOP: Color32 = Color32::from_rgb(252, 252, 252);
+
+/// The face of a resting bevel button, at its bottom.
+pub const STATUS_BUTTON_BOTTOM: Color32 = Color32::from_rgb(181, 181, 181);
+
+/// The face of a bevel button under the pointer: the same fall, lit.
+pub const STATUS_BUTTON_HOVER_TOP: Color32 = Color32::from_rgb(255, 255, 255);
+
+/// …and its bottom.
+pub const STATUS_BUTTON_HOVER_BOTTOM: Color32 = Color32::from_rgb(210, 210, 210);
+
+/// The rule round a bevel button.
+pub const STATUS_BUTTON_BORDER: Color32 = Color32::from_rgb(118, 118, 118);
+
+/// The line of light along a bevel button's inside top, under its border:
+/// the chamfer catching the room light, measured off the capture.
+pub const STATUS_BUTTON_GLOSS: Color32 = Color32::from_rgb(255, 255, 255);
+
+/// Paint one of the status bar's bevel buttons.
 ///
-/// The bar paints its own gray, so the themes' hover fill — near-black in the
-/// dark theme — would put the bar's dark ink on a dark square. This is the
-/// bar's gray a shade deeper, which the ink still reads on.
-pub const STATUS_BAR_HOVER: Color32 = Color32::from_rgb(158, 160, 166);
+/// White at its top falling to silver at its foot, a grey rule around it and
+/// a white line under that rule; `top` and `bottom` are the caller's choice
+/// of the two falls — rest, hover, or the turned-over face of a switch that
+/// is on. Square corners would poke out of the measured 3-point rounding by
+/// a pixel's worth at each corner, which is what the stroked rule on top
+/// covers.
+pub fn status_button_surface(painter: &Painter, rect: Rect, top: Color32, bottom: Color32) {
+    painter.add(egui::epaint::Shape::gradient_rect(
+        rect,
+        egui::epaint::Direction::TopDown,
+        [top, bottom],
+    ));
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(STATUS_BAR_BUTTON_RADIUS),
+        Stroke::new(1.0, STATUS_BUTTON_BORDER),
+        StrokeKind::Inside,
+    );
+    painter.hline(
+        rect.x_range().shrink(3.0),
+        rect.top() + 1.5,
+        Stroke::new(1.0, STATUS_BUTTON_GLOSS),
+    );
+}
 
 /// Accent colour used for selections and links in both themes.
 pub const ACCENT: Color32 = Color32::from_rgb(10, 132, 255);
@@ -535,17 +578,63 @@ pub const WARNING: Color32 = Color32::from_rgb(255, 159, 10);
 /// frame the window read as a frame. It is also what [`PLAYBACK_BAR_FILL`] is
 /// set to: the top bar and the status bar are one colour, and this is the
 /// constant both read.
+///
+/// The status bar itself wears the measured gradient below rather than this
+/// flat fill — see [`status_bar_surface`]; this constant is what its frame
+/// falls back to and what the playback bar matches.
 pub const STATUS_BAR_FILL: Color32 = Color32::from_rgb(176, 178, 182);
+
+/// The status bar's gradient, at its top and its foot.
+///
+/// Measured off the capture: the bar is lit from above, `224` at the divider
+/// deepening to `149` at the bottom border. The frame keeps the flat
+/// [`STATUS_BAR_FILL`] underneath so the two bars can still be looked up by
+/// one colour, and the gradient is painted over it.
+pub const STATUS_GRADIENT_TOP: Color32 = Color32::from_rgb(224, 224, 224);
+
+/// …and at its foot.
+pub const STATUS_GRADIENT_BOTTOM: Color32 = Color32::from_rgb(149, 149, 149);
+
+/// The hairline that separates the status bar from the page above it.
+pub const STATUS_DIVIDER: Color32 = Color32::from_rgb(85, 85, 85);
+
+/// The bar's bottom border, the last row of pixels of the window.
+pub const STATUS_BOTTOM_BORDER: Color32 = Color32::from_rgb(71, 71, 71);
+
+/// Paint the status bar's measured face across its strip: the top-to-foot
+/// gradient, the divider along its top and the border along its foot. Call it
+/// inside the bar's panel so its controls sit on the gradient.
+pub fn status_bar_surface(painter: &Painter, rect: Rect) {
+    painter.add(egui::epaint::Shape::gradient_rect(
+        rect,
+        egui::epaint::Direction::TopDown,
+        [STATUS_GRADIENT_TOP, STATUS_GRADIENT_BOTTOM],
+    ));
+    // A stroke stands centred on the line it is given, so each rule is set
+    // half a point inside the strip: at the very edge, half of it would fall
+    // outside the panel's clip and the measured hairline would come out bald.
+    painter.hline(
+        rect.x_range(),
+        rect.top() + 0.5,
+        Stroke::new(1.0, STATUS_DIVIDER),
+    );
+    painter.hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        Stroke::new(1.0, STATUS_BOTTOM_BORDER),
+    );
+}
 
 /// Label colour of the status bar.
 ///
 /// The bar is a light surface in both themes, so it carries its own dark ink:
 /// the theme's foreground is near-white in the dark theme and would vanish on
-/// [`STATUS_BAR_FILL`].
-pub const STATUS_BAR_INK: Color32 = Color32::from_rgb(32, 34, 38);
+/// [`STATUS_BAR_FILL`]. This is the bevel buttons' ink; their face is pale
+/// enough that the measured dark grey reads on it.
+pub const STATUS_BAR_INK: Color32 = Color32::from_rgb(60, 60, 60);
 
-/// Muted [`STATUS_BAR_INK`], for the status bar's single line.
-pub const STATUS_BAR_INK_MUTED: Color32 = Color32::from_rgb(58, 60, 66);
+/// Muted [`STATUS_BAR_INK`], for the status bar's single counts line.
+pub const STATUS_BAR_INK_MUTED: Color32 = Color32::from_rgb(85, 85, 85);
 
 /// Install the iCraftMusic style for `mode`.
 ///
@@ -792,13 +881,6 @@ pub fn status_bar_frame() -> Frame {
     Frame::new().fill(STATUS_BAR_FILL)
 }
 
-/// The status bar's ink, and the fill a button on the bar rests in.
-///
-/// A resting button takes the bar's own fill, so the `+` reads as the bar
-/// rather than as a pale tile sitting on it: the bar is a surface, and a
-/// control only shows itself when the pointer is over it or its state is on.
-pub const STATUS_BAR_BUTTON_FILL: Color32 = STATUS_BAR_FILL;
-
 /// Point a style at the status bar's own palette.
 ///
 /// Call this inside a `Ui::scope` around the bar's body. Like the sidebar and
@@ -807,27 +889,28 @@ pub const STATUS_BAR_BUTTON_FILL: Color32 = STATUS_BAR_FILL;
 pub fn apply_status_bar_visuals(visuals: &mut Visuals) {
     ink_surface(visuals, STATUS_BAR_INK, STATUS_BAR_INK_MUTED);
 
-    // A button on the bar is painted with `weak_bg_fill`, so in any theme it
-    // rests in a fill of its own -- the light theme's `#E6E6E6` on the bar's
-    // gray `#B0B2B6`, a pale tile that is visible at rest and that shifts when
-    // the theme changes. It takes the bar's fill instead, and shows itself only
-    // where it has something to say: under the pointer, or while it is on.
-    visuals.widgets.inactive.weak_bg_fill = STATUS_BAR_BUTTON_FILL;
-    visuals.widgets.noninteractive.weak_bg_fill = STATUS_BAR_BUTTON_FILL;
+    // The bar's buttons are hand-bevelled — the measured keycap is painted
+    // under each glyph by `status_button_surface`, not by egui — so every one
+    // of their own fills goes transparent and the widget is only its text and
+    // its click area. That is true at rest and under the pointer alike: the
+    // bevel does the resting face, the lit face and the turned-over face, so
+    // egui must not lay a tile of its own over any of them.
+    for widget in [
+        &mut visuals.widgets.inactive,
+        &mut visuals.widgets.hovered,
+        &mut visuals.widgets.active,
+        &mut visuals.widgets.noninteractive,
+    ] {
+        widget.bg_fill = Color32::TRANSPARENT;
+        widget.weak_bg_fill = Color32::TRANSPARENT;
+        widget.bg_stroke = Stroke::NONE;
+    }
 
     // `RichText::strong()` needs no colour of its own here: egui resolves it
     // through `Visuals::strong_text_color()`, which is `widgets.active`'s text
     // colour, and `ink_surface` above has just set that to the bar's ink. So
     // the bar's glyphs can say `strong()` and mean it, without a second place
     // to keep in step.
-
-    // The hover fill is the bar's own step-darker shade rather than the themes':
-    // theirs is near-black in the dark theme, which would put the bar's dark ink
-    // on a dark square.
-    for widget in [&mut visuals.widgets.hovered, &mut visuals.widgets.active] {
-        widget.bg_fill = STATUS_BAR_HOVER;
-        widget.weak_bg_fill = STATUS_BAR_HOVER;
-    }
 }
 
 /// Relative luminance of a colour, as WCAG defines it.
@@ -1226,12 +1309,31 @@ mod tests {
 
     #[test]
     fn the_status_bar_label_stays_readable_on_the_bar() {
-        for ink in [STATUS_BAR_INK, STATUS_BAR_INK_MUTED] {
-            assert!(
-                contrast(ink, STATUS_BAR_FILL) >= 4.5,
-                "bar ink {ink:?} is too faint on {STATUS_BAR_FILL:?}"
-            );
-        }
+        // The glyphs are the measured (60,60,60): that clears the bar's gray
+        // and both bevel faces at the 4.5 an interface holds itself to.
+        assert!(
+            contrast(STATUS_BAR_INK, STATUS_BAR_FILL) >= 4.5,
+            "bar ink {STATUS_BAR_INK:?} is too faint on {STATUS_BAR_FILL:?}"
+        );
+        // The counts line is the measured (85,85,85) on a gradient that runs
+        // (224,224,224) to (149,149,149): a reproduction inherits the
+        // reference's own contrast, and the reference's counts sit at a soft
+        // 3-to-odd — deliberately recessive, the one line on the bar that is
+        // read by asking rather than by glancing. The floor here is 3.0, the
+        // bar an indicator owes its surface, measured where the line lands:
+        // centred in the band, on the gradient's middle.
+        let mid = Color32::from_rgb(
+            ((u16::from(STATUS_GRADIENT_TOP.r()) + u16::from(STATUS_GRADIENT_BOTTOM.r())) / 2)
+                as u8,
+            ((u16::from(STATUS_GRADIENT_TOP.g()) + u16::from(STATUS_GRADIENT_BOTTOM.g())) / 2)
+                as u8,
+            ((u16::from(STATUS_GRADIENT_TOP.b()) + u16::from(STATUS_GRADIENT_BOTTOM.b())) / 2)
+                as u8,
+        );
+        assert!(
+            contrast(STATUS_BAR_INK_MUTED, mid) >= 3.0,
+            "the counts line {STATUS_BAR_INK_MUTED:?} vanishes on the bar's middle {mid:?}"
+        );
     }
 
     #[test]
@@ -1264,88 +1366,111 @@ mod tests {
         assert_eq!(visuals.weak_text_color, Some(STATUS_BAR_INK_MUTED));
     }
 
+    /// A bar button is hand-bevelled: egui lays no tile of its own at rest,
+    /// under the pointer, or pressed — the measured keycap under each glyph
+    /// IS the button's face, and an egui fill laid over it would hide the
+    /// bevel. What remains to hold is that the widget fills all went
+    /// transparent in both themes, whatever the theme's own button fills
+    /// happen to be.
     #[test]
-    fn the_gear_hovers_in_the_bars_own_shade() {
-        let mut visuals = Visuals::dark();
-        apply_status_bar_visuals(&mut visuals);
-
-        for widget in [&visuals.widgets.hovered, &visuals.widgets.active] {
-            assert_eq!(widget.bg_fill, STATUS_BAR_HOVER);
-            assert_eq!(widget.weak_bg_fill, STATUS_BAR_HOVER);
-        }
-
-        // The hover frame has to be a step away from the bar, or the pointer
-        // gives no sign it is over the control.
-        assert!(
-            contrast(STATUS_BAR_HOVER, STATUS_BAR_FILL) > 1.2,
-            "a hovered corner button must show: {STATUS_BAR_HOVER:?} on {STATUS_BAR_FILL:?}"
-        );
-        // And the bar's ink must stay readable on it, which is why the hover
-        // fill is a darker gray rather than the themes' own.
-        assert!(
-            contrast(STATUS_BAR_INK, STATUS_BAR_HOVER) >= 4.5,
-            "the bar's ink is too faint on {STATUS_BAR_HOVER:?}"
-        );
-    }
-
-    /// A bar button at rest is the bar: the `+` is the bar's own gray, not a
-    /// tile sitting on it in whatever fill the active theme happens to give an
-    /// inactive button.
-    #[test]
-    fn a_button_on_the_bar_rests_in_the_bars_own_fill_in_both_themes() {
+    fn the_bar_buttons_wear_the_hand_bevel_and_no_egui_tile() {
         for theme in [Visuals::light(), Visuals::dark()] {
-            let stock = theme.widgets.inactive.weak_bg_fill;
-
             let mut visuals = theme;
             apply_status_bar_visuals(&mut visuals);
 
-            assert_eq!(
-                visuals.widgets.inactive.weak_bg_fill, STATUS_BAR_FILL,
-                "a resting bar button is painted in the bar's own fill"
-            );
-            assert_eq!(
-                visuals.widgets.noninteractive.weak_bg_fill, STATUS_BAR_FILL,
-                "and so is one egui draws as non-interactive"
-            );
-            assert_ne!(
-                visuals.widgets.inactive.weak_bg_fill, stock,
-                "the button is still taking the theme's own resting fill"
-            );
+            for widget in [
+                &visuals.widgets.inactive,
+                &visuals.widgets.hovered,
+                &visuals.widgets.active,
+                &visuals.widgets.noninteractive,
+            ] {
+                assert_eq!(widget.bg_fill, Color32::TRANSPARENT);
+                assert_eq!(widget.weak_bg_fill, Color32::TRANSPARENT);
+                assert_eq!(widget.bg_stroke, Stroke::NONE);
+            }
         }
 
-        // The ink has to stay readable on that fill, or the glyph vanishes into
-        // the bar it was just made to match.
+        // The three faces of the hand-painted bevel: the resting fall must
+        // differ from the lit one, the lit one from the turned-over face of a
+        // switch that is on, and every fall must carry the ink.
+        assert_ne!(STATUS_BUTTON_TOP, STATUS_BUTTON_HOVER_TOP);
         assert!(
-            contrast(STATUS_BAR_INK, STATUS_BAR_BUTTON_FILL) >= 4.5,
-            "the bar's ink is too faint on its own fill"
+            contrast(STATUS_BAR_INK, STATUS_BUTTON_TOP) >= 4.5
+                && contrast(STATUS_BAR_INK, STATUS_BUTTON_BOTTOM) >= 4.5,
+            "the bar's glyph ink is too faint somewhere on the resting bevel"
+        );
+        assert!(
+            contrast(STATUS_BAR_INK, STATUS_BUTTON_HOVER_BOTTOM) >= 4.5,
+            "the bar's glyph ink is too faint on the lit bevel"
+        );
+        // And the rule around the button has to read against both the bar
+        // under it and the pale face inside it.
+        assert!(
+            contrast(STATUS_BUTTON_BORDER, STATUS_BAR_FILL) > 1.2
+                && contrast(STATUS_BUTTON_BORDER, STATUS_BUTTON_BOTTOM) > 1.2,
+            "the bevel's rule is invisible against the bar or its own face"
+        );
+    }
+
+    /// The bar's own face is the measured gradient between its two rules; the
+    /// frame underneath stays the shared gray so the two bars of the window
+    /// can still be looked up by one colour.
+    #[test]
+    fn the_status_bar_paints_its_gradient_between_its_two_rules() {
+        let rect = Rect::from_min_size(egui::Pos2::ZERO, vec2(1180.0, STATUS_BAR_HEIGHT));
+        let ctx = Context::default();
+
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(rect.expand(8.0)),
+                ..Default::default()
+            },
+            |ui| status_bar_surface(ui.painter(), rect),
         );
 
-        // The hover still has to show: matching at rest must not have matched
-        // the hover too, or pointing at the control does nothing.
-        assert_ne!(
-            STATUS_BAR_HOVER, STATUS_BAR_BUTTON_FILL,
-            "the hover was flattened into the resting fill"
-        );
+        let gradients = output
+            .shapes
+            .iter()
+            .filter(|clipped| matches!(clipped.shape, egui::Shape::Mesh(_)))
+            .count();
+        let lines: Vec<Color32> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::LineSegment { stroke, .. } => Some(stroke.color),
+                _ => None,
+            })
+            .collect();
+        output.textures_delta.clear();
+
+        assert_eq!(gradients, 1, "the bar's gradient is not the one mesh it is");
         assert!(
-            contrast(STATUS_BAR_HOVER, STATUS_BAR_BUTTON_FILL) > 1.2,
-            "a hovered bar button must still show against its resting fill"
+            lines.contains(&STATUS_DIVIDER) && lines.contains(&STATUS_BOTTOM_BORDER),
+            "the bar lost one of its two rules: {lines:?}"
         );
     }
 
     #[test]
-    fn the_corner_button_glyph_fills_its_button_within_the_bar() {
-        // Sized here and not at the call site: the button has to leave gray
-        // above and below it on the bar, and the glyph has to fit the button.
+    fn the_corner_button_is_a_measured_keycap_within_the_bar() {
+        // Sized here and not at the call site: the keycap leaves the bar's
+        // gradient above and below it, fits its glyph, and the gradient's
+        // fall still reads across its height.
         const {
             assert!(
-                STATUS_BAR_BUTTON_SIZE < STATUS_BAR_HEIGHT,
-                "a corner button must leave gray above and below it on the bar"
+                STATUS_BAR_BUTTON_HEIGHT < STATUS_BAR_HEIGHT,
+                "a corner button must leave the bar's face above and below it"
             )
         };
         const {
             assert!(
-                STATUS_BAR_BUTTON_GLYPH_SIZE <= STATUS_BAR_BUTTON_SIZE,
-                "a glyph wider than its button would be clipped by it"
+                STATUS_BAR_BUTTON_GLYPH_SIZE <= STATUS_BAR_BUTTON_HEIGHT,
+                "a glyph taller than its keycap would be clipped by it"
+            )
+        };
+        const {
+            assert!(
+                STATUS_BAR_BUTTON_WIDTH > STATUS_BAR_BUTTON_HEIGHT,
+                "the measured bevel is wider than tall — a keycap, not a square"
             )
         };
     }

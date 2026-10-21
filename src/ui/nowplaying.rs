@@ -264,6 +264,9 @@ const VOLUME_GLYPH: &str = "🔈";
 pub fn bar(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
     let panel = Panel::top("musiccraft_playback_bar")
         .resizable(false)
+        // The bar's foot is its own measured dark rule, painted below; the
+        // panel's generic separator line would double it.
+        .show_separator_line(false)
         .exact_size(theme::TOOLBAR_HEIGHT)
         .frame(theme::playback_bar_frame())
         .show(ui, |ui| {
