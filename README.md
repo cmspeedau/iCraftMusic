@@ -38,21 +38,21 @@ pretending otherwise.
 | 6     | Metadata Editing and Library Polish | Complete |
 | 7     | Settings, Reliability, Performance  | Complete |
 | 8     | Visual Refinement and Accessibility | Complete |
-| 8½    | Match the Reference 1:1 (1.0 gate)  | In Progress |
+| 8½    | Match the Reference 1:1 (1.0 gate)  | Complete |
 | 9     | Release and Distribution            | Planned  |
 | 10    | Optional Future Enhancements        | Partial  |
 
-Stage 8½ is the last gate before 1.0: a pixel-level pass matching the window to
+Stage 8½ was the last gate before 1.0: a pixel-level pass matching the window to
 the reference player (iTunes 7 under Wine), measured from captures rather than
-from memory, one component at a time. The sidebar and the track table are done
-— measured striping on 17px rows, the header band with its rule, the focused
-blue the selection really wears — and the toolbar band closes on its measured
-dark rule, the status bar carries its measured 28 points, and the Settings
-window opens as the reference dialog's fixed 573×648 sheet. Remaining: the
-menu band, the transport bar's centre disc chrome (its contents must be
-reworked to fit the measured 60-point band), and the Settings layout that
-borrows the reference dialog's tab strip, hairlines and OK/Cancel footer. No
-1.0 release ships until the stage closes.
+from memory, one component at a time. It closed component by component, each
+verified against a side-by-side capture before its commit: the sidebar and the
+track table — measured striping on 17px rows, the header band with its rule, the
+focused blue the selection really wears, the band flush against the chrome rule
+on the flat page; the menu band drawn over its measured gradient, every item
+wired to a real action; the 44-point disc panel; the status bar's gradient,
+divider and bevelled keycaps; and the Settings sheet — its dark title strip, the
+tabs standing on the white pane's rule, hairlines parting the groups, an OK that
+closes and a Cancel that puts back what the window changed.
 
 Stage 10 collects features that are optional rather than prerequisites, and
 five of them have been built: **gapless playback**, **crossfade**, a **graphic
@@ -405,8 +405,10 @@ update-desktop-database ~/.local/share/applications  # optional, for MimeType
   sizes the icon theme asks for.
 
 The release profile in `Cargo.toml` builds one stripped binary with link-time
-optimisation. There is no published release yet — that is Stage 9's job; what is
-here is the preparation for it. The in-app updater is ready for it: it looks at
+optimisation. A published release comes with the `v1.0.0` tag and everything
+after it: pushing the tag is the deliberate act, and `.github/workflows/release.yml`
+builds the locked binary and publishes it as a GitHub Release. The in-app
+updater is ready for it: it looks at
 the latest GitHub release for an asset named after this machine's architecture
 (`-x86_64.AppImage`), and installs by renaming that file over the running
 AppImage, which is a swap only an AppImage copy can make.
