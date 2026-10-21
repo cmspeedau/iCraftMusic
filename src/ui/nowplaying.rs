@@ -72,16 +72,6 @@ const REFERENCE_NOW_PLAYING_PANEL_HEIGHT: f32 = 391.0;
 /// Points the centre box leaves above and below its contents, in points.
 const CENTRE_BOX_PAD_Y: f32 = 6.0;
 
-/// Points of height the seek row is given around its rail, in points.
-///
-/// Slack, not layout: the slider asks for a taller row than the rail it draws —
-/// [`egui::Spacing::interact_size`], about 15 points, so a pointer has something
-/// to take hold of — and a layout centres its children in the row's height. The
-/// row is placed so its MIDDLE is the rail's middle, which is where the box's
-/// own constants put it; a row of the rail's own ten points would grow
-/// downwards from its top and settle the rail low.
-const SEEK_ROW_SLACK: f32 = 24.0;
-
 /// Height of the seek row's rail, in points.
 ///
 /// This is the request's "rectangle": on this box the seek bar is a squared-off
@@ -91,13 +81,21 @@ const SEEK_RAIL_HEIGHT: f32 = 10.0;
 
 /// Height of the centre box, in points.
 ///
-/// The cover, the seek row under it, and the points the box leaves above and
-/// below the two: the box is as tall as what it holds plus its own padding, so
-/// this has to be all of them together. Nothing about it is measured off a
-/// child — the pill is placed by this constant, so a row that grew would hang
-/// out of it rather than moving it.
-const CENTRE_BOX_HEIGHT: f32 =
-    COVER_SIZE + CENTRE_BOX_GAP + SEEK_RAIL_HEIGHT + 2.0 * CENTRE_BOX_PAD_Y;
+/// The measured disc panel's own forty-four: the cover row it holds and the
+/// points the box leaves above and below it. The details and the seek row no
+/// longer stack under the cover — there is no room in the measured panel for
+/// both — they share the cover's row beside it, so the box is only as tall as
+/// the cover that sets that row. Nothing about it is measured off a child: the
+/// pill is placed by this constant, so content that grew would hang out of it
+/// rather than moving it.
+const CENTRE_BOX_HEIGHT: f32 = COVER_SIZE + 2.0 * CENTRE_BOX_PAD_Y;
+
+/// Points the details row is given: the one line the title and the state now
+/// share.
+const DETAIL_LINE_HEIGHT: f32 = 15.0;
+
+/// Points the seek row gets under the details, inside the cover's row.
+const SEEK_ROW_HEIGHT: f32 = COVER_SIZE - DETAIL_LINE_HEIGHT;
 
 /// Points between the cover, the track's details and the queue button, in
 /// points.
@@ -689,6 +687,7 @@ fn centre_box(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
 
     let cover_row = top_row_rect(pill);
     let seek_row = seek_row_rect(pill);
+    let details_row = details_rect(pill);
 
     if let Some(status) = indexing {
         ui.scope_builder(
@@ -724,12 +723,13 @@ fn centre_box(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         let failure = app.playback_error();
         let state = failure.clone().unwrap_or_else(|| subtitle(app));
 
-        // The two rows are given their own rectangles rather than stacked by the
-        // layout, so each one lands where the pill's own height puts it. A row
-        // that grew — a title and a state line at the box's spacing measure 35
-        // points against the cover's 32 — would otherwise push the seek row out
-        // through the box's foot, and the pill is placed from constants that
-        // know nothing about how tall the text came out.
+        // The rows are given their own rectangles rather than stacked by the
+        // layout, so each one lands where the measured panel puts it: the
+        // cover centred in its row at the left, the title's line at the top of
+        // the column beside it, the rail under that — and all of it inside the
+        // forty-four points the pill is placed by. A row measured through the
+        // layout instead would let a taller child push the rail out through
+        // the pill's foot.
         ui.scope_builder(
             UiBuilder::new()
                 .id_salt("playback_centre_box")
@@ -740,7 +740,12 @@ fn centre_box(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
                 ui.spacing_mut().item_spacing = Vec2::new(CENTRE_BOX_GAP, DETAILS_LINE_GAP);
 
                 cover(app, ui, artwork.as_deref());
-                details(ui, &title, &state, failure.is_some());
+                ui.scope_builder(
+                    UiBuilder::new()
+                        .max_rect(details_row)
+                        .layout(Layout::left_to_right(Align::Center)),
+                    |ui| details(ui, &title, &state, failure.is_some()),
+                );
 
                 queue_button_slot(app, ui, cover_row, pill);
             },
@@ -986,25 +991,29 @@ fn top_row_rect(pill: Rect) -> Rect {
     )
 }
 
-/// The box's seek row: the full inner width of the pill, centred on where the
-/// rail's own middle belongs.
+/// The box's seek row: the details column's width, under the details line and
+/// inside the cover's row — the rail sits beside the cover, as it does in the
+/// measured panel, not under it.
 fn seek_row_rect(pill: Rect) -> Rect {
     let inset_x = f32::from(theme::CENTRE_BOX_PAD);
-    Rect::from_center_size(
-        Pos2::new(pill.center().x, rail_centre_y(pill)),
-        Vec2::new(pill.width() - 2.0 * inset_x, SEEK_ROW_SLACK),
+    let top = pill.top() + f32::from(theme::CENTRE_BOX_PAD_Y);
+    Rect::from_min_size(
+        Pos2::new(
+            pill.left() + inset_x + COVER_SIZE + CENTRE_BOX_GAP,
+            top + DETAIL_LINE_HEIGHT,
+        ),
+        Vec2::new(CENTRE_BOX_TEXT_WIDTH, SEEK_ROW_HEIGHT),
     )
 }
 
-/// The middle of where the box's rail belongs, measured down from the pill's
-/// top: its own padding, the cover row it sets, the box's gap, and half the
-/// rail.
-fn rail_centre_y(pill: Rect) -> f32 {
-    pill.top()
-        + f32::from(theme::CENTRE_BOX_PAD_Y)
-        + COVER_SIZE
-        + CENTRE_BOX_GAP
-        + SEEK_RAIL_HEIGHT / 2.0
+/// The box's details row: the title line the state joins, at the top of the
+/// column between the cover and the queue button.
+fn details_rect(pill: Rect) -> Rect {
+    let seek = seek_row_rect(pill);
+    Rect::from_min_size(
+        Pos2::new(seek.left(), pill.top() + f32::from(theme::CENTRE_BOX_PAD_Y)),
+        Vec2::new(seek.width(), DETAIL_LINE_HEIGHT),
+    )
 }
 
 /// Where the centre box sits on the bar: centred on the window, and filling the
@@ -1021,40 +1030,41 @@ fn centre_box_rect(bar: Rect) -> Rect {
     Rect::from_center_size(bar.center(), Vec2::new(width, CENTRE_BOX_HEIGHT))
 }
 
-/// The track's title and, under it, either what the transport is doing or the
-/// last failure.
+/// The track's title with what the transport is doing, or the last failure,
+/// riding on the same line behind it.
 ///
-/// Bounded to [`CENTRE_BOX_TEXT_WIDTH`] so the box does not grow with the
-/// title: a name too long for it is elided rather than carrying the pill across
-/// the bar.
+/// One line, not two: the measured panel is forty-four points, and the stacked
+/// pair the box used to carry left no room under it for the seek row beside
+/// the cover. The title leads in strong ink, the state follows in its small
+/// weak one — in the warning colour when it is a failure, which still outranks
+/// the usual subtitle because it takes the state's place in the words. Bounded
+/// to [`CENTRE_BOX_TEXT_WIDTH`] by the row it is drawn in: a name too long for
+/// the line is elided rather than carrying the pill across the bar.
 fn details(ui: &mut egui::Ui, title: &str, state: &str, failure: bool) {
-    ui.vertical(|ui| {
-        ui.set_min_width(CENTRE_BOX_TEXT_WIDTH);
-        ui.set_max_width(CENTRE_BOX_TEXT_WIDTH);
-        // The box's own 10-point spacing is the width between its three
-        // controls; between the title and the state under it a tenth of a line
-        // is a gap rather than a paragraph break, and the pair has to stay
-        // inside the cover's 32 points or the seek row is pushed out of the
-        // pill that is sized to hold it.
-        ui.spacing_mut().item_spacing.y = DETAILS_LINE_GAP;
-
-        ui.add(
-            egui::Label::new(RichText::new(title).strong())
-                .truncate()
-                .selectable(false),
-        );
-
-        let state = RichText::new(state).small().weak();
-        let state = if failure {
-            // The failure takes the place of the usual subtitle: the box has a
-            // fixed height, and a message the user must read outranks where the
-            // track sits in the queue.
-            state.color(theme::WARNING)
-        } else {
-            state
-        };
-        ui.add(egui::Label::new(state).truncate().selectable(false));
-    });
+    let title = RichText::new(title).strong();
+    let state = RichText::new(format!("   {state}")).small();
+    let state = if failure {
+        state.color(theme::WARNING)
+    } else {
+        state.weak()
+    };
+    // Two styles on one line means a layout job: egui's own append puts each
+    // run's format in as a section of it, and the line lays out as one label.
+    let mut job = egui::text::LayoutJob::default();
+    let style = ui.style();
+    title.append_to(
+        &mut job,
+        style,
+        egui::FontSelection::Default,
+        egui::Align::LEFT,
+    );
+    state.append_to(
+        &mut job,
+        style,
+        egui::FontSelection::Default,
+        egui::Align::LEFT,
+    );
+    ui.add(egui::Label::new(job).truncate().selectable(false));
 }
 
 /// The album cover at the left of the centre box.
@@ -2309,7 +2319,7 @@ mod tests {
             .iter()
             .filter(|(_, colour)| (1..255).contains(&colour.a()))
             .map(|(rect, _)| *rect)
-            .filter(|rect| rect.width() >= 100.0)
+            .filter(|rect| rect.width() >= 50.0)
             .max_by(|left, right| left.width().total_cmp(&right.width()))
             .expect("the seek row paints a rail")
     }
@@ -2317,17 +2327,18 @@ mod tests {
     /// The window the whole bar is painted into.
     const WINDOW_WIDTH: f32 = 1180.0;
 
-    /// The width the box hands the seek row: the pill's INNER width, which is
-    /// what `centre_box::seek_row_rect` gives it, not the pill's own width and
-    /// not the window's. A fixture that handed it the outer width would measure
-    /// a rail 24 points longer than the box ever draws.
-    const SEEK_ROW_WIDTH: f32 =
-        CENTRE_BOX_TEXT_WIDTH + COVER_SIZE + QUEUE_BUTTON_SIZE + 2.0 * CENTRE_BOX_GAP;
+    /// The width the box hands the seek row: the details column, which the
+    /// row shares with the title line above it — beside the cover, as the
+    /// measured panel has it, rather than under everything as it used to run.
+    const SEEK_ROW_WIDTH: f32 = CENTRE_BOX_TEXT_WIDTH;
 
     /// The seek row's rectangle as the box places it, at the origin so a painted
     /// rail's coordinates read from the row's own corner.
     fn fixture_seek_row() -> egui::Rect {
-        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(SEEK_ROW_WIDTH, SEEK_ROW_SLACK))
+        egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(SEEK_ROW_WIDTH, SEEK_ROW_HEIGHT),
+        )
     }
 
     /// Run the seek row alone through real frames at a known window size.
@@ -2362,17 +2373,14 @@ mod tests {
         painted
     }
 
-    /// The rail is only as long as the box's own inner width leaves it: the two
-    /// time labels and the spacing around them come off the width the box gives
-    /// the row, so the rail's length is a function of the box rather than of
-    /// where the transport happened to stop.
-    /// The rail is centred in the box, so the two time labels either side of it
-    /// are the same width and the rail's middle is the pill's middle. The label
-    /// boxes are allocated at their full width rather than sized to their text,
-    /// and a label that did size to its text — a 17-point `0:03` — would hand
-    /// the rail 35 points it does not have and slide it left.
+    /// The rail is centred in the column it rides: the two time labels either
+    /// side of it are the same width and the rail's middle is the column's
+    /// middle. The label boxes are allocated at their full width rather than
+    /// sized to their text, and a label that did size to its text — a 17-point
+    /// `0:03` — would hand the rail 35 points it does not have and slide it
+    /// left.
     #[test]
-    fn the_seek_row_is_centred_in_the_pill() {
+    fn the_seek_row_is_centred_in_its_column() {
         let mut app = app_playing_a_timed_track();
         let painted = paint_bar(&mut app);
         let pill = painted
@@ -2380,23 +2388,30 @@ mod tests {
             .into_iter()
             .max_by(|a, b| a.area().total_cmp(&b.area()))
             .expect("the centre box paints its own fill");
+        // The column the rail belongs to: from the cover's edge to the queue
+        // button's. The column is not the pill's own middle — the cover it
+        // starts after is wider than the button it ends before — so it is the
+        // column's middle the rail rides, which is what the panel's own
+        // arithmetic makes symmetric.
+        let column_left =
+            pill.left() + f32::from(theme::CENTRE_BOX_PAD) + COVER_SIZE + CENTRE_BOX_GAP;
+        let column_right =
+            pill.right() - f32::from(theme::CENTRE_BOX_PAD) - QUEUE_BUTTON_SIZE - CENTRE_BOX_GAP;
         let rail = seek_rail(&painted);
 
         assert!(
-            (rail.center().x - pill.center().x).abs() <= 1.0,
-            "the seek bar is off centre in the box: {rail:?} in {pill:?}"
-        );
-        assert!(
-            (rail.left() - pill.left() - (pill.right() - rail.right())).abs() <= 2.0,
-            "the seek bar leaves more room on one side than the other: {rail:?} in {pill:?}"
+            (rail.left() - column_left - (column_right - rail.right())).abs() <= 2.0,
+            "the seek bar leaves more room on one side of the column than the other: {rail:?} between {column_left} and {column_right}"
         );
     }
 
-    /// The rail is inside the pill, and inside it with room to spare: the box is
-    /// sized to hold its two rows and its own padding, so a top row taller than
-    /// the cover — a title and a state line at the box's 10-point spacing — is
-    /// what pushes the rail out through the box's foot. Painted, not measured
-    /// from constants, because the row's height is what the text comes to.
+    /// The rail is inside the pill, and inside it with room to spare: the box
+    /// is sized to hold one cover row and its own padding, and the rail rides
+    /// the lower part of that row, under the details line beside the cover.
+    /// Taller content anywhere in the row — a caption that wrapped, a rail
+    /// mis-centred — is what would push it through the box's foot or up into
+    /// the line above. Painted, not measured from constants, because the
+    /// row's height is what the text and the slider come to.
     #[test]
     fn the_seek_row_sits_inside_the_pill() {
         let mut app = app_playing_a_timed_track();
@@ -2417,8 +2432,9 @@ mod tests {
             "the seek bar is not inset from the box's foot: {rail:?} in {pill:?}"
         );
         assert!(
-            rail.top() - pill.top() >= COVER_SIZE,
-            "the seek bar starts inside the cover row rather than under it: \
+            rail.top() - pill.top()
+                >= f32::from(theme::CENTRE_BOX_PAD_Y) + DETAIL_LINE_HEIGHT - 1.0,
+            "the seek bar starts inside the details line rather than under it: \
              {rail:?} in {pill:?}"
         );
     }
@@ -2442,7 +2458,7 @@ mod tests {
             rail.width()
         );
         assert!(
-            rail.width() >= 160.0,
+            rail.width() >= 90.0,
             "the box is too narrow for a usable seek bar: {} wide",
             rail.width()
         );
