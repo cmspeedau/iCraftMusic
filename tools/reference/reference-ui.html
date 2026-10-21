@@ -28,8 +28,8 @@
 <style>
   :root{
     /* main window — measured from Screenshot_20261021_112442 (client = 1180x780) */
-    --menu-hi:226; --menu-lo:190;                 /* menu band, client y0..16 */
-    --chrome-hi:205; --chrome-lo:187;             /* toolbar band below it    */
+    --menu-hi:rgb(226,226,226); --menu-lo:rgb(190,190,190);   /* menu band, client y0..16 */
+    --chrome-hi:rgb(193,193,193); --chrome-lo:rgb(156,156,156); /* toolbar band, y16..75  */
     --rule-dark:#404040;                          /* dark rule at client y76  */
     --disc-hi:rgb(254,255,232); --disc-lo:rgb(220,224,197);
     --disc-border:#56584c;                        /* (86,88,76)               */
@@ -62,32 +62,26 @@
     border:1px solid var(--border,#bbb); background:var(--card,#f4f4f4); color:inherit; cursor:pointer;}
   .bar button[aria-pressed=true]{background:var(--sel-edge); border-color:#2d5f9e; color:#fff;}
   #fit{width:100%; overflow:hidden;}
-  #scaler{width:1180px; height:808px; transform-origin:top left;}
+  #scaler{width:1180px; height:780px; transform-origin:top left;}
   #win{
-    position:relative; width:1180px; height:808px; overflow:hidden;
+    position:relative; width:1180px; height:780px; overflow:hidden;
     border:1px solid #3a3a3a; border-radius:5px 5px 0 0;
     background:#fff; box-shadow:0 8px 26px rgba(0,0,0,.28); font-size:12px;
   }
-  /* ---- KDE title bar over the 780px client ---- */
-  #title{
-    position:absolute; top:0; left:0; right:0; height:28px;
-    background:#292c30; color:#e8e8e8; display:flex; align-items:center; justify-content:center;
-    font-size:13px;
-  }
-  #title .x{position:absolute; right:9px; font-size:14px; color:#cfcfcf;}
+  /* the captures start at the menu band — no window title bar above it ---- */
   /* ---- menu band: 226 to 190 across client y0..16 (shot y10..25) ---- */
   #menu{
-    position:absolute; top:28px; left:0; right:0; height:16px;
-    background:linear-gradient(rgb(var(--menu-hi)) 0%, rgb(var(--menu-lo)) 100%);
+    position:absolute; top:0; left:0; right:0; height:16px;
+    background:linear-gradient(var(--menu-hi) 0%, var(--menu-lo) 100%);
     display:flex; align-items:center; gap:15px; padding:0 7px;
-    color:#2b2b2b; font-size:12px; border-bottom:1px solid rgba(90,90,90,.5);
+    color:#2b2b2b; font-size:12px;
   }
   #menu .m{padding:1px 4px; cursor:default; line-height:14px;}
   #menu .m[aria-expanded=true]{background:linear-gradient(var(--sel-hi),var(--sel-lo)); color:#fff; border-radius:2px;}
   /* ---- toolbar: transport, volume, disc panel, view, search ---- */
   #toolbar{
-    position:absolute; top:45px; left:0; right:0; height:51px;     /* client y17..67 */
-    background:linear-gradient(rgb(var(--chrome-hi)) 0%, rgb(var(--chrome-lo)) 100%);
+    position:absolute; top:16px; left:0; right:0; height:60px;     /* client y16..76 */
+    background:linear-gradient(var(--chrome-hi) 0%, var(--chrome-lo) 100%);
     display:flex; align-items:center; gap:10px; padding:0 12px;
   }
   .circles{display:flex; gap:7px;}
@@ -133,12 +127,10 @@
     border:1px solid #6e6e6e; box-shadow:inset 0 1px 2px rgba(0,0,0,.18);
     display:flex; align-items:center; padding:0 8px; color:#9a9a9a; font-size:11px; gap:5px;
   }
-  /* ---- dark rule at client y76, chrome strip to y85 ---- */
-  #darkrule{position:absolute; top:104px; left:0; right:0; height:1px; background:var(--rule-dark);}
-  #strip{position:absolute; top:105px; left:0; right:0; height:10px;
-    background:linear-gradient(rgb(201),rgb(187));}
+  /* ---- chrome band runs to the dark rule at client y76 ---- */
+  #darkrule{position:absolute; top:76px; left:0; right:0; height:1px; background:var(--rule-dark);}
   /* ---- body ---- */
-  #body{position:absolute; top:116px; left:0; right:0; bottom:28px; display:flex;}
+  #body{position:absolute; top:77px; left:0; right:0; bottom:28px; display:flex;}
   #side{
     width:204px; height:100%; background:var(--side-fill);
     border-right:1px solid var(--rule-dark); flex:none; padding-top:1px; overflow:hidden;
@@ -156,7 +148,7 @@
     color:#fff;
   }
   /* ---- now-playing panel (Now Playing view) ---- */
-  #np{position:absolute; left:205px; right:0; top:116px; height:400px; background:#000; display:none;}
+  #np{position:absolute; left:205px; right:0; top:77px; height:391px; background:#000; display:none;}
   #win.np #np{display:block;}
   #np .art{
     position:absolute; top:23px; left:50%; margin-left:-148px; width:294px; height:294px;
@@ -173,7 +165,7 @@
     border:1px solid #8b8b8b; display:flex; align-items:center; justify-content:center;
     color:#e8e8e8; font-size:11px;
   }
-  #win.np #body{top:516px;}
+  #win.np #body{top:468px;}
   /* ---- cover panel (Column browser view) ---- */
   #cover{
     width:188px; flex:none; display:none; background:rgb(233,237,242);
@@ -239,7 +231,7 @@
   #status .sbtn:nth-of-type(5){right:62px;} #status .sbtn:nth-of-type(6){right:15px;}
   /* ---- dropdown menus ---- */
   .dd{
-    position:absolute; top:44px; z-index:40; background:#fff; border:1px solid #000;
+    position:absolute; top:16px; z-index:40; background:#fff; border:1px solid #000;
     box-shadow:2px 3px 6px rgba(0,0,0,.35); padding:3px 0; display:none; min-width:172px;
     width:max-content; font-size:12px;
   }
@@ -256,7 +248,7 @@
   .dd .sep2 i{display:block; height:1px; background:var(--hair); margin:0 8px; width:100%;}
   /* ---- preferences dialog: 573 x 648, title 28, tabs y7..26, content y27..577, footer 42 ---- */
   #prefs{
-    position:absolute; top:66px; left:300px; width:573px; height:648px; z-index:60; display:none;
+    position:absolute; top:24px; left:290px; width:573px; height:648px; z-index:60; display:none;
     background:var(--dlg-face); border:1px solid #535659; border-radius:6px 6px 0 0;
     box-shadow:0 10px 30px rgba(0,0,0,.45); font-size:12px; color:#111;
   }
@@ -352,7 +344,6 @@
 </div>
 <div id="fit"><div id="scaler"><div id="win">
 
-  <div id="title">iTunes<span class="x">✕</span></div>
   <div id="menu">
     <span class="m" data-dd="file">File</span><span class="m" data-dd="edit">Edit</span><span class="m" data-dd="controls">Controls</span><span class="m">View</span><span class="m" data-dd="advanced">Advanced</span><span class="m" data-dd="help">Help</span>
   </div>
@@ -373,7 +364,6 @@
   </div>
 
   <div id="darkrule"></div>
-  <div id="strip"></div>
 
   <div id="body">
     <div id="side">
@@ -423,7 +413,7 @@
 
   <!-- menus: exactly the items the captures show, minus the Store/account/device
        affordances the project rule excludes; grey = disabled in the capture -->
-  <div class="dd" id="dd-file" style="left:2px; top:45px; min-width:216px">
+  <div class="dd" id="dd-file" style="left:2px; top:17px; min-width:216px">
     <div class="mi hot">New Playlist <span class="sc">Ctrl+N</span></div>
     <div class="mi dis">New Playlist from Selection</div>
     <div class="mi">New Smart Playlist… <span class="sc">Ctrl+Alt+N</span></div>
@@ -452,7 +442,7 @@
     <div class="sep2"><i></i></div>
     <div class="mi">Exit</div>
   </div>
-  <div class="dd" id="dd-edit" style="left:35px; top:45px; min-width:172px">
+  <div class="dd" id="dd-edit" style="left:35px; top:17px; min-width:172px">
     <div class="mi dis">Undo <span class="sc">Ctrl+Z</span></div>
     <div class="sep2"><i></i></div>
     <div class="mi dis">Cut <span class="sc">Ctrl+X</span></div>
@@ -465,7 +455,7 @@
     <div class="sep2"><i></i></div>
     <div class="mi">Preferences… <span class="sc">Ctrl+,</span></div>
   </div>
-  <div class="dd" id="dd-controls" style="left:97px; top:45px; min-width:232px">
+  <div class="dd" id="dd-controls" style="left:97px; top:17px; min-width:232px">
     <div class="mi">Play <span class="sc">Space</span></div>
     <div class="sep2"><i></i></div>
     <div class="mi dis">Next <span class="sc">Ctrl+Right</span></div>
@@ -485,7 +475,7 @@
     <div class="sep2"><i></i></div>
     <div class="mi dis">Eject Disc <span class="sc">Ctrl+E</span></div>
   </div>
-  <div class="dd" id="dd-advanced" style="left:186px; top:45px; min-width:222px">
+  <div class="dd" id="dd-advanced" style="left:186px; top:17px; min-width:222px">
     <div class="mi">Switch to Mini Player <span class="sc">Ctrl+M</span></div>
     <div class="mi">Open Stream… <span class="sc">Ctrl+U</span></div>
     <div class="mi">Subscribe to Podcast…</div>
@@ -501,7 +491,7 @@
     <div class="mi dis">Submit CD Track Names</div>
     <div class="mi dis">Join CD Tracks</div>
   </div>
-  <div class="dd" id="dd-help" style="left:237px; top:45px; min-width:200px">
+  <div class="dd" id="dd-help" style="left:237px; top:17px; min-width:200px">
     <div class="mi">iTunes Help</div>
     <div class="mi">Keyboard Shortcuts</div>
     <div class="mi">iTunes Hot Tips</div>
@@ -642,15 +632,14 @@
   </div>
 
   <div class="ann">
-    <div class="hline" style="top:44px"></div><div class="tag" style="top:46px; right:8px">menu band y0..16 · gradient 226→190</div>
-    <div class="hline" style="top:104px"></div><div class="tag" style="top:88px; right:8px">dark rule y76 · rgb(64,64,64) · disc panel border (86,88,76)</div>
-    <div class="hline" style="top:116px"></div><div class="tag" style="top:118px; right:8px">header band y86..102 · 219→187 · border (85,85,85)</div>
+    <div class="hline" style="top:16px"></div><div class="tag" style="top:18px; right:8px">menu band y0..16 · gradient 226→190</div>
+    <div class="hline" style="top:76px"></div><div class="tag" style="top:60px; right:8px">chrome band 192→154 · dark rule y76 (64,64,64) · disc border (86,88,76)</div>
+    <div class="hline" style="top:93px"></div><div class="tag" style="top:95px; right:8px">header band y77..92 · 219→187 · border (85,85,85)</div>
     <div class="vline" style="left:204px"></div><div class="tag" style="top:330px; left:8px">sidebar 204px incl. rule · fill rgb(209,215,226)</div>
-    <div class="tag" style="top:150px; left:212px">row 17px · stripes #fff / rgb(241,245,250) · col dividers (217,217,217)<br>sorted column: blue header chip + body wash</div>
-    <div class="tag" style="top:118px; left:206px"></div>
-    <div class="tag" style="top:132px; left:8px">sidebar rows 20px · selection (93,148,214)→(28,88,174)</div>
-    <div class="hline" style="top:780px"></div><div class="tag" style="top:756px; right:8px">status 28px · divider (85,85,85) · gradient 224→149 · bottom border (71,71,71)</div>
-    <div class="tag" style="top:700px; left:310px">prefs: 573×648 · title 28 · tabs y7..26 (56/56/58/53/65/97/58/48)<br>content inset 15 · hairlines y170/326/368/419 · footer 42 · OK+Cancel right</div>
+    <div class="tag" style="top:112px; left:212px">row 17px · stripes #fff / rgb(241,245,250) · col dividers (217,217,217)<br>sorted column: blue header chip + body wash</div>
+    <div class="tag" style="top:120px; left:8px">sidebar rows 20px · selection (93,148,214)→(28,88,174)</div>
+    <div class="hline" style="top:752px"></div><div class="tag" style="top:728px; right:8px">status 28px · divider (85,85,85) · gradient 224→149 · bottom border (71,71,71)</div>
+    <div class="tag" style="top:676px; left:8px">prefs: 573×648 · title 28 · tabs y7..26 (56/56/58/53/65/97/58/48)<br>content inset 15 · hairlines y170/326/368/419 · footer 42 · OK+Cancel right</div>
   </div>
 
 </div></div></div>
@@ -781,7 +770,7 @@
     const w = document.getElementById("fit").clientWidth;
     const s = Math.min(1, w / 1180);
     document.getElementById("scaler").style.transform = "scale(" + s + ")";
-    document.getElementById("fit").style.height = Math.ceil(808 * s + 4) + "px";
+    document.getElementById("fit").style.height = Math.ceil(780 * s + 4) + "px";
   }
   addEventListener("resize", fit); fit();
 </script>
