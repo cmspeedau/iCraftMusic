@@ -39,7 +39,7 @@ pretending otherwise.
 | 7     | Settings, Reliability, Performance  | Complete |
 | 8     | Visual Refinement and Accessibility | Complete |
 | 8½    | Match the Reference 1:1 (1.0 gate)  | Complete |
-| 9     | Release and Distribution            | Planned  |
+| 9     | Release and Distribution            | Partial  |
 | 10    | Optional Future Enhancements        | Partial  |
 
 Stage 8½ was the last gate before 1.0: a pixel-level pass matching the window to
@@ -53,6 +53,12 @@ wired to a real action; the 44-point disc panel; the status bar's gradient,
 divider and bevelled keycaps; and the Settings sheet — its dark title strip, the
 tabs standing on the white pane's rule, hairlines parting the groups, an OK that
 closes and a Cancel that puts back what the window changed.
+
+The gate closed with the `v1.0.0` tag, and Stage 9 is part-shipped on it: the
+tag builds the locked binary into `iCraftMusic-1.0.0-x86_64.AppImage` and
+publishes it as a GitHub Release — the shape the in-app updater can swap over a
+running copy. What is left of Stage 9 is the quieter half: clean-install and
+upgrade testing, and the final dependency and license review.
 
 Stage 10 collects features that are optional rather than prerequisites, and
 five of them have been built: **gapless playback**, **crossfade**, a **graphic
@@ -253,14 +259,15 @@ the fade does. The equalizer has ten fixed bands and one preset shape per band.
 Smart playlists rule over the fields the database has columns for; year and
 rating join the rule fields the day those columns exist. The theme follows the
 system's light/dark setting — `theme` can be set in the settings file, but there
-is no control for it in the interface yet. There is no published release yet:
-only two requests ever leave the machine, and only when the user asks — the
-update check, which sends nothing but this build's own name and version to the
-releases API, and a cover download, which sends nothing but the album and
-artist strings of the one record it was asked about to MusicBrainz. While no
-release has been published it stays silent, no notice at all. Nothing about the
-library, the listening history or the machine is sent. These are deliberate and
-tracked in the roadmap, not presented as finished features.
+is no control for it in the interface yet. Only two requests ever leave the
+machine, and only when the user asks — the update check, which sends nothing
+but this build's own name and version to the releases API, and a cover
+download, which sends nothing but the album and artist strings of the one
+record it was asked about to MusicBrainz. The check stays silent unless the
+latest release is genuinely newer than this build, and a released copy never
+hears about itself. Nothing about the library, the listening history or the
+machine is sent. These are deliberate and tracked in the roadmap, not
+presented as finished features.
 
 ## iTunes 7, and the source list
 
@@ -407,8 +414,8 @@ update-desktop-database ~/.local/share/applications  # optional, for MimeType
 The release profile in `Cargo.toml` builds one stripped binary with link-time
 optimisation. A published release comes with the `v1.0.0` tag and everything
 after it: pushing the tag is the deliberate act, and `.github/workflows/release.yml`
-builds the locked binary into an AppImage and publishes that as a GitHub Release. The in-app
-updater is ready for it: it looks at
+builds the locked binary into an AppImage and publishes that as a GitHub Release.
+The AppImage is the shape the in-app updater installs: it looks at
 the latest GitHub release for an asset named after this machine's architecture
 (`-x86_64.AppImage`), and installs by renaming that file over the running
 AppImage, which is a swap only an AppImage copy can make.
@@ -420,13 +427,13 @@ assembles the directory and compresses it into one file.
 
 ```sh
 cargo build --release
-VERSION=0.1.0 ARCH=x86_64 ./linuxdeploy-x86_64.AppImage \
+VERSION=1.0.0 ARCH=x86_64 ./linuxdeploy-x86_64.AppImage \
     --appdir "$PWD/iCraftMusic.AppDir" \
     -e target/release/musiccraft \
     -d packaging/musiccraft.desktop \
     -i packaging/musiccraft.svg \
     --output appimage
-# → iCraftMusic-0.1.0-x86_64.AppImage
+# → iCraftMusic-1.0.0-x86_64.AppImage
 ```
 
 (The absolute `--appdir` matters: the tools are AppImages themselves, and a
@@ -438,8 +445,9 @@ The bundle carries exactly one executable and the desktop entry with its icon.
 That is deliberate: linuxdeploy's rules keep `libc`, ALSA and the rest of the
 system libraries on the host, and the player opens the display server and
 OpenGL at run time anyway, so there is nothing else to bundle. The file's name
-ends the way the in-app updater expects (`…-x86_64.AppImage`), so it is ready
-to become a GitHub release asset as-is.
+ends the way the in-app updater expects (`…-x86_64.AppImage`), so a bundled
+image is a GitHub release asset as-is — which is exactly what the release job
+publishes on a `v*` tag.
 
 Two honest caveats, both ordinary:
 
@@ -456,7 +464,7 @@ Two honest caveats, both ordinary:
 ```
 ROADMAP.md             # music: stages 0–10
 ROADMAP-MEDIA.md       # movies, TV shows, podcasts and devices: stages 11–15
-packaging/             # desktop entry and icon — the pieces the installer and the AppImage share
+packaging/             # desktop entry and icon — the pieces a manual install and the AppImage share
 
 src/
 ├── main.rs            # binary entry point

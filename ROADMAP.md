@@ -202,7 +202,7 @@ Stage 7 — Settings, Reliability, and Performance
 
 Goal: Prepare the application for regular daily use.
 
-Status: Complete. Everything the application remembers lives in one TOML file — theme, volume, watched folders and the output device — and is written as it changes; Settings → Playback now chooses the output device from the ones the backend offers, remembers it by identifier, and falls back to the system default with a message when the chosen device is gone, while watched folders can be dropped as well as added. The database is versioned, and a database written by an older build is copied beside itself (`VACUUM INTO`, so the copy is consistent even with a write-ahead log in flight) before a migration rewrites it; Settings → Diagnostics runs a `PRAGMA integrity_check` on demand, says what to do about a damaged file, and the recovery steps are written down in README.md. Diagnostics also reports the build, the schema version, the library counts, the paths (settings, data, database, log) and the output stream in use. Logging goes to stderr *and* to a bounded file under the data directory, rotated rather than grown forever, so a failure from a session that has already been closed can still be read. On the performance side the Library's visible rows are filtered and sorted once per change rather than once per question — the view asks for them several times a frame — the selection is re-checked against a set rather than a list, and the artist list is virtualised like the track table; a test over a 20,000-track library guards the whole pass. Regression tests cover a queue walked to its end, a folder rescanned without duplicating its tracks, a playlist reopened from its file, and the device, migration and integrity paths above. Packaging is prepared but not finished, which is Stage 9's job: a release profile, a desktop entry and an icon live under `packaging/`, and README.md documents the release build and install. Still missing, and deliberately left to a later stage: a scan can be stopped but not resumed after the application exits, and there is no installer or release artifact yet.
+Status: Complete. Everything the application remembers lives in one TOML file — theme, volume, watched folders and the output device — and is written as it changes; Settings → Playback now chooses the output device from the ones the backend offers, remembers it by identifier, and falls back to the system default with a message when the chosen device is gone, while watched folders can be dropped as well as added. The database is versioned, and a database written by an older build is copied beside itself (`VACUUM INTO`, so the copy is consistent even with a write-ahead log in flight) before a migration rewrites it; Settings → Diagnostics runs a `PRAGMA integrity_check` on demand, says what to do about a damaged file, and the recovery steps are written down in README.md. Diagnostics also reports the build, the schema version, the library counts, the paths (settings, data, database, log) and the output stream in use. Logging goes to stderr *and* to a bounded file under the data directory, rotated rather than grown forever, so a failure from a session that has already been closed can still be read. On the performance side the Library's visible rows are filtered and sorted once per change rather than once per question — the view asks for them several times a frame — the selection is re-checked against a set rather than a list, and the artist list is virtualised like the track table; a test over a 20,000-track library guards the whole pass. Regression tests cover a queue walked to its end, a folder rescanned without duplicating its tracks, a playlist reopened from its file, and the device, migration and integrity paths above. Packaging was prepared here and shipped by Stage 9: a release profile, a desktop entry and an icon live under `packaging/`, README.md documents the release build and install, and since `v1.0.0` the release itself is the AppImage that pipeline publishes. Still missing, and deliberately left to a later stage: a scan can be stopped but not resumed after the application exits.
 
 Deliverables
 
@@ -277,15 +277,18 @@ Acceptance criteria
 Stage 9 — Release and Distribution
 
 Goal: Produce a dependable installable application.
+
+Status: In progress, and first-shipped. The `v1.0.0` tag — pushed once the Stage 8½ gate closed — built the locked binary into `iCraftMusic-1.0.0-x86_64.AppImage` and published it as a GitHub Release; the release job checks the finished image's own payload before it will publish it, and the asset's name is the one the in-app update check finds. What the stage still owes is the quieter half: clean-install and upgrade testing, the final dependency and license review, and the written release checklist.
+
 Deliverables
 
-    Release build configuration. (Landed: `.github/workflows/ci.yml` runs the fmt/clippy/test gate on every push and pull request, and `.github/workflows/release.yml` packs the locked release build into an AppImage and publishes it as a GitHub Release when a `v*` tag is pushed — the AppImage is the shape the in-app updater can swap, and the tag is what says the Stage 8½ gate closed.)
-    Platform-specific build and packaging instructions.
-    Application icon and version information.
+    Release build configuration. (Landed: `.github/workflows/ci.yml` runs the fmt/clippy/test gate on every push and pull request, and `.github/workflows/release.yml` packs the locked release build into an AppImage and publishes it as a GitHub Release when a `v*` tag is pushed — the AppImage is the shape the in-app updater can swap, and the tag is what says the Stage 8½ gate closed. The first release it made is `v1.0.0`, published 21 October 2026.)
+    Platform-specific build and packaging instructions. (Landed for the one declared platform: README.md gives the Linux/x86_64 build, the linuxdeploy AppImage bundling, and the desktop entry and icon install.)
+    Application icon and version information. (Landed: `packaging/musiccraft.svg` and the desktop entry go inside the image, and the version the About pane, the Diagnostics pane and the update check quote is the crate's own, stamped in at build time by `CARGO_PKG_VERSION`.)
     Clean-install and upgrade testing.
     Final dependency and license review.
-    User documentation.
-    Known-limitations documentation.
+    User documentation. (Landed: README.md is the user's book of the application — features, shortcuts, settings, storage layout, recovery steps.)
+    Known-limitations documentation. (Landed: README.md says plainly what the crossfade, the equalizer and the smart-playlist rules do not yet do, and exactly what leaves the machine.)
     Release checklist and versioning strategy.
 
 Acceptance criteria
@@ -297,12 +300,14 @@ Acceptance criteria
     No critical known issue is hidden or misrepresented.
     The reference-fidelity gate (Stage 8½) is complete.
 
-One part of this stage is already in the tree: the application checks the
-releases API once at startup and shows a notice on the status bar when a newer
-release than this build exists (see `src/update.rs`). Until a release has been
-published the check finds nothing and stays silent, so the feature is inert by
-construction rather than fabricated. It runs on its own thread, and a failure
-is not reported — not knowing whether there is an update is not a fault.
+One part of this stage has been in the tree since before the first tag: the
+application checks the releases API once at startup and shows a notice on the
+status bar when a newer release than this build exists (see `src/update.rs`).
+The first release gave the check its first honest answer: a build at `1.0.0`
+against the published `v1.0.0` hears nothing, because the released version is
+not newer than itself, and the notice will say so the moment there is a newer
+one to install. It runs on its own thread, and a failure is not reported —
+not knowing whether there is an update is not a fault.
 
 Stage 10 — Optional Future Enhancements
 
