@@ -17,6 +17,7 @@ pub mod diagnostics;
 pub mod error;
 #[cfg(test)]
 pub(crate) mod fixtures;
+pub mod icon;
 pub mod library;
 pub mod logging;
 pub mod playlists;

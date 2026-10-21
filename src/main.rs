@@ -92,6 +92,9 @@ fn run() -> anyhow::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title(APP_NAME)
             .with_app_id("musiccraft")
+            // The desktop's own picture of the application, embedded at build
+            // time from the same artwork the desktop entry names.
+            .with_icon(musiccraft::icon::window_icon())
             .with_inner_size([INITIAL_WIDTH, INITIAL_HEIGHT])
             .with_min_inner_size([MIN_WIDTH, MIN_HEIGHT])
             // Dropping files on the window is a way to add music, so the

@@ -284,7 +284,7 @@ Deliverables
 
     Release build configuration. (Landed: `.github/workflows/ci.yml` runs the fmt/clippy/test gate on every push and pull request, and `.github/workflows/release.yml` packs the locked release build into an AppImage and publishes it as a GitHub Release when a `v*` tag is pushed — the AppImage is the shape the in-app updater can swap, and the tag is what says the Stage 8½ gate closed. The first release it made is `v1.0.0`, published 21 October 2026.)
     Platform-specific build and packaging instructions. (Landed for the one declared platform: README.md gives the Linux/x86_64 build, the linuxdeploy AppImage bundling, and the desktop entry and icon install.)
-    Application icon and version information. (Landed: `packaging/musiccraft.svg` and the desktop entry go inside the image, and the version the About pane, the Diagnostics pane and the update check quote is the crate's own, stamped in at build time by `CARGO_PKG_VERSION`.)
+    Application icon and version information. (Landed: the artwork under `packaging/icons/` — seven sizes, cut to its rounded tile, so the corners are transparent rather than white canvas — and the desktop entry go inside the image, with the 256px rendition as the AppDir's own icon, which is what makes `.DirIcon` a real picture; the window wears that same 256px rendition as its icon, embedded in the binary; and the version the About pane, the Diagnostics pane and the update check quote is the crate's own, stamped in at build time by `CARGO_PKG_VERSION`.)
     Clean-install and upgrade testing.
     Final dependency and license review.
     User documentation. (Landed: README.md is the user's book of the application — features, shortcuts, settings, storage layout, recovery steps.)

@@ -42,7 +42,7 @@ jobs:
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage
       # The bundle is linuxdeploy's doing, not scripted by hand: it lays the
-      # binary, the desktop entry and the icon into an AppDir, runs the
+      # binary, the desktop entry and the icons into an AppDir, runs the
       # dependency check over the ELF (which leaves ALSA and the C library
       # to the host, where they belong), and emits the squashfs image
       # named `iCraftMusic-<version>-x86_64.AppImage` after the desktop
@@ -57,12 +57,21 @@ jobs:
           # (the runners have /dev/fuse): extract-and-run would resolve the
           # relative paths against the tool's temporary copy and bury the
           # output there too, so the job does the mount.
+          #
+          # Of the icon set, the two largest renditions go in. linuxdeploy
+          # points the AppDir's own icon at the smaller of them, and that is
+          # what `.DirIcon` becomes — the picture the desktop shows for the
+          # file itself, a real 256px image rather than the 64px default it
+          # would pick from the full set. Smaller sizes scale cleanly from
+          # these two, and the installed tree under packaging/icons/ carries
+          # the whole set for a desktop that installs the entry.
           LINUXDEPLOY_OUTPUT_VERSION="$version" VERSION="$version" ARCH=x86_64 \
             ./linuxdeploy-x86_64.AppImage \
               --appdir AppDir \
               -e target/release/musiccraft \
               -d packaging/musiccraft.desktop \
-              -i packaging/musiccraft.svg \
+              -i packaging/icons/hicolor/256x256/apps/musiccraft.png \
+              -i packaging/icons/hicolor/512x512/apps/musiccraft.png \
               --output appimage
       # Unpack what was built rather than run it: a release job has no
       # display to open, and the failure worth catching here is the empty
@@ -74,7 +83,10 @@ jobs:
           "./iCraftMusic-${version}-x86_64.AppImage" --appimage-extract
           test -x squashfs-root/usr/bin/musiccraft
           test -f squashfs-root/musiccraft.desktop
-          test -f squashfs-root/usr/share/icons/hicolor/scalable/apps/musiccraft.svg
+          test -f squashfs-root/usr/share/icons/hicolor/256x256/apps/musiccraft.png
+          # `.DirIcon` is what the desktop shows for the file itself; `-f`
+          # follows the symlink, so one that dangles fails here too.
+          test -f squashfs-root/.DirIcon
       - uses: softprops/action-gh-release@v2
         with:
           files: iCraftMusic-*.AppImage

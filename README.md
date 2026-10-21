@@ -399,8 +399,10 @@ cargo build --release
 install -Dm755 target/release/musiccraft ~/.local/bin/musiccraft
 install -Dm644 packaging/musiccraft.desktop \
     ~/.local/share/applications/musiccraft.desktop
-install -Dm644 packaging/musiccraft.svg \
-    ~/.local/share/icons/hicolor/scalable/apps/musiccraft.svg
+for size in 16 32 48 64 128 256 512; do
+    install -Dm644 packaging/icons/hicolor/${size}x${size}/apps/musiccraft.png \
+        ~/.local/share/icons/hicolor/${size}x${size}/apps/musiccraft.png
+done
 update-desktop-database ~/.local/share/applications  # optional, for MimeType
 ```
 
@@ -408,8 +410,11 @@ update-desktop-database ~/.local/share/applications  # optional, for MimeType
 
 - `musiccraft.desktop` — the desktop entry (name, categories, MIME types, and
   the `StartupWMClass` that ties the window to its launcher icon).
-- `musiccraft.svg` — the icon, in plain SVG so a packager can rasterise whatever
-  sizes the icon theme asks for.
+- `icons/hicolor/…/apps/musiccraft.png` — the artwork at the seven sizes an
+  icon theme asks for, cut to its rounded tile, so the corners are transparent
+  rather than white canvas. The window wears the 256px rendition itself — it is
+  embedded in the binary — so the launcher, the taskbar and the desktop entry
+  show the same picture.
 
 The release profile in `Cargo.toml` builds one stripped binary with link-time
 optimisation. A published release comes with the `v1.0.0` tag and everything
@@ -431,7 +436,8 @@ VERSION=1.0.0 ARCH=x86_64 ./linuxdeploy-x86_64.AppImage \
     --appdir "$PWD/iCraftMusic.AppDir" \
     -e target/release/musiccraft \
     -d packaging/musiccraft.desktop \
-    -i packaging/musiccraft.svg \
+    -i packaging/icons/hicolor/256x256/apps/musiccraft.png \
+    -i packaging/icons/hicolor/512x512/apps/musiccraft.png \
     --output appimage
 # → iCraftMusic-1.0.0-x86_64.AppImage
 ```
@@ -441,13 +447,15 @@ relative directory is looked up from wherever they unpacked themselves to run
 — which is also why the finished file can land in the home directory rather
 than beside the AppDir. Look for it with `ls iCraftMusic-*.AppImage`.)
 
-The bundle carries exactly one executable and the desktop entry with its icon.
-That is deliberate: linuxdeploy's rules keep `libc`, ALSA and the rest of the
-system libraries on the host, and the player opens the display server and
-OpenGL at run time anyway, so there is nothing else to bundle. The file's name
-ends the way the in-app updater expects (`…-x86_64.AppImage`), so a bundled
-image is a GitHub release asset as-is — which is exactly what the release job
-publishes on a `v*` tag.
+The bundle carries exactly one executable, the desktop entry, and the two
+largest renditions of the icon set — linuxdeploy points the AppDir's own icon
+at the smaller of the pair, which is what `.DirIcon` becomes, and a theme
+scales the rest down from there. That is deliberate: linuxdeploy's rules keep
+`libc`, ALSA and the rest of the system libraries on the host, and the player
+opens the display server and OpenGL at run time anyway, so there is nothing
+else to bundle. The file's name ends the way the in-app updater expects
+(`…-x86_64.AppImage`), so a bundled image is a GitHub release asset as-is —
+which is exactly what the release job publishes on a `v*` tag.
 
 Two honest caveats, both ordinary:
 
