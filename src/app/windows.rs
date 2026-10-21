@@ -2,6 +2,7 @@
 //! the equalizer and the gear menu.
 
 use super::MusicCraftApp;
+use super::settings::{SettingsTab, SettingsUndo};
 use crate::ui::navigation::NavSection;
 
 impl MusicCraftApp {
@@ -39,14 +40,60 @@ impl MusicCraftApp {
     ///
     /// The window is a floating panel, not a section: opening it leaves the
     /// Music or Playlists page underneath untouched, the way the Edit-details
-    /// editor does.
+    /// editor does. Opening takes the snapshot its Cancel puts back: the window
+    /// writes every change live, so what it opened with is what Cancel returns
+    /// to, however many times a slider was moved in between.
     pub fn open_settings(&mut self) {
         self.settings_open = true;
+        self.settings_undo = Some(SettingsUndo {
+            volume: self.volume(),
+            crossfade_seconds: self.crossfade_seconds(),
+            output_device: self.chosen_output_device().map(str::to_owned),
+        });
+    }
+
+    /// Raise the Settings window on a named tab.
+    ///
+    /// This is what the Help menu does with "Keyboard Shortcuts" and "About":
+    /// the question was about one pane, and the window opens on it rather than
+    /// on whichever pane the gear happened to leave showing.
+    pub fn open_settings_at(&mut self, tab: SettingsTab) {
+        self.settings_tab = tab;
+        self.open_settings();
+    }
+
+    /// The tab the Settings window's strip rests on.
+    #[must_use]
+    pub fn settings_tab(&self) -> SettingsTab {
+        self.settings_tab
+    }
+
+    /// Move the strip to another tab, the click of the tab itself doing this.
+    pub fn set_settings_tab(&mut self, tab: SettingsTab) {
+        self.settings_tab = tab;
     }
 
     /// Close the Settings window.
     pub fn close_settings(&mut self) {
         self.settings_open = false;
+        self.settings_undo = None;
+    }
+
+    /// Close the Settings window, putting back what it changed.
+    ///
+    /// Cancel returns the three choices the window owns — volume, crossfade,
+    /// output device — through the same setters the window itself used, so
+    /// undoing goes by the real road and not by scribbling over the config.
+    /// A stored device that vanished while the window was open will not come
+    /// back; the window already says the chosen device is unavailable.
+    pub fn cancel_settings(&mut self) {
+        if let Some(undo) = self.settings_undo.take() {
+            self.set_volume(undo.volume);
+            self.set_crossfade_seconds(undo.crossfade_seconds);
+            self.set_output_device(undo.output_device);
+        }
+
+        self.close_settings();
     }
 
     /// Whether the Equalizer window is showing.

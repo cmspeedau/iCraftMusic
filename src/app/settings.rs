@@ -265,3 +265,57 @@ impl MusicCraftApp {
         self.config_dirty = false;
     }
 }
+
+/// Which pane the Settings window shows.
+///
+/// The tabs are the window's, in the order its strip draws them: the library
+/// comes first because it is the preference a new copy has to set, and About
+/// last because nobody opens a settings window to look for a version number.
+/// The reference's own strip carried the same kind of one-subject-per-tab
+/// split — eight tabs over the same 573 points — and every subject here is a
+/// pane the application actually has; the reference's Store, Devices and
+/// Parental tabs have no counterpart to fill here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsTab {
+    /// The media home, the watched folders and the scan that fills them.
+    Library,
+    /// Volume, crossfade, and the device the music comes out of.
+    Playback,
+    /// The keys the player answers to, listed rather than configured.
+    Shortcuts,
+    /// Where the settings themselves live on disk.
+    Storage,
+    /// What this copy is and how to check it, for when something is wrong.
+    Diagnostics,
+    /// The name, the version, and any settings file that would not load.
+    About,
+}
+
+impl SettingsTab {
+    /// The tabs, in the order the window's strip draws them.
+    pub const ALL: [Self; 6] = [
+        Self::Library,
+        Self::Playback,
+        Self::Shortcuts,
+        Self::Storage,
+        Self::Diagnostics,
+        Self::About,
+    ];
+}
+
+/// The three choices the Settings window owns, taken when it opens.
+///
+/// Everything else the window shows is either read-only (paths, versions, the
+/// shortcuts list) or an action already done by the time its button is up
+/// again — a scan started, a check run — and a dialog does not unstart a scan.
+/// These three, though, are preferences the window changed live, so Cancel can
+/// honestly put them back.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettingsUndo {
+    /// The volume the window opened at.
+    pub volume: f32,
+    /// The crossfade the window opened at.
+    pub crossfade_seconds: f32,
+    /// The output device the window opened at, `None` for the system default.
+    pub output_device: Option<String>,
+}

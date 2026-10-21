@@ -5,21 +5,39 @@
 //! them never means wanting to stop looking at the music — a page made
 //! changing one volume slider a trip out of the library and back.
 //!
-//! Every control here writes straight through to [`MusicCraftApp`], which is
+//! The sheet is the measured dialog: 573 by 648, its one dark title strip,
+//! a row of tabs standing on the white pane's top edge — the chosen one
+//! taller and white, running into the pane through the border it stands
+//! on — the pane's groups parted by hairlines, and a footer carrying OK and
+//! Cancel. The dialog is light in every theme, the same way the content page
+//! is: a dark widget floating on a white sheet is neither theme's.
+//!
+//! The window's buttons tell the truth about a window that applies
+//! everything live. OK closes; Cancel closes and puts back the three choices
+//! the window owns — volume, crossfade, output device — which is what its
+//! snapshot, taken the moment the window opened, exists for. Everything else
+//! here is read-only, or an action already done by the time its button is up
+//! again; a scan started is not unstarted by a dismissed dialog, and this one
+//! does not pretend it is.
+//!
+//! Every control writes straight through to [`MusicCraftApp`], which is
 //! what marks the settings dirty and schedules the write to disk at the end of
 //! the frame. The shortcuts are listed rather than configured: the keys are a
 //! fixed part of the interface, and the list is here so a user can find them
 //! without hunting through the menus.
 //!
-//! The last pane is the one for when something is wrong: Diagnostics reports
-//! what this copy is, where it keeps everything and what the audio side is
-//! playing through, and offers the one check the application can run on its own
+//! One pane is for when something is wrong: Diagnostics reports what this
+//! copy is, where it keeps everything and what the audio side is playing
+//! through, and offers the one check the application can run on its own
 //! library. It reads rather than writes — the only action there is asking
 //! SQLite to check itself, and even that changes nothing.
 
-use egui::{RichText, ScrollArea, Slider, TextEdit, Vec2, Window};
+use egui::{
+    Button, Color32, CornerRadius, FontId, Frame, Rect, RichText, ScrollArea, Sense, Slider,
+    Stroke, StrokeKind, TextEdit, UiBuilder, Vec2, Window, WindowDrag, pos2,
+};
 
-use crate::app::MusicCraftApp;
+use crate::app::{MusicCraftApp, SettingsTab};
 use crate::audio::MAX_CROSSFADE_SECONDS;
 use crate::config::DEFAULT_VOLUME;
 use crate::ui::shortcuts::Command;
@@ -36,17 +54,65 @@ const WINDOW_WIDTH: f32 = 573.0;
 /// and no longer resizable: the reference dialog is a fixed sheet.
 const WINDOW_FALLBACK_HEIGHT: f32 = 648.0;
 
+/// The sheet's rounding: at the top corners only, as measured. The dialog's
+/// foot is square on the desk it stands on.
+const SHEET_RADIUS: CornerRadius = CornerRadius {
+    nw: 6,
+    ne: 6,
+    sw: 0,
+    se: 0,
+};
+/// The one dark strip, and its type.
+const BAR_HEIGHT: f32 = 28.0;
+const BAR_FONT: f32 = 13.0;
+/// The close mark's hit size, and its distance from the sheet's right edge.
+const CLOSE_SIZE: f32 = 16.0;
+const CLOSE_RIGHT: f32 = 10.0;
+
+/// Where the tabs stand: their feet make the pane's top edge, and the sheet's
+/// face shows for the seven points between the bar and their heads.
+const TAB_TOP: f32 = 35.0;
+const TAB_LEFT: f32 = 15.0;
+const TAB_ON_HEIGHT: f32 = 20.0;
+const TAB_OFF_HEIGHT: f32 = 17.0;
+const TAB_FONT: f32 = 11.5;
+/// A tab's type takes nine points of face on each side…
+const TAB_PADDING: f32 = 9.0;
+/// …and one point of rule on each side makes the rest of its measured width.
+const TAB_BORDER: f32 = 2.0;
+/// Joining the tabs, as the reference joins them: the next tab starts one
+/// point inside the last one's edge, so the pair draws one rule between them.
+const TAB_JOIN: f32 = -1.0;
+
+/// The white pane: fifteen in from the left, fourteen from the right, its
+/// head where the tabs' feet are and its foot above the footer.
+const PANE_LEFT: f32 = 15.0;
+const PANE_RIGHT: f32 = 14.0;
+const FOOTER_HEIGHT: f32 = 42.0;
+/// The pane's inside, one point inside its rule, and the points the sheet's
+/// measured page leaves above and below it.
+const CONTENT_INSET: f32 = 1.0;
+/// The hairline's measured reach inside a pane: 38 in from the sheet's left,
+/// 14 shy of its right — the page's own left is 16, so 22 in, 14 out.
+const HAIR_IN: f32 = 22.0;
+const HAIR_OUT: f32 = 14.0;
+
+/// The footer: ten points of face above the buttons, and the buttons' own
+/// measured places — OK 97 from the right edge, Cancel 14.
+const BUTTON_TOP: f32 = 10.0;
+const OK_RIGHT: f32 = 97.0;
+const OK_WIDTH: f32 = 75.0;
+const CANCEL_RIGHT: f32 = 14.0;
+const CANCEL_WIDTH: f32 = 76.0;
+const BUTTON_HEIGHT: f32 = 21.0;
+const BUTTON_FONT: f32 = 11.5;
+
 /// Draw the Settings window, when it is open.
 pub fn window(app: &mut MusicCraftApp, ui: &egui::Ui) {
     if !app.settings_open() {
         return;
     }
 
-    // The panes are long — every preference plus the shortcuts list — so the
-    // contents scroll inside the sheet. The window itself opens at the
-    // reference dialog's measured 573×648 and stays there: `default_size`
-    // only speaks on the first opening, and the window is not resizable, so
-    // it keeps that size the way the reference's does.
     // The window opens with its top-left where the middle of a first-run
     // screen leaves room for it, and after that stays wherever the user put
     // it — `default_pos` only speaks on the first opening. An anchor would
@@ -54,15 +120,34 @@ pub fn window(app: &mut MusicCraftApp, ui: &egui::Ui) {
     // not a window one lives beside.
     let mut open = true;
     Window::new("Settings")
+        // The measured dialog's title strip is dark, centred, and carries its
+        // own close mark — drawn by `chrome`, not by egui.
+        .title_bar(false)
         .collapsible(false)
         .resizable(false)
+        // No fade: a dialog that blooms into view over its first frames is
+        // egui's courtesy, not the measured behaviour, and a half-faded sheet
+        // is a sheet whose rules paint at two-thirds strength.
+        .fade_in(false)
+        // With no title bar there is no title bar to drag by, so the sheet's
+        // own face moves it. Every control takes the pointer first: what is
+        // left to drag on is face, and face drags like chrome.
+        .drag_area(WindowDrag::Anywhere)
         .default_pos([310.0, 90.0])
         .default_size([WINDOW_WIDTH, WINDOW_FALLBACK_HEIGHT])
+        // `chrome` paints the measured sheet — face, rule and rounding — itself,
+        // so egui's default frame stands down: it would lay a theme-coloured
+        // square under a fixed-colour one. What it keeps is the shadow the
+        // capture carries, 30 points of blur ten below.
+        .frame(Frame::new().inner_margin(0.0).shadow(egui::epaint::Shadow {
+            offset: [0, 10],
+            blur: 30,
+            spread: 0,
+            color: Color32::from_black_alpha(115),
+        }))
         .open(&mut open)
         .show(ui.ctx(), |ui| {
-            ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| show(app, ui));
+            chrome(app, ui);
         });
 
     // The ✕ closes the window; the gear asks for it again, and `Ctrl/⌘ ,`
@@ -72,35 +157,345 @@ pub fn window(app: &mut MusicCraftApp, ui: &egui::Ui) {
     }
 }
 
-/// Draw the settings pane.
-pub fn show(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
-    ui.add_space(4.0);
-    library_management(app, ui);
+/// The measured sheet: bar, tabs, pane, footer — and this window's one dark
+/// rule that applies to everything below it: it is light in every theme.
+fn chrome(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
+    ui.style_mut().visuals = theme::page_visuals();
 
-    ui.add_space(12.0);
-    ui.separator();
-    ui.add_space(12.0);
-    playback(app, ui);
+    let sheet = ui.max_rect();
+    let painter = ui.painter().clone();
 
-    ui.add_space(12.0);
-    ui.separator();
-    ui.add_space(12.0);
-    shortcuts(ui);
+    painter.rect_filled(sheet, SHEET_RADIUS, theme::SETTINGS_FACE);
+    painter.rect_stroke(
+        sheet,
+        SHEET_RADIUS,
+        Stroke::new(1.0, theme::SETTINGS_EDGE),
+        StrokeKind::Inside,
+    );
 
-    ui.add_space(12.0);
-    ui.separator();
-    ui.add_space(12.0);
-    storage(app, ui);
+    title_bar(app, ui, sheet);
 
-    ui.add_space(12.0);
-    ui.separator();
-    ui.add_space(12.0);
-    diagnostics(app, ui);
+    // The pane goes down before the tabs: they stand on its edge, so its rule
+    // has to be under them for the chosen one to run through it.
+    let pane = Rect::from_min_max(
+        pos2(
+            sheet.left() + PANE_LEFT,
+            sheet.top() + TAB_TOP + TAB_ON_HEIGHT,
+        ),
+        pos2(sheet.right() - PANE_RIGHT, sheet.bottom() - FOOTER_HEIGHT),
+    );
+    painter.rect_filled(pane, 0.0, Color32::WHITE);
+    painter.rect_stroke(
+        pane,
+        0.0,
+        Stroke::new(1.0, theme::SETTINGS_LINE),
+        StrokeKind::Inside,
+    );
 
-    ui.add_space(12.0);
-    ui.separator();
-    ui.add_space(12.0);
-    about(app, ui);
+    tabs(app, ui, sheet);
+
+    // The pane's inside, measured: one point inside its rule, and the point
+    // the page leaves at its head and foot.
+    let content = Rect::from_min_max(
+        pos2(pane.left() + CONTENT_INSET, pane.top() + CONTENT_INSET),
+        pos2(pane.right() - CONTENT_INSET, pane.bottom() - CONTENT_INSET),
+    );
+    let tab = app.settings_tab();
+    let mut pane_ui = ui.new_child(
+        UiBuilder::new()
+            .id_salt("musiccraft_settings_pane")
+            .max_rect(content),
+    );
+    ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(&mut pane_ui, |ui| show_tab(app, ui, tab));
+    drop(pane_ui);
+
+    footer(app, ui, sheet);
+}
+
+/// The one dark strip: the name centred, and the mark that closes the window.
+fn title_bar(app: &mut MusicCraftApp, ui: &egui::Ui, sheet: Rect) {
+    let painter = ui.painter().clone();
+    let bar = Rect::from_min_max(sheet.min, pos2(sheet.right(), sheet.top() + BAR_HEIGHT));
+
+    painter.rect_filled(
+        bar,
+        CornerRadius {
+            nw: SHEET_RADIUS.nw,
+            ne: SHEET_RADIUS.ne,
+            sw: 0,
+            se: 0,
+        },
+        theme::SETTINGS_BAR,
+    );
+    painter.text(
+        bar.center(),
+        egui::Align2::CENTER_CENTER,
+        "Settings",
+        FontId::proportional(BAR_FONT),
+        theme::SETTINGS_BAR_INK,
+    );
+
+    let close = Rect::from_min_max(
+        pos2(
+            sheet.right() - CLOSE_RIGHT - CLOSE_SIZE,
+            bar.center().y - CLOSE_SIZE / 2.0,
+        ),
+        pos2(
+            sheet.right() - CLOSE_RIGHT,
+            bar.center().y + CLOSE_SIZE / 2.0,
+        ),
+    );
+    let response = ui.interact(
+        close,
+        ui.id().with("musiccraft_settings_close"),
+        Sense::click(),
+    );
+    // The mark, drawn rather than typed: the bundled font has no ✕ codepoint,
+    // and a typed one shows up on screen as a hollow tofu box. Two strokes
+    // across an eight-point square is what the title bar's mark measured like
+    // anyway, and it lightens under the pointer the way the reference's does.
+    let ink = if response.hovered() {
+        Color32::WHITE
+    } else {
+        theme::SETTINGS_BAR_CLOSE
+    };
+    let centre = close.center();
+    let arm = 4.0;
+    let mark = Stroke::new(1.2, ink);
+    painter.line_segment(
+        [
+            pos2(centre.x - arm, centre.y - arm),
+            pos2(centre.x + arm, centre.y + arm),
+        ],
+        mark,
+    );
+    painter.line_segment(
+        [
+            pos2(centre.x - arm, centre.y + arm),
+            pos2(centre.x + arm, centre.y - arm),
+        ],
+        mark,
+    );
+    theme::accessible_name(ui, &response, "Close Settings");
+
+    if response.clicked() {
+        app.close_settings();
+    }
+}
+
+/// The row of tabs, standing on the pane's top edge: the chosen one white and
+/// taller, its foot the sheet's own white run through the rule it stands on;
+/// the rest pale, shallow and waiting.
+fn tabs(app: &mut MusicCraftApp, ui: &mut egui::Ui, sheet: Rect) {
+    let painter = ui.painter().clone();
+    let font = FontId::proportional(TAB_FONT);
+    let chosen = app.settings_tab();
+    let feet = sheet.top() + TAB_TOP + TAB_ON_HEIGHT;
+
+    let mut x = sheet.left() + TAB_LEFT;
+    let mut chosen_rect = Rect::NOTHING;
+
+    for tab in SettingsTab::ALL {
+        let label = tab_label(tab);
+        let text_width = ui.ctx().fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(label.to_owned(), font.clone(), theme::SETTINGS_INK)
+                .size()
+                .x
+        });
+        let width = text_width + 2.0 * TAB_PADDING + TAB_BORDER;
+        let height = if tab == chosen {
+            TAB_ON_HEIGHT
+        } else {
+            TAB_OFF_HEIGHT
+        };
+        let rect = Rect::from_min_max(pos2(x, feet - height), pos2(x + width, feet));
+
+        if tab == chosen {
+            chosen_rect = rect;
+            painter.rect_filled(rect, 0.0, Color32::WHITE);
+        } else {
+            painter.add(egui::epaint::Shape::gradient_rect(
+                rect,
+                egui::epaint::Direction::TopDown,
+                [theme::SETTINGS_TAB_TOP, theme::SETTINGS_TAB_BOTTOM],
+            ));
+        }
+
+        // Three sides: a tab's foot is the edge it stands on — the rule, or
+        // the chosen one's white where it breaks through.
+        let rule = Stroke::new(1.0, theme::SETTINGS_LINE);
+        painter.line_segment([rect.left_top(), rect.left_bottom()], rule);
+        painter.line_segment([rect.left_top(), rect.right_top()], rule);
+        painter.line_segment([rect.right_top(), rect.right_bottom()], rule);
+
+        let response = ui.put(
+            rect,
+            Button::new(
+                RichText::new(label)
+                    .size(TAB_FONT)
+                    .color(theme::SETTINGS_INK),
+            )
+            .fill(Color32::TRANSPARENT)
+            .stroke(Stroke::NONE),
+        );
+        if response.clicked() {
+            app.set_settings_tab(tab);
+        }
+
+        x += width + TAB_JOIN;
+    }
+
+    // The chosen tab's foot, painted after the pane's rule it stands on: the
+    // sheet's own white, so the tab and its pane are one surface.
+    if chosen_rect != Rect::NOTHING {
+        painter.hline(
+            chosen_rect.x_range(),
+            chosen_rect.bottom() + 0.5,
+            Stroke::new(1.0, Color32::WHITE),
+        );
+    }
+}
+
+/// The footer's two buttons: OK, the default, ringed in blue, and Cancel.
+/// Both are painted here — a widget fill of egui's would sit over the
+/// measured faces like a tile over a keycap.
+fn footer(app: &mut MusicCraftApp, ui: &mut egui::Ui, sheet: Rect) {
+    let painter = ui.painter().clone();
+    let top = sheet.bottom() - FOOTER_HEIGHT + BUTTON_TOP;
+
+    let cancel = Rect::from_min_max(
+        pos2(sheet.right() - CANCEL_RIGHT - CANCEL_WIDTH, top),
+        pos2(sheet.right() - CANCEL_RIGHT, top + BUTTON_HEIGHT),
+    );
+    painter.add(egui::epaint::Shape::gradient_rect(
+        cancel,
+        egui::epaint::Direction::TopDown,
+        [theme::SETTINGS_BUTTON_TOP, theme::SETTINGS_BUTTON_BOTTOM],
+    ));
+    painter.rect_stroke(
+        cancel,
+        4.0,
+        Stroke::new(1.0, theme::SETTINGS_BUTTON_EDGE),
+        StrokeKind::Inside,
+    );
+
+    // OK first on the sheet but painted over the plain face: the halo stands
+    // a point off the ring, the ring is two points of blue, and the face
+    // between them runs almost-blue-white.
+    let ok = Rect::from_min_max(
+        pos2(sheet.right() - OK_RIGHT - OK_WIDTH, top),
+        pos2(sheet.right() - OK_RIGHT, top + BUTTON_HEIGHT),
+    );
+    painter.rect_stroke(
+        ok.expand(1.0),
+        6.0,
+        Stroke::new(1.0, theme::SETTINGS_DEFAULT_HALO),
+        StrokeKind::Inside,
+    );
+    painter.rect_filled(ok, 5.0, theme::SETTINGS_DEFAULT_TOP);
+    painter.add(egui::epaint::Shape::gradient_rect(
+        ok.shrink(2.0),
+        egui::epaint::Direction::TopDown,
+        [theme::SETTINGS_DEFAULT_TOP, theme::SETTINGS_DEFAULT_BOTTOM],
+    ));
+    painter.rect_stroke(
+        ok,
+        5.0,
+        Stroke::new(2.0, theme::SETTINGS_DEFAULT_RING),
+        StrokeKind::Inside,
+    );
+
+    let response = ui.put(
+        ok,
+        Button::new(
+            RichText::new("OK")
+                .size(BUTTON_FONT)
+                .color(theme::SETTINGS_INK),
+        )
+        .fill(Color32::TRANSPARENT)
+        .stroke(Stroke::NONE),
+    );
+    theme::accessible_name(ui, &response, "Close the Settings window");
+    if response.clicked() {
+        app.close_settings();
+    }
+
+    let response = ui.put(
+        cancel,
+        Button::new(
+            RichText::new("Cancel")
+                .size(BUTTON_FONT)
+                .color(theme::SETTINGS_INK),
+        )
+        .fill(Color32::TRANSPARENT)
+        .stroke(Stroke::NONE),
+    );
+    theme::accessible_name(
+        ui,
+        &response,
+        "Close the Settings window, putting back its changes",
+    );
+    if response.clicked() {
+        app.cancel_settings();
+    }
+}
+
+/// The words the strip wears for each pane.
+fn tab_label(tab: SettingsTab) -> &'static str {
+    match tab {
+        SettingsTab::Library => "Library",
+        SettingsTab::Playback => "Playback",
+        SettingsTab::Shortcuts => "Shortcuts",
+        SettingsTab::Storage => "Storage",
+        SettingsTab::Diagnostics => "Diagnostics",
+        SettingsTab::About => "About",
+    }
+}
+
+/// The measured rule that parts one group of settings from the next: the
+/// page's hairline, 22 points in from the sheet's left and 14 shy of its
+/// right — shorter on the right than on the left, which is how it measured.
+fn hairline(ui: &mut egui::Ui) {
+    let width = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 1.0), Sense::hover());
+    ui.painter().hline(
+        (rect.left() + HAIR_IN)..=(rect.right() - HAIR_OUT),
+        rect.top() + 0.5,
+        Stroke::new(1.0, theme::SETTINGS_HAIR),
+    );
+}
+
+/// Draw one pane of the Settings sheet.
+pub fn show_tab(app: &mut MusicCraftApp, ui: &mut egui::Ui, tab: SettingsTab) {
+    match tab {
+        SettingsTab::Library => {
+            ui.add_space(4.0);
+            library_management(app, ui);
+        }
+        SettingsTab::Playback => {
+            ui.add_space(4.0);
+            playback(app, ui);
+        }
+        SettingsTab::Shortcuts => {
+            ui.add_space(4.0);
+            shortcuts(ui);
+        }
+        SettingsTab::Storage => {
+            ui.add_space(4.0);
+            storage(app, ui);
+        }
+        SettingsTab::Diagnostics => {
+            ui.add_space(4.0);
+            diagnostics(app, ui);
+        }
+        SettingsTab::About => {
+            ui.add_space(4.0);
+            about(app, ui);
+        }
+    }
 }
 
 /// Width of the two buttons beside the media home's path, in points. Both
@@ -129,9 +524,15 @@ fn playback(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
             .weak(),
     );
 
-    ui.add_space(8.0);
+    // The three groups the pane runs — level, crossfade, device — parted by
+    // the measured hairline rather than the gap a separator leaves.
+    ui.add_space(10.0);
+    hairline(ui);
+    ui.add_space(10.0);
     crossfade(app, ui);
 
+    ui.add_space(10.0);
+    hairline(ui);
     ui.add_space(10.0);
     output_device(app, ui);
 }
@@ -705,7 +1106,8 @@ mod tests {
         let mut app = app(None);
         let ctx = egui::Context::default();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| show(&mut app, ui));
+            egui::ScrollArea::vertical()
+                .show(ui, |ui| show_tab(&mut app, ui, SettingsTab::Library));
         });
         output.textures_delta.clear();
 
@@ -742,7 +1144,8 @@ mod tests {
         let mut app = app(None);
         let ctx = egui::Context::default();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| show(&mut app, ui));
+            egui::ScrollArea::vertical()
+                .show(ui, |ui| show_tab(&mut app, ui, SettingsTab::Shortcuts));
         });
         output.textures_delta.clear();
 
@@ -777,7 +1180,7 @@ mod tests {
     fn the_settings_pane_draws_with_its_about_section() {
         let mut app = app(None);
 
-        egui::__run_test_ui(|ui| show(&mut app, ui));
+        egui::__run_test_ui(|ui| show_tab(&mut app, ui, SettingsTab::About));
 
         assert!(app.config_error().is_none());
     }
@@ -793,7 +1196,7 @@ mod tests {
         let mut app = app(Some(AppError::NoConfigDir));
         let expected = AppError::NoConfigDir.to_string();
 
-        egui::__run_test_ui(|ui| show(&mut app, ui));
+        egui::__run_test_ui(|ui| show_tab(&mut app, ui, SettingsTab::About));
 
         // Drawing it does not dismiss it: the message outlives the frame until
         // the user acts on it.
@@ -809,7 +1212,7 @@ mod tests {
         let mut app = app(None);
         let ctx = egui::Context::default();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| show(&mut app, ui));
+            egui::ScrollArea::vertical().show(ui, |ui| show_tab(&mut app, ui, SettingsTab::About));
         });
         output.textures_delta.clear();
 
@@ -839,7 +1242,7 @@ mod tests {
     #[test]
     fn the_diagnostics_pane_reports_where_everything_lives() {
         let mut app = app(None);
-        let painted = everything(&mut app);
+        let painted = everything(&mut app, SettingsTab::Diagnostics);
 
         for label in [
             "Diagnostics",
@@ -869,7 +1272,7 @@ mod tests {
         // slowest screen in the application.
         let mut app = app(None);
 
-        let _ = everything(&mut app);
+        let _ = everything(&mut app, SettingsTab::Diagnostics);
 
         assert!(
             app.library_integrity().is_none(),
@@ -883,7 +1286,7 @@ mod tests {
         let mut app = app(None);
         app.check_library_integrity();
 
-        let painted = everything(&mut app);
+        let painted = everything(&mut app, SettingsTab::Diagnostics);
 
         let message = app.library_integrity().expect("the check said something");
         assert!(
@@ -906,7 +1309,7 @@ mod tests {
         assert!(app.add_library_folder(&home));
         assert!(app.add_library_folder(&folder));
 
-        let painted = everything(&mut app);
+        let painted = everything(&mut app, SettingsTab::Library);
         assert!(
             painted.iter().any(|text| text == "Forget"),
             "the folder has no way to be dropped: {painted:?}"
@@ -926,14 +1329,406 @@ mod tests {
         );
     }
 
-    /// Every line of text the whole Settings pane paints.
+    /// The whole dialog as a few steady frames painted it, shapes and all.
+    fn sheet(app: &mut MusicCraftApp) -> Vec<egui::epaint::ClippedShape> {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0));
+        let ctx = egui::Context::default();
+        let mut shapes = Vec::new();
+
+        for _ in 0..3 {
+            let mut frame = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ui| crate::ui::render(app, ui),
+            );
+            frame.textures_delta.clear();
+            shapes = std::mem::take(&mut frame.shapes);
+        }
+
+        shapes
+    }
+
+    /// The rectangle the widest painted stroke of `colour` rules. One shape
+    /// per measured colour is the dialog's own arrangement: the sheet's edge,
+    /// the pane's, the ring's, the Cancel's — none shares its colour with
+    /// another, and finding the widest guards against a coincidence elsewhere
+    /// on the screen rather than papering over one.
+    fn stroked(shapes: &[egui::epaint::ClippedShape], colour: egui::Color32) -> egui::Rect {
+        shapes
+            .iter()
+            .filter_map(|clipped| stroked_in(&clipped.shape, colour))
+            .max_by(|a, b| a.area().total_cmp(&b.area()))
+            .unwrap_or_else(|| panic!("nothing on the sheet wears a {colour:?} rule"))
+    }
+
+    /// One rule's rectangle, searched through the shape and any `Vec` it is
+    /// packed into: the painter runs what shares a clip into one `Vec`, so a
+    /// sheet's rules rarely sit at the top on their own.
+    fn stroked_in(shape: &egui::Shape, colour: egui::Color32) -> Option<egui::Rect> {
+        match shape {
+            egui::Shape::Rect(painted) if painted.stroke.color == colour => Some(painted.rect),
+            egui::Shape::Vec(shapes) => shapes
+                .iter()
+                .filter_map(|one| stroked_in(one, colour))
+                .max_by(|a, b| a.area().total_cmp(&b.area())),
+            _ => None,
+        }
+    }
+
+    /// Press and release, where a mouse would. The frames go through a real
+    /// context, because a click that never ran through `run` clicked nothing.
+    fn click(app: &mut MusicCraftApp, ctx: &egui::Context, pos: egui::Pos2) {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0));
+
+        for events in [
+            vec![egui::Event::PointerMoved(pos)],
+            vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            }],
+            vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            }],
+        ] {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::render(app, ui),
+            );
+            output.textures_delta.clear();
+        }
+    }
+
+    /// One throwaway frame. A window the context has only just heard about
+    /// spends its first frame sizing itself and paints nothing — egui holds
+    /// that frame back from the painter — so a test that aims at the strip,
+    /// or reads the panes, passes one frame first. In the real application
+    /// that frame is one sixtieth of a second, and the dialog is up before
+    /// the eye notices it.
+    fn warm(app: &mut MusicCraftApp, ctx: &egui::Context) {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0));
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| crate::ui::render(app, ui),
+        );
+        output.textures_delta.clear();
+    }
+
+    /// The sheet, the pane, the tabs' feet and the footer's floor, all where
+    /// the capture measured them: 573×648; the pane fifteen in from the left,
+    /// fourteen from the right, its head at the tabs' feet and its foot forty-
+    /// two below the sheet's.
+    #[test]
+    fn the_sheet_and_its_pane_stand_where_the_dialog_measured_them() {
+        let mut app = app(None);
+        app.open_settings();
+        let shapes = sheet(&mut app);
+
+        let face = stroked(&shapes, theme::SETTINGS_EDGE);
+        let pane = stroked(&shapes, theme::SETTINGS_LINE);
+
+        assert!(
+            (face.width() - WINDOW_WIDTH).abs() < 1.0
+                && (face.height() - WINDOW_FALLBACK_HEIGHT).abs() < 1.0,
+            "the sheet is {:?}, not the measured 573 by 648",
+            face.size()
+        );
+        assert!(
+            (pane.left() - face.left() - PANE_LEFT).abs() < 1.0
+                && (face.right() - pane.right() - PANE_RIGHT).abs() < 1.0,
+            "the pane is not the measured fifteen-and-fourteen: {pane:?} in {face:?}"
+        );
+        assert!(
+            (pane.top() - face.top() - (TAB_TOP + TAB_ON_HEIGHT)).abs() < 1.0,
+            "the tabs' feet do not make the pane's head: pane at {}, sheet at {}",
+            pane.top(),
+            face.top()
+        );
+        assert!(
+            (face.bottom() - pane.bottom() - FOOTER_HEIGHT).abs() < 1.0,
+            "the footer is not the measured forty-two points: {pane:?} in {face:?}"
+        );
+    }
+
+    /// The footer's buttons, pinned through the paint: the measured seventy-
+    /// five and seventy-six wide, twenty-one tall, standing on the same line
+    /// ten points below the footer's head, ninety-seven and fourteen in from
+    /// the sheet's right edge.
+    #[test]
+    fn the_footer_buttons_stand_at_their_measured_places() {
+        let mut app = app(None);
+        app.open_settings();
+        let shapes = sheet(&mut app);
+
+        let face = stroked(&shapes, theme::SETTINGS_EDGE);
+        let ok = stroked(&shapes, theme::SETTINGS_DEFAULT_RING);
+        let cancel = stroked(&shapes, theme::SETTINGS_BUTTON_EDGE);
+
+        assert!(
+            (ok.width() - OK_WIDTH).abs() < 1.0 && (ok.height() - BUTTON_HEIGHT).abs() < 1.0,
+            "OK is {ok:?}, not the measured {OK_WIDTH} by {BUTTON_HEIGHT}"
+        );
+        assert!(
+            (cancel.width() - CANCEL_WIDTH).abs() < 1.0
+                && (cancel.height() - BUTTON_HEIGHT).abs() < 1.0,
+            "Cancel is {cancel:?}, not the measured {CANCEL_WIDTH} by {BUTTON_HEIGHT}"
+        );
+        assert!(
+            (face.right() - ok.right() - OK_RIGHT).abs() < 1.0
+                && (face.right() - cancel.right() - CANCEL_RIGHT).abs() < 1.0,
+            "the pair has drifted from the measured ninety-seven and fourteen: \
+             {ok:?} and {cancel:?} in {face:?}"
+        );
+        assert!(
+            (ok.top() - cancel.top()).abs() < 0.1
+                && (ok.top() - (face.bottom() - FOOTER_HEIGHT + BUTTON_TOP)).abs() < 1.0,
+            "the buttons are not level on the footer's measured line: {ok:?} vs {cancel:?}"
+        );
+    }
+
+    /// The strip names every pane, and the sheet holds exactly one of them:
+    /// the tabs and the footer are always on, but a pane's own words — the
+    /// ones no tab wears — show for the open pane and for no other.
+    #[test]
+    fn the_strip_names_every_pane_and_the_sheet_holds_one() {
+        let mut app = app(None);
+        app.open_settings();
+
+        let mut painted = Vec::new();
+        for clipped in sheet(&mut app) {
+            collect(&clipped.shape, &mut painted);
+        }
+        let painted: Vec<String> = painted.into_iter().map(|(text, _)| text).collect();
+
+        assert!(
+            painted.iter().any(|text| text == "Settings"),
+            "no title: {painted:?}"
+        );
+        for tab in SettingsTab::ALL {
+            let label = tab_label(tab).to_owned();
+            assert!(
+                painted.contains(&label),
+                "the strip has no {label:?} tab: {painted:?}"
+            );
+        }
+        for button in ["OK", "Cancel"] {
+            assert!(
+                painted.contains(&button.to_owned()),
+                "no {button}: {painted:?}"
+            );
+        }
+
+        // Library is the pane the window opens on — and only its words show.
+        assert!(
+            painted
+                .iter()
+                .any(|text| text.contains("Media folder location")),
+            "the Library pane is not the one open: {painted:?}"
+        );
+        for foreign in [
+            "Keyboard shortcuts",
+            "Check the library database",
+            "Settings file",
+        ] {
+            assert!(
+                !painted.iter().any(|text| text == foreign),
+                "the {foreign} pane shows through the open one: {painted:?}"
+            );
+        }
+    }
+
+    /// A tab under the pointer opens its pane: a real press finds the tab's
+    /// own words, and the sheet that comes back holds the pane they name and
+    /// no longer the one it held.
+    #[test]
+    fn a_tab_under_the_pointer_opens_its_pane() {
+        let mut app = app(None);
+        app.open_settings();
+        let ctx = egui::Context::default();
+        warm(&mut app, &ctx);
+
+        // Where does the Shortcuts tab's word sit?
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0));
+        let mut first = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| crate::ui::render(&mut app, ui),
+        );
+        let mut texts = Vec::new();
+        for clipped in &first.shapes {
+            collect(&clipped.shape, &mut texts);
+        }
+        first.textures_delta.clear();
+        let tab = texts
+            .iter()
+            .find(|(text, _)| text == "Shortcuts")
+            .map(|(_, rect)| *rect)
+            .expect("the strip has a Shortcuts tab");
+
+        click(&mut app, &ctx, tab.center());
+
+        assert_eq!(app.settings_tab(), SettingsTab::Shortcuts);
+
+        let painted: Vec<String> = sheet(&mut app)
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::epaint::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            painted.iter().any(|text| text == "Keyboard shortcuts"),
+            "the click did not open the keys: {painted:?}"
+        );
+        assert!(
+            !painted
+                .iter()
+                .any(|text| text.contains("Media folder location")),
+            "the Library pane refused to leave: {painted:?}"
+        );
+    }
+
+    /// The mark on the dark strip is the window's way out: a press shuts it,
+    /// the same as the ✕ on the measured dialog's title bar.
+    /// The mark on the dark strip is the window's way out: a press shuts it,
+    /// the same as the close mark on the measured dialog's title bar. The
+    /// mark is strokes, not type, so the test aims where the bar's own
+    /// measured geometry puts it — ten in from the sheet's right, centred
+    /// on the bar's twenty-eight points.
+    #[test]
+    fn the_close_mark_shuts_the_window() {
+        let mut app = app(None);
+        app.open_settings();
+        let ctx = egui::Context::default();
+        warm(&mut app, &ctx);
+
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1180.0, 808.0));
+        let mut first = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| crate::ui::render(&mut app, ui),
+        );
+        let face = stroked(&first.shapes, theme::SETTINGS_EDGE);
+        first.textures_delta.clear();
+
+        click(
+            &mut app,
+            &ctx,
+            egui::pos2(
+                face.right() - CLOSE_RIGHT - CLOSE_SIZE / 2.0,
+                face.top() + BAR_HEIGHT / 2.0,
+            ),
+        );
+
+        assert!(!app.settings_open(), "the mark did not shut the window");
+    }
+
+    /// Cancel says what it does: the choices the window owns come back to
+    /// where they stood when it opened, and the window is shut.
+    #[test]
+    fn cancel_puts_back_the_choices_the_window_owns() {
+        let mut app = app(None);
+        let volume = app.volume();
+        let crossfade = app.crossfade_seconds();
+
+        app.open_settings();
+        app.set_volume(0.25);
+        app.set_crossfade_seconds(3.0);
+
+        app.cancel_settings();
+
+        assert!(!app.settings_open(), "Cancel shut the window");
+        assert_eq!(app.volume(), volume, "Cancel did not undo the volume");
+        assert_eq!(
+            app.crossfade_seconds(),
+            crossfade,
+            "Cancel did not undo the crossfade"
+        );
+    }
+
+    /// OK is honest the other way: what the window applied live stays applied,
+    /// because OK only closes and never claimed to commit anything.
+    #[test]
+    fn closing_by_ok_keeps_what_the_window_applied() {
+        let mut app = app(None);
+        app.open_settings();
+        app.set_volume(0.25);
+
+        app.close_settings();
+
+        assert!(!app.settings_open());
+        assert_eq!(app.volume(), 0.25, "OK undid what it never promised to");
+    }
+
+    /// And the promise is only ever about this trip through the window: a
+    /// change OKed is a change kept, and the next Cancel puts back to it, not
+    /// past it to some earlier visit.
+    #[test]
+    fn a_reopened_window_cancels_only_its_own_changes() {
+        let mut app = app(None);
+
+        app.open_settings();
+        app.set_volume(0.25);
+        app.close_settings(); // OK.
+
+        app.open_settings();
+        app.set_crossfade_seconds(4.0);
+        app.cancel_settings();
+
+        assert_eq!(
+            app.volume(),
+            0.25,
+            "the second Cancel undid the first trip's kept change"
+        );
+        assert_eq!(
+            app.crossfade_seconds(),
+            0.0,
+            "its own change was not undone"
+        );
+    }
+
+    /// The Help menu's questions open on the pane that answers them, not on
+    /// wherever the gear last left the strip.
+    #[test]
+    fn the_help_panes_open_where_their_questions_were_asked() {
+        let mut app = app(None);
+        app.set_settings_tab(SettingsTab::Storage);
+
+        app.open_settings_at(SettingsTab::About);
+
+        assert!(app.settings_open());
+        assert_eq!(
+            app.settings_tab(),
+            SettingsTab::About,
+            "the window opened on someone else's question"
+        );
+    }
+
+    /// Every line of text one Settings pane paints.
     ///
-    /// The sheet is fixed at the reference dialog's 573×648 now, and the part
-    /// below its fold never reaches the painter, so the pane is drawn here at
-    /// the sheet's own width but tall enough to hold every section — a short
-    /// screen would otherwise only test the sections that come first. The
-    /// same scroll area the window wraps the pane in wraps it here.
-    fn everything(app: &mut MusicCraftApp) -> Vec<String> {
+    /// The sheet is fixed at the reference dialog's 573×648, and the part of a
+    /// pane below its fold never reaches the painter, so the pane is drawn here
+    /// at the sheet's own width but tall enough to hold it whole — a short
+    /// screen would otherwise only test the lines that come first. The same
+    /// scroll area the window wraps the pane in wraps it here.
+    fn everything(app: &mut MusicCraftApp, tab: SettingsTab) -> Vec<String> {
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(WINDOW_WIDTH, 2400.0));
         let ctx = egui::Context::default();
         let mut texts = Vec::new();
@@ -947,7 +1742,7 @@ mod tests {
                 |ui| {
                     ScrollArea::vertical()
                         .auto_shrink([false, false])
-                        .show(ui, |ui| show(app, ui));
+                        .show(ui, |ui| show_tab(app, ui, tab));
                 },
             );
             frame.textures_delta.clear();

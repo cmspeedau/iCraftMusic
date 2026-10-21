@@ -636,6 +636,69 @@ pub const STATUS_BAR_INK: Color32 = Color32::from_rgb(60, 60, 60);
 /// Muted [`STATUS_BAR_INK`], for the status bar's single counts line.
 pub const STATUS_BAR_INK_MUTED: Color32 = Color32::from_rgb(85, 85, 85);
 
+// ————— Settings dialog —————
+//
+// The reference's Preferences sheet is light in both themes — a dark dialog
+// over a light sheet is the same contradiction the content page refused — so
+// the whole dialog takes these measured colours rather than the theme's, and
+// [`page_visuals`] for its widgets.
+
+/// The dialog's border, one point all round the sheet.
+pub const SETTINGS_EDGE: Color32 = Color32::from_rgb(83, 86, 89);
+
+/// The dialog's title bar, the one dark strip on a light sheet.
+pub const SETTINGS_BAR: Color32 = Color32::from_rgb(41, 44, 48);
+
+/// The title's ink on [`SETTINGS_BAR`].
+pub const SETTINGS_BAR_INK: Color32 = Color32::from_rgb(232, 232, 232);
+
+/// The close mark's ink on [`SETTINGS_BAR`] — the title's, set back a touch.
+pub const SETTINGS_BAR_CLOSE: Color32 = Color32::from_rgb(207, 207, 207);
+
+/// The dialog's face: the strip under the tabs and the footer.
+pub const SETTINGS_FACE: Color32 = Color32::from_rgb(245, 245, 245);
+
+/// The hairlines that rule the sheet: the pane's border and the tabs' edges.
+pub const SETTINGS_LINE: Color32 = Color32::from_rgb(174, 174, 174);
+
+/// The hairlines inside a pane, between one group of settings and the next.
+///
+/// A shade darker than [`SETTINGS_LINE`], measured: the inner rule has to
+/// show on white where the border only has to show on the face.
+pub const SETTINGS_HAIR: Color32 = Color32::from_rgb(166, 166, 166);
+
+/// The dialog's own ink: everything the sheet says.
+pub const SETTINGS_INK: Color32 = Color32::from_rgb(17, 17, 17);
+
+/// The unchosen tabs' gradient, at its top…
+pub const SETTINGS_TAB_TOP: Color32 = Color32::from_rgb(251, 251, 251);
+
+/// …and at its foot. The chosen tab is the sheet's own white instead, and
+/// taller by three points — the height is how the strip says which one is on.
+pub const SETTINGS_TAB_BOTTOM: Color32 = Color32::from_rgb(233, 233, 233);
+
+/// The footer buttons' edge.
+pub const SETTINGS_BUTTON_EDGE: Color32 = Color32::from_rgb(185, 185, 185);
+
+/// The footer buttons' fall, at top…
+pub const SETTINGS_BUTTON_TOP: Color32 = Color32::from_rgb(255, 255, 255);
+
+/// …and bottom.
+pub const SETTINGS_BUTTON_BOTTOM: Color32 = Color32::from_rgb(237, 237, 237);
+
+/// The default button's ring: two points of it, and the hairline behind the
+/// ring. The rest of the face runs pale blue rather than the Cancel's gray.
+pub const SETTINGS_DEFAULT_RING: Color32 = Color32::from_rgb(55, 150, 246);
+
+/// The hairline that stands off the default button's ring.
+pub const SETTINGS_DEFAULT_HALO: Color32 = Color32::from_rgb(156, 196, 238);
+
+/// The default button's fall, at top…
+pub const SETTINGS_DEFAULT_TOP: Color32 = Color32::from_rgb(255, 255, 255);
+
+/// …and bottom — the blue of the ring, thinned to almost nothing.
+pub const SETTINGS_DEFAULT_BOTTOM: Color32 = Color32::from_rgb(244, 250, 255);
+
 /// Install the iCraftMusic style for `mode`.
 ///
 /// This sets the egui theme preference and then adjusts both the dark and the

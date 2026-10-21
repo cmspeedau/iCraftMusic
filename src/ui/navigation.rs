@@ -43,7 +43,7 @@ use egui::{
     ScrollArea, Sense, Stroke, StrokeKind, Vec2, ViewportCommand, vec2,
 };
 
-use crate::app::MusicCraftApp;
+use crate::app::{MusicCraftApp, SettingsTab};
 use crate::audio::RepeatMode;
 use crate::library::PlaylistId;
 use crate::library::browse::BrowseKind;
@@ -320,10 +320,12 @@ fn help_menu(app: &mut MusicCraftApp, ui: &mut egui::Ui) {
         }
         ui.separator();
         if ui.button("Keyboard Shortcuts").clicked() {
-            app.open_settings();
+            // The question was about the keys; the window opens on the pane
+            // that answers it, not on wherever the gear last rested.
+            app.open_settings_at(SettingsTab::Shortcuts);
         }
         if ui.button("About iCraftMusic").clicked() {
-            app.open_settings();
+            app.open_settings_at(SettingsTab::About);
         }
     });
 }

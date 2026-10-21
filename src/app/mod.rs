@@ -43,6 +43,8 @@ mod release;
 mod settings;
 mod windows;
 
+pub use self::settings::{SettingsTab, SettingsUndo};
+
 /// What was learned about the user's settings before the window opened.
 ///
 /// The window has to be able to open even when the settings file is missing,
@@ -164,6 +166,11 @@ pub struct MusicCraftApp {
     queue_open: bool,
     /// Whether the settings window, opened from the gear menu, is showing.
     settings_open: bool,
+    /// The tab the settings window's strip rests on.
+    settings_tab: SettingsTab,
+    /// The choices the settings window took on when it opened, `None` while it
+    /// is closed: what its Cancel puts back.
+    settings_undo: Option<SettingsUndo>,
     /// Whether the equalizer window, opened from the gear menu, is showing.
     equalizer_open: bool,
     /// The output device, the queue and the transport, as one object.
@@ -348,6 +355,8 @@ impl MusicCraftApp {
             section: NavSection::default(),
             queue_open: false,
             settings_open: false,
+            settings_tab: SettingsTab::Library,
+            settings_undo: None,
             equalizer_open: false,
             playback,
             library,
