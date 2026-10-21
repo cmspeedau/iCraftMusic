@@ -279,7 +279,7 @@ Stage 9 — Release and Distribution
 Goal: Produce a dependable installable application.
 Deliverables
 
-    Release build configuration.
+    Release build configuration. (Landed: `.github/workflows/ci.yml` runs the fmt/clippy/test gate on every push and pull request, and `.github/workflows/release.yml` publishes a locked release build as a GitHub Release when a `v*` tag is pushed — the tag is what says the Stage 8½ gate closed.)
     Platform-specific build and packaging instructions.
     Application icon and version information.
     Clean-install and upgrade testing.

@@ -1,0 +1,45 @@
+# The release pipeline for 1.0 and everything after it: pushing a tag —
+# v1.0.0 once the Stage 8½ gate in ROADMAP.md closes — builds the same
+# locked release binary CI has been guarding and publishes it as a
+# GitHub Release. Nothing here can be triggered by a pull request; the
+# tag is the trigger, and the tag is a deliberate act.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Build and publish (Linux x86_64)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the only job that writes, and only its own release
+    steps:
+      - uses: actions/checkout@v4
+      - name: System dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Package
+        run: |
+          set -eu
+          name=musiccraft-${GITHUB_REF_NAME}-x86_64-linux
+          mkdir -p package/"$name"
+          cp target/release/musiccraft package/"$name"/
+          cp LICENSE README.md package/"$name"/
+          tar -C package -czf "$name".tar.gz "$name"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: musiccraft-*.tar.gz
+          generate_release_notes: true

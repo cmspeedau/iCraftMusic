@@ -1,0 +1,5 @@
+# One place for the toolchain, which CI honours on its own: whatever stable
+# is, with the two linters the CI gate runs.
+[toolchain]
+channel = "stable"
+components = ["clippy", "rustfmt"]

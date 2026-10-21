@@ -1,5 +1,7 @@
 # iCraftMusic
 
+[![CI](https://github.com/cmspeedau/iCraftMusic/actions/workflows/ci.yml/badge.svg)](https://github.com/cmspeedau/iCraftMusic/actions/workflows/ci.yml)
+
 A native desktop player dressed in the idiom of [iTunes 7](#itunes-7-and-the-source-list),
 written entirely in Rust: a local library, album artwork, playlists that fill
 themselves from rules, a queue, a search field that is always a keystroke away,
