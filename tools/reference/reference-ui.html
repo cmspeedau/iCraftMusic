@@ -1,14 +1,25 @@
 <!doctype html>
 <!--
-  Reference UI — what the iTunes 7 window measured under Wine looks like.
+  Reference UI — the iTunes 7 window measured under Wine, redrawn in HTML.
 
   This is NOT iCraftMusic. It is a replica of the reference itself, built
-  from the numbers `tools/reference/` captured: the chrome gradients, the
-  pale-green disc panel, the 203px sidebar and its selection ramp, the
-  17px striped table, the 28px status-bar gradient. Toggle the ruler to
-  see every measurement the fidelity pass is matching, on the window it
-  came from. Store, account and sign-in surfaces are absent by rule, and
-  there is no Apple mark — the disc panel shows a plain disc.
+  from the owner's PrtSc captures of the live Wine window (measured pixel
+  by pixel with PIL) so the fidelity pass has a ruler that runs anywhere:
+  every band, colour, row metric and menu below was read off those shots,
+  and the toggle overlays them in place.
+
+  Views: List (default), Column browser, Now Playing, the five menus the
+  window shows, and the Preferences dialog with its tab strip, right-aligned
+  label columns, full-width hairlines and OK/Cancel footer — the layout the
+  Settings window adopts in Stage 5.
+
+  Project rule: no Store, account or sign-in surface is reproduced. The
+  Store menu, the iTunes Store source row, the Store preferences tab,
+  Shop-for-Products / purchase-transfer / iPod-sync / Audible-authorise
+  items are therefore absent here, and the disc panel carries a plain disc
+  instead of the Apple mark. Podcasts, Parental Control and device tabs are
+  shown only because the reference shows them — they are out of our 1.0
+  scope and live in ROADMAP-MEDIA.
 -->
 <html lang="en">
 <head>
@@ -16,22 +27,26 @@
 <title>Reference UI — iTunes 7 as measured under Wine</title>
 <style>
   :root{
-    --menu-hi:226; --menu-lo:189;          /* chrome top band, y0..21 */
-    --rule-dark:#404040;                    /* (64,64,64) under the chrome */
-    --strip-hi:219; --strip-lo:197;         /* toolbar strip, y77..86 */
-    --disc-hi:rgb(254,255,232); --disc-lo:rgb(217,222,194);
-    --disc-border:#56584c;                  /* (86,88,76) */
+    /* main window — measured from Screenshot_20261021_112442 (client = 1180x780) */
+    --menu-hi:226; --menu-lo:190;                 /* menu band, client y0..16 */
+    --chrome-hi:205; --chrome-lo:187;             /* toolbar band below it    */
+    --rule-dark:#404040;                          /* dark rule at client y76  */
+    --disc-hi:rgb(254,255,232); --disc-lo:rgb(220,224,197);
+    --disc-border:#56584c;                        /* (86,88,76)               */
     --side-fill:rgb(209,215,226);
     --side-heading:rgb(80,93,109);
     --side-ink:rgb(28,30,38);
-    --sel-hi:rgb(161,176,207); --sel-lo:rgb(113,133,171); --sel-seat:rgb(145,160,192);
-    --hover-hi:rgb(222,229,243); --hover-lo:rgb(181,195,222);
-    --navy:#072d67;                         /* icon ink on the selection, (7,45,103) */
+    --sel-hi:rgb(93,148,214); --sel-lo:rgb(28,88,174); --sel-edge:rgb(62,120,198);
     --row-h:17px; --side-row:20px;
     --stripe:rgb(241,245,250);
-    --table-sel:#eff2f5;
     --head-hi:rgb(219,219,219); --head-lo:rgb(187,187,187); --head-rule:#555;
-    --status-hi:rgb(224,224,224); --status-lo:rgb(150,150,150); --status-ink:#555;
+    --coldish:rgb(233,243,251);                   /* wash on the sorted column */
+    --col-div:#d9d9d9;                            /* (217,217,217) column rules */
+    --status-hi:rgb(224,224,224); --status-lo:rgb(149,149,149); --status-ink:#555;
+    /* preferences — measured from Screenshot_20261021_112638 (573x648, title 28) */
+    --dlg-face:#f5f5f5;                           /* (245,245,245) */
+    --dlg-line:#aeaeae;                           /* (174,174,174) */
+    --hair:#a6a6a6;                               /* (166,166,166) group hairlines */
   }
   *{box-sizing:border-box; margin:0; padding:0;}
   body{
@@ -40,162 +55,321 @@
     -webkit-font-smoothing:none;
     padding:10px 0 18px;
   }
-  .bar{
-    display:flex; align-items:center; gap:10px;
-    padding:0 14px 10px; font:12px/1 system-ui,sans-serif; color:var(--muted-foreground,#555);
-  }
+  .bar{display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+    padding:0 14px 10px; font:12px/1.4 system-ui,sans-serif; color:var(--muted-foreground,#555);}
   .bar b{color:var(--foreground,#222); font-weight:600;}
-  .bar button{
-    font:12px/1 system-ui,sans-serif; padding:5px 10px; border-radius:6px;
-    border:1px solid var(--border,#bbb); background:var(--card,#f4f4f4); color:inherit; cursor:pointer;
-  }
-  .bar button[aria-pressed=true]{background:var(--sel-seat); border-color:#8fa3c9;}
+  .bar button{font:12px/1 system-ui,sans-serif; padding:5px 10px; border-radius:6px;
+    border:1px solid var(--border,#bbb); background:var(--card,#f4f4f4); color:inherit; cursor:pointer;}
+  .bar button[aria-pressed=true]{background:var(--sel-edge); border-color:#2d5f9e; color:#fff;}
   #fit{width:100%; overflow:hidden;}
-  #scaler{width:1180px; height:780px; transform-origin:top left;}
-
+  #scaler{width:1180px; height:808px; transform-origin:top left;}
   #win{
-    position:relative; width:1180px; height:780px; overflow:hidden;
-    border:1px solid #3a3a3a; border-radius:5px 5px 3px 3px;
-    background:#fff; box-shadow:0 8px 26px rgba(0,0,0,.28);
-    font-size:12px;
+    position:relative; width:1180px; height:808px; overflow:hidden;
+    border:1px solid #3a3a3a; border-radius:5px 5px 0 0;
+    background:#fff; box-shadow:0 8px 26px rgba(0,0,0,.28); font-size:12px;
   }
-  /* ---- menu band: measured gradient 226→189 across y0..21 ---- */
+  /* ---- KDE title bar over the 780px client ---- */
+  #title{
+    position:absolute; top:0; left:0; right:0; height:28px;
+    background:#292c30; color:#e8e8e8; display:flex; align-items:center; justify-content:center;
+    font-size:13px;
+  }
+  #title .x{position:absolute; right:9px; font-size:14px; color:#cfcfcf;}
+  /* ---- menu band: 226 to 190 across client y0..16 (shot y10..25) ---- */
   #menu{
-    position:absolute; top:0; left:0; right:0; height:21px;
+    position:absolute; top:28px; left:0; right:0; height:16px;
     background:linear-gradient(rgb(var(--menu-hi)) 0%, rgb(var(--menu-lo)) 100%);
-    display:flex; align-items:center; gap:16px; padding:0 10px;
-    color:#2b2b2b; font-size:12px; border-bottom:1px solid rgba(90,90,90,.55);
+    display:flex; align-items:center; gap:15px; padding:0 7px;
+    color:#2b2b2b; font-size:12px; border-bottom:1px solid rgba(90,90,90,.5);
   }
-  #menu span:first-child{background:#68729a; color:#fff; padding:1px 7px; border-radius:3px;}
-  /* ---- toolbar: transport circles, volume, disc panel, search ---- */
+  #menu .m{padding:1px 4px; cursor:default; line-height:14px;}
+  #menu .m[aria-expanded=true]{background:linear-gradient(var(--sel-hi),var(--sel-lo)); color:#fff; border-radius:2px;}
+  /* ---- toolbar: transport, volume, disc panel, view, search ---- */
   #toolbar{
-    position:absolute; top:22px; left:0; right:0; height:54px; /* y22..75 */
-    background:linear-gradient(rgb(205) 0%, rgb(187) 100%);
-    display:flex; align-items:center; gap:14px; padding:0 12px;
+    position:absolute; top:45px; left:0; right:0; height:51px;     /* client y17..67 */
+    background:linear-gradient(rgb(var(--chrome-hi)) 0%, rgb(var(--chrome-lo)) 100%);
+    display:flex; align-items:center; gap:10px; padding:0 12px;
   }
-  .circles{display:flex; gap:6px;}
+  .circles{display:flex; gap:7px;}
   .cbtn{
-    width:29px; height:29px; border-radius:50%;
-    background:radial-gradient(circle at 50% 30%, #fdfdfd, #d2d2d2 62%, #a9a9a9);
-    border:1px solid #6f6f6f; box-shadow:inset 0 1px 0 #fff, 0 1px 2px rgba(0,0,0,.25);
-    display:flex; align-items:center; justify-content:center;
-    color:#3c3c3c; font-size:11px;
+    width:34px; height:34px; border-radius:50%;
+    background:radial-gradient(circle at 50% 32%, #fdfdfd, #d7d7d7 58%, #9f9f9f);
+    border:1px solid #6d6d6d; box-shadow:inset 0 1px 0 #fff, 0 1px 2px rgba(0,0,0,.3);
+    display:flex; align-items:center; justify-content:center; color:#3a3a3a; font-size:13px;
   }
-  .cbtn.play{font-size:12px; padding-left:2px;}
-  #vol{display:flex; align-items:center; gap:6px; color:#4a4a4a; font-size:13px;}
-  #vol .track{position:relative; width:96px; height:4px; border-radius:2px; background:#8f8f8f; box-shadow:inset 0 1px 1px #5c5c5c;}
-  #vol .knob{position:absolute; top:-5px; left:56px; width:10px; height:13px; border-radius:3px;
-    background:linear-gradient(#fff,#c9c9c9); border:1px solid #7a7a7a;}
+  .cbtn.play{font-size:14px; padding-left:3px;}
+  #vol{display:flex; align-items:center; gap:6px; color:#3f3f3f; font-size:12px;}
+  #vol .track{position:relative; width:84px; height:5px; border-radius:3px; background:#8b8b8b; box-shadow:inset 0 1px 1px #5c5c5c;}
+  #vol .knob{position:absolute; top:-6px; left:60px; width:11px; height:15px; border-radius:3px;
+    background:linear-gradient(#fff,#c9c9c9); border:1px solid #767676;}
+  .sep{width:1px; height:26px; background:#8e8e8e; box-shadow:1px 0 0 #d4d4d4; flex:none;}
   #disc{
     flex:1; height:44px; border-radius:6px;
     background:linear-gradient(var(--disc-hi), var(--disc-lo));
     border:1px solid var(--disc-border);
-    display:flex; align-items:center; gap:10px; padding:0 12px;
+    display:flex; align-items:center; justify-content:center; gap:12px;
   }
   #disc .discpic{
-    width:36px; height:36px; border-radius:50%;
-    background:conic-gradient(#e8e8ee, #b9bcc8, #f0f1f5, #a7aab6, #e8e8ee) ;
+    width:34px; height:34px; border-radius:50%;
+    background:conic-gradient(#e8e8ee,#b9bcc8,#f0f1f5,#a7aab6,#e8e8ee);
     box-shadow:0 1px 2px rgba(0,0,0,.3); position:relative; flex:none;
   }
-  #disc .discpic::after{content:""; position:absolute; inset:13px; border-radius:50%;
+  #disc .discpic::after{content:""; position:absolute; inset:12px; border-radius:50%;
     background:#f4f4ec; border:1px solid #8b8d7b;}
-  #disc .txt{color:#4b5138; font-size:11px; line-height:1.45;}
+  #disc .cap{color:#565b45; font-size:11px; font-style:italic;}
+  #rightgrp{display:flex; flex-direction:column; gap:1px; flex:none;}
+  #rightrow{display:flex; align-items:center; gap:18px;}
+  #caps{display:flex; color:#3a3a3a; font-size:10px;}
+  #caps span:first-child{width:80px; text-align:center;}
+  #caps span:last-child{width:90px; text-align:center;}
+  #view{display:flex; width:80px; height:24px; border:1px solid #6f6f6f; border-radius:3px;
+    background:linear-gradient(#fdfdfd,#d2d2d2); box-shadow:inset 0 1px 0 #fff; overflow:hidden;}
+  #view div{flex:1; border-right:1px solid #9a9a9a; display:flex; align-items:center; justify-content:center;
+    color:#4a4a4a; font-size:10px;}
+  #view div:last-child{border-right:0;}
+  #view div.on{background:linear-gradient(#c7d6ee,#9fb7dd); box-shadow:inset 0 1px 2px rgba(30,70,130,.4);}
   #search{
-    width:210px; height:21px; border-radius:11px; background:#fff;
+    width:90px; height:20px; border-radius:10px; background:#fff;
     border:1px solid #6e6e6e; box-shadow:inset 0 1px 2px rgba(0,0,0,.18);
-    display:flex; align-items:center; padding:0 9px; color:#9a9a9a; font-size:11px; gap:6px; flex:none;
+    display:flex; align-items:center; padding:0 8px; color:#9a9a9a; font-size:11px; gap:5px;
   }
-  /* ---- measured dark rule at y76, then the toolbar strip y77..86 ---- */
-  #darkrule{position:absolute; top:76px; left:0; right:0; height:1px; background:var(--rule-dark);}
-  #strip{
-    position:absolute; top:77px; left:0; right:0; height:10px;
-    background:linear-gradient(rgb(var(--strip-hi)), rgb(var(--strip-lo)));
-    border-bottom:1px solid #8f8f8f;
-  }
+  /* ---- dark rule at client y76, chrome strip to y85 ---- */
+  #darkrule{position:absolute; top:104px; left:0; right:0; height:1px; background:var(--rule-dark);}
+  #strip{position:absolute; top:105px; left:0; right:0; height:10px;
+    background:linear-gradient(rgb(201),rgb(187));}
   /* ---- body ---- */
-  #body{position:absolute; top:88px; left:0; right:0; bottom:28px; display:flex;}
+  #body{position:absolute; top:116px; left:0; right:0; bottom:28px; display:flex;}
   #side{
-    width:203px; height:100%; background:var(--side-fill);
-    border-right:1px solid var(--rule-dark); flex:none; padding-top:7px;
+    width:204px; height:100%; background:var(--side-fill);
+    border-right:1px solid var(--rule-dark); flex:none; padding-top:1px; overflow:hidden;
   }
-  .heading{
-    color:var(--side-heading); font-size:11px; font-weight:700; letter-spacing:.03em;
-    padding:2px 0 3px 12px; display:flex; align-items:center; gap:6px;
-  }
-  .tri{width:0;height:0;border:4px solid transparent;border-left:6px solid var(--side-heading);border-right:0;margin-left:6px;}
-  .srow{
-    height:var(--side-row); display:flex; align-items:center; gap:0; color:var(--side-ink);
-    font-size:12px; position:relative;
-  }
-  .srow .ico{width:28px; display:flex; justify-content:center; flex:none;}
-  .srow .lbl{padding-left:16px;}          /* icon col 28 + 16 = label at 44 */
+  .heading{color:var(--side-heading); font-size:12px; font-weight:700; padding:5px 0 3px 8px;
+    display:flex; align-items:center; gap:4px;}
+  .srow{height:var(--side-row); display:flex; align-items:center; color:var(--side-ink);
+    font-size:12px; position:relative;}
+  .srow .ico{width:29px; display:flex; justify-content:center; flex:none;}
+  .srow .lbl{padding-left:8px;}
   .srow svg{display:block;}
   .srow.selected{
-    background:linear-gradient(var(--sel-hi), var(--sel-lo));
-    border-top:1px solid var(--sel-seat);
+    background:linear-gradient(var(--sel-hi),var(--sel-lo));
+    box-shadow:inset 0 1px 0 var(--sel-edge);
     color:#fff;
   }
-  .srow.selected .ico svg{color:var(--navy);}
-  .srow.hoversample{background:linear-gradient(var(--hover-hi), var(--hover-lo));}
-  .placeholder{color:#757575; padding-left:44px; height:var(--side-row); display:flex; align-items:center;}
+  /* ---- now-playing panel (Now Playing view) ---- */
+  #np{position:absolute; left:205px; right:0; top:116px; height:400px; background:#000; display:none;}
+  #win.np #np{display:block;}
+  #np .art{
+    position:absolute; top:23px; left:50%; margin-left:-148px; width:294px; height:294px;
+    border:1px solid #7f7f7f;
+    background:radial-gradient(120% 120% at 50% 42%, #454a52 0%, #23262b 45%, #05070a 100%);
+  }
+  #np .art svg{position:absolute; left:50%; top:50%; transform:translate(-50%,-52%);}
+  #np .ttl{position:absolute; top:323px; left:0; right:0; text-align:center; color:#fff; font-size:15px; font-weight:700;}
+  #np .art2{position:absolute; top:345px; left:0; right:0; text-align:center; color:#fff; font-size:14px;}
+  #np .grip{position:absolute; bottom:6px; left:50%; margin-left:-11px; color:#8f8f8f; font-size:13px;}
+  #np .expand{
+    position:absolute; right:14px; bottom:12px; width:27px; height:27px; border-radius:50%;
+    background:radial-gradient(circle at 50% 35%, #5a5a5a, #232323 70%);
+    border:1px solid #8b8b8b; display:flex; align-items:center; justify-content:center;
+    color:#e8e8e8; font-size:11px;
+  }
+  #win.np #body{top:516px;}
+  /* ---- cover panel (Column browser view) ---- */
+  #cover{
+    width:188px; flex:none; display:none; background:rgb(233,237,242);
+    border-right:1px solid rgb(183,198,214); padding:38px 14px 0;
+  }
+  #win.cols #cover{display:block;}
+  #cover .art{
+    width:106px; height:106px; margin:0 auto;
+    background:linear-gradient(160deg,#dfe7ef,#b9c6d8); border:1px solid #93a3ba; position:relative;
+  }
+  #cover .art svg{position:absolute; left:50%; top:52%; transform:translate(-50%,-50%);}
+  #cover .ttl{margin-top:12px; text-align:center; font-size:12px; font-weight:700; line-height:1.3;}
+  #cover .art2{text-align:center; font-size:12px; margin-top:2px;}
+  #cover .stars{text-align:center; color:#a3a3a3; font-size:9px; margin-top:6px; letter-spacing:3px;}
   /* ---- table ---- */
-  #table{flex:1; height:100%; background:#fff; display:flex; flex-direction:column; min-width:0;}
+  #table{flex:1; height:100%; background:#fff; display:flex; flex-direction:column; min-width:0; position:relative;}
   #thead{
-    height:20px; flex:none; display:flex; align-items:center;
-    background:linear-gradient(var(--head-hi), var(--head-lo));
+    height:17px; flex:none; display:flex; align-items:stretch;
+    background:linear-gradient(var(--head-hi),var(--head-lo));
     border-bottom:1px solid var(--head-rule);
     color:#3f3f3f; font-size:11px;
   }
-  #tbody{flex:1; overflow:hidden;}
-  .trow{height:var(--row-h); display:flex; align-items:center; font-size:11px; white-space:nowrap;}
+  #tbody{flex:1; overflow:hidden; position:relative;}
+  .trow{height:var(--row-h); display:flex; align-items:center; font-size:11px; white-space:nowrap; position:relative; z-index:1;}
   .trow:nth-child(even){background:var(--stripe);}
-  .trow.sel{background:var(--table-sel);}
-  .trow.sel .c .v{font-weight:600;}
-  .c{padding:0 7px; overflow:hidden; text-overflow:ellipsis;}
-  .c .v{max-width:100%; overflow:hidden; text-overflow:ellipsis;}
-  .n{color:#5a5a5a; text-align:right;}
-  .sorted{display:flex; align-items:center; gap:4px; color:#333; font-weight:600;}
-  .sorted::after{content:"▵"; font-size:9px;}
-  /* ---- status bar: 28px, gradient 224→150, divider 85, text 85 ---- */
+  .coldiv{position:absolute; top:0; bottom:0; width:1px; background:var(--col-div); z-index:0;}
+  .c{padding:0 6px; overflow:hidden; text-overflow:ellipsis; flex:none; line-height:15px;}
+  .c.num{color:#5a5a5a; text-align:right;}
+  .hcell{border-right:1px solid var(--col-div); display:flex; align-items:center; padding:0 6px;}
+  .hcell.sorted{
+    background:linear-gradient(var(--sel-hi),var(--sel-lo)); color:#173a63; font-weight:400;
+    box-shadow:inset 0 1px 0 var(--sel-edge);
+  }
+  .hcell.sorted .caret{margin-left:auto; font-size:9px;}
+  .wash{position:absolute; top:0; bottom:0; background:var(--coldish); z-index:0;}
+  .cbx{width:14px; height:14px; flex:none; border:1px solid #7b7b7b; border-radius:2px;
+    background:linear-gradient(#fff,#e7e7e7); display:inline-flex; align-items:center; justify-content:center;
+    color:#fff; font-size:10px; box-shadow:inset 0 1px 0 #fff;}
+  .cbx.on{background:linear-gradient(rgb(120,170,230),rgb(43,105,178)); border-color:#33608f;}
+  #hscroll{display:none; height:15px; flex:none; border-top:1px solid #b7b7b7;
+    background:#dedede; align-items:center; padding:0 3px; position:relative;}
+  #win.cols #hscroll{display:flex;}
+  #hscroll .thumb{
+    position:absolute; left:190px; width:620px; height:13px; border-radius:7px;
+    background:linear-gradient(#d5dee9,#8fa0b6 55%,#61728f);
+    border:1px solid #5f7089; box-shadow:inset 0 1px 0 rgba(255,255,255,.7);
+  }
+  /* ---- status bar: divider 85, gradient 224 to 149, bottom border 71 ---- */
   #status{
     position:absolute; left:0; right:0; bottom:0; height:28px;
-    border-top:1px solid var(--status-ink);
-    background:linear-gradient(var(--status-hi), var(--status-lo));
+    border-top:1px solid var(--status-ink); border-bottom:1px solid #474747;
+    background:linear-gradient(var(--status-hi),var(--status-lo));
     display:flex; align-items:center; justify-content:center;
-    color:var(--status-ink); font-size:11px;
+    color:var(--status-ink); font-size:12px;
   }
-  #status .gear{position:absolute; right:9px; font-size:14px; color:#4f4f4f;}
-  #status .plus{position:absolute; left:9px; font-size:15px; color:#4f4f4f;}
+  .sbtn{
+    position:absolute; width:43px; height:17px; border:1px solid #767676; border-radius:3px;
+    background:linear-gradient(#fcfcfc,#b5b5b5); box-shadow:inset 0 1px 0 #fff;
+    display:flex; align-items:center; justify-content:center; color:#3c3c3c; font-size:12px;
+  }
+  #status .sbtn:nth-of-type(1){left:15px;} #status .sbtn:nth-of-type(2){left:62px;}
+  #status .sbtn:nth-of-type(3){left:109px;} #status .sbtn:nth-of-type(4){left:156px;}
+  #status .sbtn:nth-of-type(5){right:62px;} #status .sbtn:nth-of-type(6){right:15px;}
+  /* ---- dropdown menus ---- */
+  .dd{
+    position:absolute; top:44px; z-index:40; background:#fff; border:1px solid #000;
+    box-shadow:2px 3px 6px rgba(0,0,0,.35); padding:3px 0; display:none; min-width:172px;
+    width:max-content; font-size:12px;
+  }
+  #win.menuopen .dd{display:none;}
+  .dd.open{display:block;}
+  .dd .mi{height:18px; display:flex; align-items:center; padding:0 22px 0 12px; gap:6px; white-space:nowrap; color:#111;}
+  .dd .mi .sc{margin-left:auto; color:#111; font-size:11px;}
+  .dd .mi.dis{color:#9b9b9b;} .dd .mi.dis .sc{color:#bdbdbd;}
+  .dd .mi.hot{background:linear-gradient(var(--sel-hi),var(--sel-lo)); color:#fff;}
+  .dd .mi.hot .sc{color:#fff;}
+  .dd .mi .chk{width:12px; text-align:center; margin-left:-12px;}
+  .dd .mi .arr{margin-left:auto;}
+  .dd .sep2{height:7px; display:flex; align-items:center;}
+  .dd .sep2 i{display:block; height:1px; background:var(--hair); margin:0 8px; width:100%;}
+  /* ---- preferences dialog: 573 x 648, title 28, tabs y7..26, content y27..577, footer 42 ---- */
+  #prefs{
+    position:absolute; top:66px; left:300px; width:573px; height:648px; z-index:60; display:none;
+    background:var(--dlg-face); border:1px solid #535659; border-radius:6px 6px 0 0;
+    box-shadow:0 10px 30px rgba(0,0,0,.45); font-size:12px; color:#111;
+  }
+  #win.prefs #prefs{display:block;}
+  #prefs .bar2{height:28px; background:#292c30; border-radius:5px 5px 0 0; color:#e8e8e8;
+    display:flex; align-items:center; justify-content:center; font-size:13px;}
+  #prefs .bar2 .v{position:absolute; right:34px; color:#cfcfcf;} #prefs .bar2 .x{position:absolute; right:10px; color:#cfcfcf;}
+  #tabs{position:absolute; top:35px; left:15px; display:flex; align-items:flex-end; height:20px;}
+  #tabs .t{
+    height:19px; padding:0 9px 0; display:flex; align-items:center; background:#fff;
+    border:1px solid var(--dlg-line); border-bottom:0; font-size:11.5px; cursor:pointer;
+    position:relative; top:1px;
+  }
+  #tabs .t + .t{margin-left:-1px;}
+  #tabs .t.off{background:linear-gradient(#fbfbfb,#e9e9e9); height:17px;}
+  #tabs .t.on{border-bottom:1px solid #fff; height:20px; z-index:2;}
+  #pane{
+    position:absolute; top:35px; left:15px; right:14px; bottom:42px; background:#fff;
+    border:1px solid var(--dlg-line);
+  }
+  #ptabs{position:absolute; top:35px; left:16px; z-index:3;}   /* sits on #pane edge */
+  .page{position:absolute; top:37px; left:16px; right:15px; bottom:44px; display:none;}
+  .page.on{display:block;}
+  .hair{position:absolute; left:22px; right:14px; height:1px; background:var(--hair);}
+  .vdiv{position:absolute; width:1px; background:#bebebe;}
+  .labR{position:absolute; text-align:right; line-height:16px; font-size:11.5px;}
+  .combo{
+    position:absolute; height:18px; background:linear-gradient(#fdfdfd,#ececec); border:1px solid #8b8b8b;
+    border-radius:2px; display:flex; align-items:center; padding:0 5px; font-size:11px; color:#111;
+  }
+  .combo::after{content:"▾"; margin-left:auto; color:#555; font-size:9px;}
+  .cb{position:absolute; width:13px; height:13px; border:1px solid #7b7b7b; border-radius:2px; background:linear-gradient(#fff,#e9e9e9);
+    align-items:center; justify-content:center; color:#111; font-size:10px; display:flex;}
+  .cb.on{background:#fff;} .cb.on::after{content:"✓";}
+  .cbxlab{position:absolute; height:13px; display:flex; align-items:center; gap:6px; font-size:11.5px; white-space:nowrap;}
+  .cbxlab u{text-decoration:underline; text-underline-offset:2px;}
+  .helper{position:absolute; font-size:10.5px; color:#333;}
+  .field{position:absolute; height:20px; background:#fff; border:1px solid #989898; border-radius:2px;
+    display:flex; align-items:center; padding:0 5px; font-size:11px;}
+  .btn{
+    position:absolute; height:23px; border:1px solid #b9b9b9; border-radius:4px;
+    background:linear-gradient(#fff,#ededed); display:flex; align-items:center; justify-content:center;
+    font-size:11.5px; box-shadow:0 1px 1px rgba(0,0,0,.12);
+  }
+  .radio{position:absolute; width:12px; height:12px; border:1px solid #8a8a8a; border-radius:50%; background:radial-gradient(circle at 40% 35%, #fff, #dcdcdc);}
+  .radio.on::after{content:""; position:absolute; inset:2px; border-radius:50%; background:#2160a8;}
+  .slider{position:absolute; height:20px;}
+  .slider .tr{position:absolute; left:0; right:0; top:7px; height:5px; border-radius:2px; background:#8f8f8f; box-shadow:inset 0 1px 1px #5e5e5e;}
+  .slider .kd{position:absolute; top:1px; width:11px; height:15px; border-radius:3px;
+    background:linear-gradient(#fff,#cfcfcf); border:1px solid #767676;}
+  .slider .tk{position:absolute; top:13px; width:1px; height:4px; background:#8f8f8f;}
+  .slider .lo,.slider .hi{position:absolute; top:16px; font-size:10px; color:#333;}
+  .slider .mid{position:absolute; top:16px; left:50%; transform:translateX(-50%); font-size:10px; color:#333;}
+  #footer{
+    position:absolute; left:0; right:0; bottom:0; height:42px; background:var(--dlg-face);
+    border-radius:0 0 5px 5px;
+  }
+  #okb{right:97px; top:10px; width:75px; height:21px; border:2px solid #3796f6; border-radius:5px;
+    background:linear-gradient(#ffffff,#f4faff); box-shadow:0 0 0 1px #9cc4ee;}
+  #cancelb{right:14px; top:10px; width:76px; height:21px;}
+  /* advanced tab's inner tab control */
+  #advbox{position:absolute; top:49px; left:12px; right:12px; bottom:10px; border:1px solid #c9c9c9;
+    border-radius:3px; background:#fff;}
+  .itab{position:absolute; top:38px; height:19px; padding:0 10px; background:#fff; border:1px solid var(--dlg-line);
+    border-bottom:0; font-size:11px; display:flex; align-items:center; z-index:2;}
+  .itab.on{font-weight:400; height:20px; border-bottom:1px solid #fff;}
+  .itab .u{text-decoration:underline; text-underline-offset:2px;}
   /* ---- measurement overlay ---- */
   .ann{position:absolute; inset:0; pointer-events:none; display:none; z-index:9;}
   #win.measured .ann{display:block;}
   .ann .hline{position:absolute; left:0; right:0; height:0; border-top:1px dashed #e03030;}
   .ann .vline{position:absolute; top:0; bottom:0; width:0; border-left:1px dashed #e03030;}
-  .ann .tag{
-    position:absolute; background:#e03030; color:#fff; font:10px/1.35 ui-monospace,monospace;
-    padding:2px 5px; border-radius:3px; white-space:pre; box-shadow:0 1px 3px rgba(0,0,0,.35);
-  }
-  .ann .chip{position:absolute; width:10px; height:10px; border:1px solid #fff; box-shadow:0 0 0 1px #333; border-radius:2px;}
+  .ann .tag{position:absolute; background:#e03030; color:#fff; font:10px/1.35 ui-monospace,monospace;
+    padding:2px 5px; border-radius:3px; white-space:pre; box-shadow:0 1px 3px rgba(0,0,0,.35);}
+  .legend{padding:10px 14px 0; font:11px/1.5 system-ui,sans-serif; color:var(--muted-foreground,#666); max-width:1180px;}
 </style>
 </head>
 <body>
 <div class="bar">
-  <b>Reference UI — iTunes 7 (Wine), 1180×780</b>
+  <b>Reference UI — iTunes 7 (Wine)</b>
+  <button data-view="list" aria-pressed="true">List view</button>
+  <button data-view="cols" aria-pressed="false">Column browser</button>
+  <button data-view="np" aria-pressed="false">Now Playing</button>
+  <span style="width:12px"></span>
+  <button data-menu="file">File menu</button>
+  <button data-menu="edit">Edit</button>
+  <button data-menu="controls">Controls</button>
+  <button data-menu="advanced">Advanced</button>
+  <button data-menu="help">Help</button>
+  <span style="width:12px"></span>
+  <button id="prefbtn">Preferences…</button>
   <button id="toggle" aria-pressed="false">show measurements</button>
-  <span>every gradient and metric below was read off captures taken with <i>tools/reference/</i>; no Store, account or sign-in surface, no Apple mark.</span>
 </div>
 <div id="fit"><div id="scaler"><div id="win">
 
-  <div id="menu"><span>File</span><span>Edit</span><span>Controls</span><span>View</span><span>Advanced</span><span>Help</span></div>
+  <div id="title">iTunes<span class="x">✕</span></div>
+  <div id="menu">
+    <span class="m" data-dd="file">File</span><span class="m" data-dd="edit">Edit</span><span class="m" data-dd="controls">Controls</span><span class="m">View</span><span class="m" data-dd="advanced">Advanced</span><span class="m" data-dd="help">Help</span>
+  </div>
 
   <div id="toolbar">
     <div class="circles"><div class="cbtn">⏮</div><div class="cbtn play">▶</div><div class="cbtn">⏭</div></div>
-    <div id="vol">🔈<div class="track"><div class="knob"></div></div></div>
-    <div id="disc">
-      <div class="discpic"></div>
-      <div class="txt">now playing —<br><b style="color:#33381f">Nothing loaded</b></div>
+    <div id="vol">🔅<div class="track"><div class="knob"></div></div>🔊</div>
+    <div class="sep"></div>
+    <div id="disc"><div class="discpic"></div><span class="cap">the Apple mark is not reproduced — a plain disc stands in</span></div>
+    <div class="sep"></div>
+    <div id="rightgrp">
+      <div id="rightrow">
+        <div id="view"><div class="on">☰</div><div>☷</div><div>▦</div></div>
+        <div id="search">🔍<span>⌄</span></div>
+      </div>
+      <div id="caps"><span>View</span><span>Search</span></div>
     </div>
-    <div id="search">🔎 <span>Search</span></div>
   </div>
 
   <div id="darkrule"></div>
@@ -204,104 +378,412 @@
   <div id="body">
     <div id="side">
       <div class="heading">LIBRARY</div>
-      <div class="srow selected">
-        <span class="ico"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.4" fill="#2b62b8"/><path d="M5.2 9.6V4.8l4-.9v4.4" fill="none" stroke="#fff" stroke-width="1.1"/><circle cx="4.3" cy="9.7" r="1.2" fill="#fff"/><circle cx="8.3" cy="8.9" r="1.2" fill="#fff"/></svg></span>
-        <span class="lbl">Music</span>
-      </div>
-      <div class="srow hoversample">
-        <span class="ico"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.4" fill="#e6a832"/><path d="M4 8.6h6M4 5.4h6M6 3.6v6.8M9 3.6v6.8" stroke="#fff" stroke-width="1.2"/></svg></span>
-        <span class="lbl">hover sample</span>
-      </div>
-      <div class="heading" style="margin-top:6px"><span class="tri"></span>PLAYLISTS</div>
-      <div class="placeholder">None yet</div>
+      <div class="srow selected"><span class="ico"><svg width="15" height="15" viewBox="0 0 15 15"><circle cx="7.5" cy="7.5" r="6.6" fill="#3b7cd2" stroke="#1d4f92"/><path d="M5.6 10.4V5l4.2-1v5" fill="none" stroke="#fff" stroke-width="1.2"/><circle cx="4.6" cy="10.5" r="1.4" fill="#fff"/><circle cx="8.8" cy="9.7" r="1.4" fill="#fff"/></svg></span><span class="lbl">Music</span></div>
+      <div class="srow"><span class="ico"><svg width="15" height="15" viewBox="0 0 15 15"><rect x="1.5" y="3" width="12" height="9" rx="1" fill="#4a5c78"/><rect x="3" y="4.5" width="9" height="6" fill="#cfe0f5"/></svg></span><span class="lbl">Movies</span></div>
+      <div class="srow"><span class="ico"><svg width="15" height="15" viewBox="0 0 15 15"><rect x="1.5" y="4" width="12" height="8" rx="1" fill="#2f6db4"/><rect x="3" y="5.5" width="9" height="5" fill="#d7e8fa"/><path d="M6 2.5h3" stroke="#2f6db4" stroke-width="1.4"/></svg></span><span class="lbl">TV Shows</span></div>
+      <div class="srow"><span class="ico"><svg width="15" height="15" viewBox="0 0 15 15"><circle cx="7.5" cy="5" r="2.6" fill="#8f4fc0"/><path d="M7.5 7.6v3M5 12.5h5" stroke="#8f4fc0" stroke-width="1.4"/></svg></span><span class="lbl">Podcasts</span></div>
+      <div class="srow"><span class="ico"><svg width="15" height="15" viewBox="0 0 15 15"><path d="M7.5 8.5V13M4 13h7" stroke="#555" stroke-width="1.2"/><path d="M4.5 6.5a4.2 4.2 0 0 1 6 0" fill="none" stroke="#555" stroke-width="1.2"/><path d="M2.8 4.4a6.6 6.6 0 0 1 9.4 0" fill="none" stroke="#555" stroke-width="1.2"/></svg></span><span class="lbl">Radio</span></div>
+      <div class="heading" style="margin-top:6px"><span style="font-size:9px">▾</span>PLAYLISTS</div>
+      <div class="srow"><span class="ico"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6.3" fill="#d9c48a" stroke="#9a8350"/><circle cx="7" cy="7" r="1.8" fill="#fff"/><path d="M6 4.2 9 3l-.4 2.6" fill="#5a4a22"/></svg></span><span class="lbl">Party Shuffle</span></div>
+      <div class="srow"><span class="ico"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" rx="1.5" fill="#eef3fa" stroke="#8aa0bf"/><path d="M3.5 4.5h7M3.5 7h7M3.5 9.5h5" stroke="#5b7186" stroke-width="1.1"/></svg></span><span class="lbl">90's Music</span></div>
+      <div class="srow"><span class="ico"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" rx="1.5" fill="#eef3fa" stroke="#8aa0bf"/><rect x="3" y="4" width="8" height="6" fill="#3d6fae"/></svg></span><span class="lbl">Music Videos</span></div>
+      <div class="srow"><span class="ico"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" rx="1.5" fill="#eef3fa" stroke="#8aa0bf"/><path d="M7 3.2l1.2 2.4 2.6.4-1.9 1.8.5 2.6L7 9l-2.4 1.4.5-2.6L3.2 6l2.6-.4z" fill="#d7a53b"/></svg></span><span class="lbl">My Top Rated</span></div>
+      <div class="srow"><span class="ico"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" rx="1.5" fill="#eef3fa" stroke="#8aa0bf"/><path d="M7 3.5V7l2.4 1.4" stroke="#3f6ea8" stroke-width="1.2" fill="none"/><circle cx="7" cy="7" r="4" fill="none" stroke="#3f6ea8"/></svg></span><span class="lbl">Recently Added</span></div>
+      <div class="srow"><span class="ico"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" rx="1.5" fill="#eef3fa" stroke="#8aa0bf"/><path d="M6 4v6l4.5-3z" fill="#3f6ea8"/></svg></span><span class="lbl">Recently Played</span></div>
+      <div class="srow"><span class="ico"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" rx="1.5" fill="#eef3fa" stroke="#8aa0bf"/><path d="M4.5 9.5V5h2l1 4.5" stroke="#3f6ea8" stroke-width="1.2" fill="none"/></svg></span><span class="lbl">Top 25 Most Played</span></div>
+    </div>
+
+    <div id="cover">
+      <div class="art"><svg width="44" height="44" viewBox="0 0 44 44" opacity=".85"><path d="M16 31V12l14-3v17" fill="none" stroke="#8ba0b8" stroke-width="3"/><ellipse cx="13" cy="31" rx="4.6" ry="3.8" fill="#8ba0b8"/><ellipse cx="27" cy="28" rx="4.6" ry="3.8" fill="#8ba0b8"/></svg></div>
+      <div class="ttl">A Rush of Blood to the Head</div>
+      <div class="art2">Coldplay</div>
+      <div class="stars">★★★★★</div>
     </div>
 
     <div id="table">
-      <div id="thead">
-        <div class="c" style="width:34px">#</div>
-        <div class="c sorted" style="width:300px; flex:none">Title</div>
-        <div class="c" style="width:120px; flex:none">Artist</div>
-        <div class="c" style="width:170px; flex:none">Album</div>
-        <div class="c" style="width:80px; flex:none">Genre</div>
-        <div class="c" style="width:56px; flex:none; text-align:right">Time</div>
-        <div class="c n" style="width:46px; flex:none">Plays</div>
-      </div>
+      <div id="thead"></div>
       <div id="tbody"></div>
+      <div id="hscroll"><div class="thumb"></div></div>
     </div>
   </div>
 
-  <div id="status"><span class="plus">＋</span>57 songs, 5 albums<span class="gear">⚙</span></div>
+  <div id="np">
+    <div class="art"><svg width="170" height="170" viewBox="0 0 44 44"><path d="M16 31V12l14-3v17" fill="none" stroke="#93a2b6" stroke-width="2.6"/><ellipse cx="12.8" cy="31" rx="4.8" ry="4" fill="#93a2b6"/><ellipse cx="26.8" cy="28" rx="4.8" ry="4" fill="#93a2b6"/></svg></div>
+    <div class="ttl">A Rush of Blood to the Head</div>
+    <div class="art2">Coldplay</div>
+    <div class="grip">≡</div>
+    <div class="expand">⤢</div>
+  </div>
+
+  <div id="status">
+    <div class="sbtn">＋</div><div class="sbtn">⤨</div><div class="sbtn">⟳</div><div class="sbtn">☼</div>
+    11 songs, 54.1 minutes, 76.9 MB
+    <div class="sbtn">◉</div><div class="sbtn">▲</div>
+  </div>
+
+  <!-- menus: exactly the items the captures show, minus the Store/account/device
+       affordances the project rule excludes; grey = disabled in the capture -->
+  <div class="dd" id="dd-file" style="left:2px; top:45px; min-width:216px">
+    <div class="mi hot">New Playlist <span class="sc">Ctrl+N</span></div>
+    <div class="mi dis">New Playlist from Selection</div>
+    <div class="mi">New Smart Playlist… <span class="sc">Ctrl+Alt+N</span></div>
+    <div class="mi">New Folder <span class="sc">Ctrl+Shift+N</span></div>
+    <div class="sep2"><i></i></div>
+    <div class="mi">Add File to Library… <span class="sc">Ctrl+O</span></div>
+    <div class="mi">Add Folder to Library…</div>
+    <div class="mi">Close Window <span class="sc">Ctrl+W</span></div>
+    <div class="sep2"><i></i></div>
+    <div class="mi">Import… <span class="sc">Ctrl+Shift+O</span></div>
+    <div class="mi">Export…</div>
+    <div class="mi">Export Library…</div>
+    <div class="mi">Back_Up to Disc…</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Get Info <span class="sc">Ctrl+I</span></div>
+    <div class="mi dis">Rating <span class="arr">▸</span></div>
+    <div class="mi dis">Edit Smart Playlist</div>
+    <div class="mi">Show in Windows Explorer <span class="sc">Ctrl+R</span></div>
+    <div class="mi">Show Current Song</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Burn Playlist to Disc</div>
+    <div class="mi dis">Create an iMix…</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Page Setup…</div>
+    <div class="mi">Print… <span class="sc">Ctrl+P</span></div>
+    <div class="sep2"><i></i></div>
+    <div class="mi">Exit</div>
+  </div>
+  <div class="dd" id="dd-edit" style="left:35px; top:45px; min-width:172px">
+    <div class="mi dis">Undo <span class="sc">Ctrl+Z</span></div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Cut <span class="sc">Ctrl+X</span></div>
+    <div class="mi dis">Copy <span class="sc">Ctrl+C</span></div>
+    <div class="mi dis">Paste <span class="sc">Ctrl+V</span></div>
+    <div class="mi dis">Delete</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi">Select All <span class="sc">Ctrl+A</span></div>
+    <div class="mi dis">Select None <span class="sc">Ctrl+Shift+A</span></div>
+    <div class="sep2"><i></i></div>
+    <div class="mi">Preferences… <span class="sc">Ctrl+,</span></div>
+  </div>
+  <div class="dd" id="dd-controls" style="left:97px; top:45px; min-width:232px">
+    <div class="mi">Play <span class="sc">Space</span></div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Next <span class="sc">Ctrl+Right</span></div>
+    <div class="mi dis">Previous <span class="sc">Ctrl+Left</span></div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Next Chapter <span class="sc">Ctrl+Shift+Right</span></div>
+    <div class="mi dis">Previous Chapter <span class="sc">Ctrl+Shift+Left</span></div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Shuffle</div>
+    <div class="mi"><span class="chk">✓</span>Repeat Off</div>
+    <div class="mi">Repeat All</div>
+    <div class="mi">Repeat One</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Volume Up <span class="sc">Ctrl+Up</span></div>
+    <div class="mi dis">Volume Down <span class="sc">Ctrl+Down</span></div>
+    <div class="mi dis">Mute <span class="sc">Ctrl+Alt+Down</span></div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Eject Disc <span class="sc">Ctrl+E</span></div>
+  </div>
+  <div class="dd" id="dd-advanced" style="left:186px; top:45px; min-width:222px">
+    <div class="mi">Switch to Mini Player <span class="sc">Ctrl+M</span></div>
+    <div class="mi">Open Stream… <span class="sc">Ctrl+U</span></div>
+    <div class="mi">Subscribe to Podcast…</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Convert Selection to AAC</div>
+    <div class="mi dis">Convert ID3 Tags…</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi">Consolidate Library…</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi">Get Album Artwork</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Get CD Track Names</div>
+    <div class="mi dis">Submit CD Track Names</div>
+    <div class="mi dis">Join CD Tracks</div>
+  </div>
+  <div class="dd" id="dd-help" style="left:237px; top:45px; min-width:200px">
+    <div class="mi">iTunes Help</div>
+    <div class="mi">Keyboard Shortcuts</div>
+    <div class="mi">iTunes Hot Tips</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">iPod Help</div>
+    <div class="mi dis">iPhone Help</div>
+    <div class="mi dis">Apple TV Help</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Apple Service and Support</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi dis">Provide iTunes Feedback</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi">Check for Updates</div>
+    <div class="mi dis">Run Diagnostics…</div>
+    <div class="sep2"><i></i></div>
+    <div class="mi">About iTunes</div>
+  </div>
+
+  <!-- preferences: 573x648; tabs 56/56/58/53/65/97/58/48 px; content inset 15px;
+       hairlines at content y 170/326/368/419; footer 42px with OK (blue ring) + Cancel -->
+  <div id="prefs">
+    <div class="bar2">iTunes<span class="v">⌄</span><span class="x">✕</span></div>
+    <div id="tabs">
+      <div class="t on" data-page="general">General</div>
+      <div class="t off" data-page="podcasts">Podcasts</div>
+      <div class="t off" data-page="playback">Playback</div>
+      <div class="t off">Sharing</div>
+      <div class="t off" data-page="advanced">Advanced</div>
+      <div class="t off">Parental Control</div>
+      <div class="t off">Apple TV</div>
+      <div class="t off">iPhone</div>
+    </div>
+    <div id="pane"></div>
+
+    <div class="page on" id="page-general">
+      <div class="labR" style="left:60px;  top:22px; width:146px">So<u>urce Text:</u></div>
+      <div class="combo" style="left:216px; top:21px; width:62px" >Small</div>
+      <div class="labR" style="left:330px; top:22px; width:74px"><u>S</u>ong Text:</div>
+      <div class="combo" style="left:410px; top:21px; width:78px" >Small</div>
+      <div class="labR" style="left:104px; top:46px; width:102px"><u>Sh</u>ow:</div>
+      <div class="cb on" style="left:146px; top:61px"></div><div class="cbxlab" style="left:166px; top:60px"><u>M</u>ovies</div>
+      <div class="cb on" style="left:282px; top:61px"></div><div class="cbxlab" style="left:302px; top:60px"><u>R</u>adio</div>
+      <div class="cb on" style="left:146px; top:87px"></div><div class="cbxlab" style="left:166px; top:86px"><u>T</u>V Shows</div>
+      <div class="cb on" style="left:282px; top:87px"></div><div class="cbxlab" style="left:302px; top:86px"><u>P</u>arty Shuffle</div>
+      <div class="cb on" style="left:146px; top:113px"></div><div class="cbxlab" style="left:166px; top:112px">Podcasts</div>
+      <div class="cb"    style="left:146px; top:139px"></div><div class="cbxlab" style="left:166px; top:138px"><u>A</u>udiobooks</div>
+      <div class="cb"    style="left:146px; top:165px"></div><div class="cbxlab" style="left:166px; top:164px">iPod Games</div>
+      <div class="vdiv"  style="left:267px; top:58px; height:92px"></div>
+      <div class="hair"  style="top:170px"></div>
+      <div class="cb on" style="left:146px; top:192px"></div><div class="cbxlab" style="left:166px; top:191px">Sh<u>o</u>w genre when browsing</div>
+      <div class="cb"    style="left:146px; top:214px"></div><div class="cbxlab" style="left:166px; top:213px"><u>G</u>roup compilations when browsing</div>
+      <div class="cb on" style="left:146px; top:236px"></div><div class="cbxlab" style="left:166px; top:235px">Show links <span style="border:1px solid #888; border-radius:50%; font-size:8px; padding:0 2px">?</span> to the iTunes Store</div>
+      <div class="cb on" style="left:146px; top:258px"></div><div class="cbxlab" style="left:166px; top:257px">Show content ratings in library</div>
+      <div class="cb"    style="left:146px; top:280px"></div><div class="cbxlab" style="left:166px; top:279px">Auto<u>m</u>atically download missing album artwork</div>
+      <div class="cb on" style="left:146px; top:303px"></div><div class="cbxlab" style="left:166px; top:302px">Remember view setting for each source</div>
+      <div class="hair"  style="top:326px"></div>
+      <div class="cb on" style="left:146px; top:342px"></div><div class="cbxlab" style="left:166px; top:341px">Chec<u>k</u> for updates automatically</div>
+      <div class="hair"  style="top:368px"></div>
+      <div class="labR"  style="left:44px; top:389px; width:100px"><u>Sh</u>ared Name:</div>
+      <div class="field" style="left:152px; top:383px; width:286px">google's Library</div>
+      <div class="hair"  style="top:419px"></div>
+      <div class="labR"  style="left:94px; top:441px; width:52px"><u>L</u>anguage:</div>
+      <div class="combo" style="left:152px; top:437px; width:184px" >English (United States)</div>
+    </div>
+
+    <div class="page" id="page-podcasts">
+      <div class="labR" style="left:88px; top:28px; width:128px">Check f<u>o</u>r new episodes:</div>
+      <div class="combo" style="left:228px; top:24px; width:176px" >Every day</div>
+      <div class="helper" style="left:228px; top:46px">Next check: Tomorrow, 11:00 am</div>
+      <div class="labR" style="left:10px; top:76px; width:206px"><u>When</u> new episodes are available:</div>
+      <div class="combo" style="left:228px; top:72px; width:176px" >Download the most recent one</div>
+      <div class="labR" style="left:160px; top:104px; width:56px"><u>Ke</u>ep:</div>
+      <div class="combo" style="left:228px; top:100px; width:176px" >All episodes</div>
+    </div>
+
+    <div class="page" id="page-playback">
+      <div class="cb"    style="left:96px;  top:24px"></div><div class="cbxlab" style="left:116px; top:23px">Cro<u>s</u>sfade playback:</div>
+      <div class="slider" style="left:204px; top:18px; width:356px"><div class="tr"></div><div class="kd" style="left:126px"></div>
+        <div class="tk" style="left:0"></div><div class="tk" style="left:89px"></div><div class="tk" style="left:178px"></div><div class="tk" style="left:267px"></div><div class="tk" style="left:355px"></div>
+        <div class="lo">1</div><div class="mid">seconds</div><div class="hi" style="right:0">12</div></div>
+      <div class="cb"    style="left:96px;  top:66px"></div><div class="cbxlab" style="left:116px; top:65px">Sound <u>E</u>nhancer:</div>
+      <div class="slider" style="left:204px; top:60px; width:356px"><div class="tr"></div><div class="kd" style="left:182px"></div>
+        <div class="lo">low</div><div class="hi" style="right:0">high</div></div>
+      <div class="cb"    style="left:96px;  top:112px"></div><div class="cbxlab" style="left:116px; top:111px">Sound Chec<u>k</u>:</div>
+      <div class="helper" style="left:116px; top:130px; width:420px">Automatically adjusts song playback volume to the same level.</div>
+      <div class="hair"  style="top:150px"></div>
+      <div class="cb on" style="left:96px;  top:166px"></div><div class="cbxlab" style="left:116px; top:165px">Play mov<u>i</u>es and TV</div>
+      <div class="combo" style="left:272px; top:162px; width:158px" >in the iTunes window</div>
+      <div class="cb on" style="left:96px;  top:192px"></div><div class="cbxlab" style="left:116px; top:191px">Play mus<u>i</u>c</div>
+      <div class="combo" style="left:272px; top:188px; width:158px" >in the iTunes window</div>
+      <div class="cb"    style="left:96px;  top:218px"></div><div class="cbxlab" style="left:116px; top:217px">Keep <u>m</u>ovie window on top of all other windows</div>
+      <div class="cb"    style="left:96px;  top:241px"></div><div class="cbxlab" style="left:116px; top:240px">Show clos<u>e</u>d captioning when available</div>
+      <div class="hair"  style="top:262px"></div>
+      <div class="labR"  style="left:6px;   top:286px; width:186px"><u>Smart</u> Shuffle:</div>
+      <div class="slider" style="left:204px; top:280px; width:356px"><div class="tr"></div><div class="kd" style="left:182px"></div>
+        <div class="lo">more</div><div class="mid">random</div><div class="hi" style="right:0">less</div></div>
+      <div class="helper" style="left:160px; top:316px; width:400px">Drag the slider to change the likelihood of hearing sequential songs by the<br>same artist or from the same album (when shuffle is on).</div>
+      <div class="labR"  style="left:52px;  top:354px; width:90px"><u>Sh</u>uffle:</div>
+      <div class="radio on" style="left:160px; top:353px"></div><div class="cbxlab" style="left:178px; top:352px">So<u>n</u>gs</div>
+      <div class="radio"    style="left:262px; top:353px"></div><div class="cbxlab" style="left:280px; top:352px">Al<u>b</u>ums</div>
+      <div class="radio"    style="left:360px; top:353px"></div><div class="cbxlab" style="left:378px; top:352px">Grou<u>p</u>ings</div>
+    </div>
+
+    <div class="page" id="page-advanced">
+      <div class="itab on" style="left:20px"><span class="u">G</span>eneral</div>
+      <div class="itab"    style="left:86px"><span class="u">I</span>mporting</div>
+      <div class="itab"    style="left:156px"><span class="u">B</span>urning</div>
+      <div id="advbox">
+        <div class="labR"  style="left:20px; top:14px; width:480px; text-align:left">iTunes Music folder loca<u>t</u>ion</div>
+        <div class="field" style="left:20px; top:32px; width:466px; height:32px">C:\users\google\Music\iTunes\iTunes Music</div>
+        <div class="btn"   style="left:500px; top:32px; width:74px; height:23px">Ch<u>a</u>nge…</div>
+        <div class="btn"   style="left:500px; top:62px; width:74px; height:23px"><u>R</u>eset</div>
+        <div class="cb"    style="left:20px; top:106px"></div><div class="cbxlab" style="left:40px; top:105px">Keep <u>i</u>Tunes Music folder organized</div>
+        <div class="helper" style="left:40px; top:123px; width:500px">Places files into album and artist folders, and names the files based on<br>the disc number, track number, and the song title.</div>
+        <div class="cb"    style="left:20px; top:158px"></div><div class="cbxlab" style="left:40px; top:157px">Copy files to iTunes Music folder when adding to</div>
+        <div class="hair"  style="top:182px"></div>
+        <div class="cb on" style="left:20px; top:196px"></div><div class="cbxlab" style="left:40px; top:195px">Use iT<u>u</u>nes as the default player for audio files</div>
+        <div class="labR"  style="left:20px; top:222px; width:110px; text-align:left">Streaming B<u>u</u>ffer:</div>
+        <div class="combo" style="left:140px; top:218px; width:112px" >Medium</div>
+        <div class="cb on" style="left:20px; top:252px"></div><div class="cbxlab" style="left:40px; top:251px">Look for remote speakers connected with AirTunes</div>
+        <div class="cb"    style="left:40px; top:276px"></div><div class="cbxlab" style="left:60px; top:275px">Disable iT<u>u</u>nes volume control for remote speakers</div>
+        <div class="cb"    style="left:40px; top:299px"></div><div class="cbxlab" style="left:60px; top:298px">Allow iTunes control from remote speakers</div>
+        <div class="hair"  style="top:322px"></div>
+        <div class="cb"    style="left:20px; top:340px"></div><div class="cbxlab" style="left:40px; top:339px">Keep MiniPlayer on top of all other</div>
+        <div class="cb on" style="left:20px; top:364px"></div><div class="cbxlab" style="left:40px; top:363px">Show iTunes icon in system</div>
+        <div class="cb"    style="left:40px; top:387px"></div><div class="cbxlab" style="left:60px; top:386px">Mini<u>m</u>ize iTunes window to system</div>
+        <div class="hair"  style="top:410px"></div>
+        <div class="labR"  style="left:20px; top:434px; width:70px; text-align:left">Visualiz<u>e</u>r:</div>
+        <div class="combo" style="left:98px; top:430px; width:74px" >Large</div>
+        <div class="cb"    style="left:20px; top:462px"></div><div class="cbxlab" style="left:40px; top:461px">Display visualizer full screen</div>
+      </div>
+    </div>
+
+    <div id="footer">
+      <div class="btn" id="okb">OK</div>
+      <div class="btn" id="cancelb">Cancel</div>
+    </div>
+  </div>
 
   <div class="ann">
-    <div class="hline" style="top:21px"></div><div class="tag" style="top:23px; right:8px">menu band y0..21 · gradient 226→189</div>
-    <div class="hline" style="top:76px"></div><div class="tag" style="top:60px; right:8px">dark rule y76 · rgb(64,64,64)</div>
-    <div class="hline" style="top:87px"></div><div class="tag" style="top:89px; right:8px">toolbar strip y77..86 · 219→197</div>
-    <div class="vline" style="left:202px"></div><div class="tag" style="top:330px; left:10px">sidebar 203px incl. rule · fill rgb(209,215,226) · rule x201.5</div>
-    <div class="hline" style="top:127px"></div><div class="tag" style="top:112px; left:212px">header band · 219→187 · border (85,85,85)</div>
-    <div class="tag" style="top:150px; left:212px">row 17px · stripes #fff / rgb(241,245,250)<br>selected row flat #eff2f5</div>
-    <div class="tag" style="top:410px; left:6px">row 20px · label x44 · icon col 28<br>selection 161,176,207→113,133,171<br>seat line (145,160,192) · hover 222,229,243→181,195,222</div>
-    <div class="chip" style="top:415px; left:150px; background:#a1b0cf"></div>
-    <div class="chip" style="top:432px; left:150px; background:#7185ab"></div>
-    <div class="chip" style="top:198px; left:150px; background:#eff2f5"></div>
-    <div class="hline" style="top:752px"></div><div class="tag" style="top:726px; right:8px">status 28px · gradient 224→150 · divider (85,85,85) · text (85,85,85)</div>
-    <div class="chip" style="top:760px; left:150px; background:linear-gradient(rgb(224,224,224),rgb(150,150,150))"></div>
+    <div class="hline" style="top:44px"></div><div class="tag" style="top:46px; right:8px">menu band y0..16 · gradient 226→190</div>
+    <div class="hline" style="top:104px"></div><div class="tag" style="top:88px; right:8px">dark rule y76 · rgb(64,64,64) · disc panel border (86,88,76)</div>
+    <div class="hline" style="top:116px"></div><div class="tag" style="top:118px; right:8px">header band y86..102 · 219→187 · border (85,85,85)</div>
+    <div class="vline" style="left:204px"></div><div class="tag" style="top:330px; left:8px">sidebar 204px incl. rule · fill rgb(209,215,226)</div>
+    <div class="tag" style="top:150px; left:212px">row 17px · stripes #fff / rgb(241,245,250) · col dividers (217,217,217)<br>sorted column: blue header chip + body wash</div>
+    <div class="tag" style="top:118px; left:206px"></div>
+    <div class="tag" style="top:132px; left:8px">sidebar rows 20px · selection (93,148,214)→(28,88,174)</div>
+    <div class="hline" style="top:780px"></div><div class="tag" style="top:756px; right:8px">status 28px · divider (85,85,85) · gradient 224→149 · bottom border (71,71,71)</div>
+    <div class="tag" style="top:700px; left:310px">prefs: 573×648 · title 28 · tabs y7..26 (56/56/58/53/65/97/58/48)<br>content inset 15 · hairlines y170/326/368/419 · footer 42 · OK+Cancel right</div>
   </div>
 
 </div></div></div>
+
+<div class="legend">
+  Measured from the owner's PrtSc captures of iTunes 7 under Wine
+  (<code>~/Pictures/Screenshots/Screenshot_20261021_11*.png</code>, read with PIL):
+  list view, column browser, now playing, the five menus and the Preferences dialog.
+  Store / account / sign-in affordances and the Apple mark are excluded by project rule.
+  Click <b>Preferences…</b> for the dialog, the menu buttons to pin a dropdown, and
+  <b>show measurements</b> for the ruler.
+</div>
+
 <script>
-  const rows = [
-    ["42","Viva La Vida or Death and His Friends","Rock","3:57"],
-    ["Amsterdam","A Rush of Blood to the Hill","Rock","5:19"],
-    ["Amsterdam (Live in Sydney)","Live 2003","Rock","5:20"],
-    ["Cemeteries of London","Viva La Vida or Death and His Friends","Rock","3:21"],
-    ["Charlie Brown","Mylo Xyloto","Rock","4:45"],
-    ["Clocks","A Rush of Blood to the Hill","Rock","5:07"],
-    ["Clocks (Live in Sydney)","Live 2003","Rock","5:32"],
-    ["Daylight","A Rush of Blood to the Hill","Rock","5:27"],
-    ["Death and All His Friends","Viva La Vida or Death and His Friends","Rock","6:18"],
-    ["Don't Let It Break Your Heart","Mylo Xyloto","Rock","3:54"],
-    ["Don't Panic","Parachutes","Rock","2:16"],
-    ["Every Teardrop Is a Waterfall","Mylo Xyloto","Rock","4:00"],
-    ["Everything's Not Lost (Includes Hidden Track 'Life Is…","Parachutes","Rock","7:16"],
-    ["Everything's Not Lost (Live in Sydney)","Live 2003","Rock","8:47"],
-    ["God Put a Smile upon Your Face","A Rush of Blood to the Hill","Rock","4:57"],
-    ["God Put a Smile upon Your Face (Live in Sydney)","Live 2003","Rock","4:56"],
-    ["Green Eyes","A Rush of Blood to the Hill","Rock","3:43"],
-    ["High Speed","Parachutes","Rock","4:16"],
-    ["A Hopeful Transmission","Mylo Xyloto","Rock","0:33"],
-    ["Hurts Like Heaven","Mylo Xyloto","Rock","4:02"],
+  const win = document.getElementById("win");
+  const COLS = [
+    ["num","#",30],["name","Name",226],["time","Time",51],["artist","Artist",152],
+    ["album","Album",184],["genre","Genre",64],["rating","Rating",105],
+    ["play","Play Count",91],["last","Last Played",78],
   ];
-  const tb = document.getElementById("tbody");
-  rows.forEach((r, i) => {
-    const el = document.createElement("div");
-    el.className = "trow" + (i === 0 ? " sel" : "");
-    el.innerHTML =
-      '<div class="c n" style="width:34px; flex:none">' + (i + 1) + '</div>' +
-      '<div class="c" style="width:300px; flex:none"><span class="v">' + r[0] + '</span></div>' +
-      '<div class="c" style="width:120px; flex:none"><span class="v">Coldplay</span></div>' +
-      '<div class="c" style="width:170px; flex:none"><span class="v">' + r[1] + '</span></div>' +
-      '<div class="c" style="width:80px; flex:none"><span class="v">' + r[2] + '</span></div>' +
-      '<div class="c" style="width:56px; flex:none; text-align:right">' + r[3] + '</div>' +
-      '<div class="c n" style="width:46px; flex:none">0</div>';
-    tb.appendChild(el);
+  const ROWS = [
+    ["Politik","5:19"],["In My Place","3:47"],["God Put a Smile upon Your Face","4:57"],
+    ["The Scientist","5:10"],["Clocks","5:08"],["Daylight","5:28"],["Green Eyes","3:43"],
+    ["Warning Sign","5:31"],["A Whisper","3:58"],["A Rush of Blood to the Head","5:51"],
+    ["Amsterdam","5:19"],
+  ];
+  function cellCls(k){ return "c" + (k==="num" ? " num" : ""); }
+  function buildHead(showNum){
+    const h = document.getElementById("thead");
+    h.innerHTML = "";
+    for (const [k,label,w] of COLS){
+      if (k==="num" && !showNum) continue;
+      const d = document.createElement("div");
+      d.className = "hcell" + (k==="artist" ? " sorted" : "");
+      d.style.width = w + "px";
+      if (k==="name") d.innerHTML = '<span class="cbx on" style="margin-right:5px"></span><span>Name</span>';
+      else d.innerHTML = "<span>" + label + "</span>" + (k==="artist" ? '<span class="caret">▲</span>' : "");
+      h.appendChild(d);
+    }
+  }
+  function buildBody(showNum){
+    const b = document.getElementById("tbody");
+    b.innerHTML = "";
+    // the sorted-column wash and column dividers live in the empty body area
+    const x = (k) => COLS.slice(0, COLS.findIndex(c=>c[0]===k)).reduce((s,c)=> s + ((c[0]==="num"&&!showNum)?0:c[2]), 0);
+    const wash = document.createElement("div"); wash.className="wash";
+    wash.style.left = x("artist") + "px"; wash.style.width = "152px";
+    b.appendChild(wash);
+    for (const [k] of COLS){
+      if (k==="num" && !showNum) continue;
+      if (k===COLS[COLS.length-1][0]) continue;
+      const dv = document.createElement("div"); dv.className="coldiv"; dv.style.left = (x(k)+COLS[COLS.findIndex(c=>c[0]===k)][2]) + "px";
+      b.appendChild(dv);
+    }
+    ROWS.forEach((r,i)=>{
+      const el = document.createElement("div");
+      el.className = "trow";
+      let html = "";
+      if (showNum) html += `<div class="c num" style="width:30px">${i+1}</div>`;
+      html += `<div class="c" style="width:226px"><span class="cbx on" style="vertical-align:-2px"></span> ${r[0]}</div>`;
+      html += `<div class="c" style="width:51px">${r[1]}</div>`;
+      html += `<div class="c" style="width:152px">Coldplay</div>`;
+      html += `<div class="c" style="width:184px">A Rush of Blood to t…</div>`;
+      html += `<div class="c" style="width:64px">Rock</div>`;
+      html += `<div class="c" style="width:105px"></div>`;
+      html += `<div class="c" style="width:91px"></div>`;
+      html += `<div class="c" style="width:78px"></div>`;
+      el.innerHTML = html;
+      b.appendChild(el);
+    });
+  }
+  function setView(v){
+    win.classList.toggle("cols", v==="cols");
+    win.classList.toggle("np",   v==="np");
+    buildHead(v==="cols"); buildBody(v==="cols");
+    document.getElementById("view").children[0].classList.toggle("on", v==="list");
+    document.getElementById("view").children[1].classList.toggle("on", v==="cols");
+    document.getElementById("view").children[2].classList.toggle("on", v==="np");
+    document.querySelectorAll("[data-view]").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.view===v)));
+  }
+  document.querySelectorAll("[data-view]").forEach(b=> b.addEventListener("click", ()=> setView(b.dataset.view)));
+  setView("list");
+
+  function closeMenus(){
+    document.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
+    document.querySelectorAll("#menu .m").forEach(m=>m.removeAttribute("aria-expanded"));
+    document.querySelectorAll("[data-menu]").forEach(b=>b.setAttribute("aria-pressed","false"));
+  }
+  function openMenu(name){
+    const dd = document.getElementById("dd-"+name);
+    const isOpen = dd.classList.contains("open");
+    closeMenus();
+    if (!isOpen){
+      dd.classList.add("open");
+      const lbl = document.querySelector('#menu .m[data-dd="'+name+'"]');
+      if (lbl) lbl.setAttribute("aria-expanded","true");
+      const btn = document.querySelector('[data-menu="'+name+'"]');
+      if (btn) btn.setAttribute("aria-pressed","true");
+    }
+  }
+  document.querySelectorAll("[data-menu]").forEach(b=> b.addEventListener("click", ()=>openMenu(b.dataset.menu)));
+  document.querySelectorAll("#menu .m[data-dd]").forEach(m=> m.addEventListener("click", ()=>openMenu(m.dataset.dd)));
+
+  const prefbtn = document.getElementById("prefbtn");
+  prefbtn.addEventListener("click", ()=>{
+    const on = !win.classList.contains("prefs");
+    win.classList.toggle("prefs", on);
+    prefbtn.setAttribute("aria-pressed", String(on));
+    closeMenus();
+  });
+  document.querySelectorAll("#tabs .t[data-page]").forEach(t=> t.addEventListener("click", ()=>{
+    document.querySelectorAll("#tabs .t").forEach(x=>x.classList.add("off"));
+    t.classList.remove("off"); t.classList.add("on");
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("on"));
+    document.getElementById("page-"+t.dataset.page).classList.add("on");
+  }));
+  document.getElementById("cancelb").addEventListener("click", ()=>{ win.classList.remove("prefs"); prefbtn.setAttribute("aria-pressed","false"); });
+
+  const t = document.getElementById("toggle");
+  t.addEventListener("click", ()=>{
+    const on = t.getAttribute("aria-pressed") !== "true";
+    t.setAttribute("aria-pressed", String(on));
+    t.textContent = on ? "hide measurements" : "show measurements";
+    win.classList.toggle("measured", on);
   });
 
   function fit(){
     const w = document.getElementById("fit").clientWidth;
     const s = Math.min(1, w / 1180);
-    const sc = document.getElementById("scaler");
-    sc.style.transform = "scale(" + s + ")";
-    document.getElementById("fit").style.height = Math.ceil(780 * s + 4) + "px";
+    document.getElementById("scaler").style.transform = "scale(" + s + ")";
+    document.getElementById("fit").style.height = Math.ceil(808 * s + 4) + "px";
   }
   addEventListener("resize", fit); fit();
-
-  const t = document.getElementById("toggle");
-  t.addEventListener("click", () => {
-    const on = t.getAttribute("aria-pressed") !== "true";
-    t.setAttribute("aria-pressed", String(on));
-    t.textContent = on ? "hide measurements" : "show measurements";
-    document.getElementById("win").classList.toggle("measured", on);
-  });
 </script>
 </body>
 </html>
