@@ -1,116 +1,42 @@
 # iCraftMusic
 
 [![CI](https://github.com/cmspeedau/iCraftMusic/actions/workflows/ci.yml/badge.svg)](https://github.com/cmspeedau/iCraftMusic/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/cmspeedau/iCraftMusic)](https://github.com/cmspeedau/iCraftMusic/blob/main/LICENSE)
+[![Latest tag](https://img.shields.io/github/v/tag/cmspeedau/iCraftMusic)](https://github.com/cmspeedau/iCraftMusic/tags)
+[![Last commit](https://img.shields.io/github/last-commit/cmspeedau/iCraftMusic)](https://github.com/cmspeedau/iCraftMusic/commits/main)
+[![Top language](https://img.shields.io/github/languages/top/cmspeedau/iCraftMusic)](https://github.com/cmspeedau/iCraftMusic)
+[![Repo size](https://img.shields.io/github/repo-size/cmspeedau/iCraftMusic)](https://github.com/cmspeedau/iCraftMusic)
+[![Issues](https://img.shields.io/github/issues/cmspeedau/iCraftMusic)](https://github.com/cmspeedau/iCraftMusic/issues)
 
-A native desktop player dressed in the idiom of [iTunes 7](#itunes-7-and-the-source-list),
-written entirely in Rust: a local library, album artwork, playlists that fill
-themselves from rules, a queue, a search field that is always a keystroke away,
-and one window with the source list on the left, the page in the middle, the
-player across the top and a status strip along the foot.
-
-**Written entirely in Rust** — every line of application code, from the audio
-engine to the tag writer to the UI. The only non-Rust things in the tree are the
-desktop entry and the icon a Linux package would install. There is no JavaScript
-runtime and no web view anywhere in it.
-
-The crate is named `musiccraft`.
-[iCraftMusic](https://github.com/cmspeedau/iCraftMusic) — it is a music player,
-and the name on the tin says so.
-
-iCraftMusic is built incrementally against [ROADMAP.md](ROADMAP.md), which is the
-authority on what each stage delivers and on what is still missing.
-[ROADMAP-MEDIA.md](ROADMAP-MEDIA.md) is the second roadmap: movies, TV shows and
-podcasts, with gPodder synchronization — and two kinds of device synchronization,
-Apple iPod and [Rockbox](https://www.rockbox.org/)-running players, whose
-approaches are not yet decided and which that file marks **Unknown** rather than
-pretending otherwise.
+A native Rust desktop player in the idiom of [iTunes 7](#itunes-7-and-the-source-list): a local library with artwork, rule-based playlists, queue, search, and a classic source-list layout. The crate is `musiccraft`; the project is [iCraftMusic](https://github.com/cmspeedau/iCraftMusic). There is no JavaScript runtime or web view. [ROADMAP.md](ROADMAP.md) is authoritative for feature scope and status.
 
 ## Status
 
-| Stage | Description                         | State    |
-| ----- | ----------------------------------- | -------- |
-| 0     | Project Foundation                  | Complete |
-| 1     | Desktop UI Shell                    | Complete |
-| 2     | Audio Playback Engine               | Complete |
-| 3     | Music Library and Metadata          | Complete |
-| 4     | Functional Music Library UI         | Complete |
-| 5     | Playlists and Queue Management      | Complete |
-| 6     | Metadata Editing and Library Polish | Complete |
-| 7     | Settings, Reliability, Performance  | Complete |
-| 8     | Visual Refinement and Accessibility | Complete |
-| 8½    | Match the Reference 1:1 (1.0 gate)  | Complete |
-| 9     | Release and Distribution            | Partial  |
-| 10    | Optional Future Enhancements        | Partial  |
+| Area                            | Feature version | State    | Notes |
+| ------------------------------- | --------------- | -------- | ----- |
+| Project Foundation               | v0.0            | Complete | |
+| Desktop UI Shell                 | v0.1            | Complete | |
+| Audio Playback Engine            | v0.2            | Complete | |
+| Music Library and Metadata       | v0.3            | Complete | |
+| Functional Music Library UI      | v0.4            | Complete | |
+| Playlists and Queue Management   | v0.5            | Complete | |
+| Metadata Editing and Library Polish | v0.6         | Complete | |
+| Settings, Reliability, Performance | v0.7         | Complete | |
+| Visual Refinement and Accessibility | v0.8         | Complete | |
+| Match the Reference 1:1 (1.0 gate) | v0.8.5       | Complete | |
+| Release and Distribution         | v0.9            | Complete | |
+| Optional Future Enhancements     | v0.10           | Partial  | |
+| Media Library Generalisation     | v0.11           | Planned  | |
+| Movies                           | v0.12           | Planned  | Container demux, artwork, per-title grouping for a series |
+| TV shows                         | v0.12           | Planned  | Season and episode numbers, remembered next-episode position |
+| Podcasts                         | v0.13           | Planned  | RSS/Atom feed parsing, episode download, resume position |
+| gPodder sync                     | v0.13           | Planned  | Subscription and episode-action sync with gpodder.net or a self-hosted instance |
+| Apple iPod sync                  | v0.14           | Unknown  | Writing the device's checksummed database; approach undecided |
+| Rockbox device sync              | v0.15           | Unknown  | Managed file copy plus `.m3u8` to Rockbox players; researched, uncommitted |
 
-Stage 8½ was the last gate before 1.0: a pixel-level pass matching the window to
-the reference player (iTunes 7 under Wine), measured from captures rather than
-from memory, one component at a time. It closed component by component, each
-verified against a side-by-side capture before its commit: the sidebar and the
-track table — measured striping on 17px rows, the header band with its rule, the
-focused blue the selection really wears, the band flush against the chrome rule
-on the flat page; the menu band drawn over its measured gradient, every item
-wired to a real action; the 44-point disc panel; the status bar's gradient,
-divider and bevelled keycaps; and the Settings sheet — its dark title strip, the
-tabs standing on the white pane's rule, hairlines parting the groups, an OK that
-closes and a Cancel that puts back what the window changed.
+The v0.8.5 1.0 gate is **Complete**, including the measured iTunes 7 sidebar, track table, menu band, disc panel, status bar, and Settings sheet. The `v1.0.0` release is also complete: its locked AppImage was published through GitHub Release after release, dependency, licence, and checklist review.
 
-The gate closed with the `v1.0.0` tag, and Stage 9 is part-shipped on it: the
-tag builds the locked binary into `iCraftMusic-1.0.0-x86_64.AppImage` and
-publishes it as a GitHub Release — the shape the in-app updater can swap over a
-running copy. What is left of Stage 9 is the quieter half: clean-install and
-upgrade testing, and the final dependency and license review.
-
-Stage 10 collects features that are optional rather than prerequisites, and
-five of them have been built: **gapless playback**, **crossfade**, a **graphic
-equalizer**, **smart playlists** and **album cover download**. Consecutive tracks whose order the queue
-already knows change over with no silence between them, because the track that
-follows is handed to the audio device before the current one ends and the
-hand-over is reported from the audio itself. A crossfade length above zero
-blends the two instead, overlapping them by that many seconds on the engine's
-two decks. The equalizer is a ten-band peaking-filter bank with a preamp and
-presets, applied to every track as it plays. A smart playlist stores rules —
-clauses on title, artist, album, genre, track number, play count, length and
-date added, matched all-or-any with an optional limit by most-played or
-recently-added — and the application turns those rules into one SQL query every
-time the playlist is read, so the list fills itself and stays current: a track
-that begins matching the moment it joins the library is already in the list the
-next time it is opened. And a record whose files carry no picture can be given
-one from MusicBrainz's Cover Art Archive — the album screen asks, one cover at a
-time, and the fetched front lands in the same cache as extracted art without
-touching an audio file. The other additions the roadmap lists are not started.
-See [ROADMAP.md](ROADMAP.md#stage-10--optional-future-enhancements) for the
-detail.
-
-Beyond music, five further stages are recorded in
-[ROADMAP-MEDIA.md](ROADMAP-MEDIA.md) — later versions, after 1.0, which is
-music and only music:
-
-| Stage | Description                          | State   |
-| ----- | ------------------------------------ | ------- |
-| 11    | Media Library Generalisation         | Planned |
-| 12    | Movies and TV Shows                  | Planned |
-| 13    | Podcasts and gPodder Synchronization | Planned |
-| 14    | Apple iPod Synchronization           | Unknown |
-| 15    | Rockbox Device Synchronization       | Unknown |
-
-The two roadmaps share one foundation: Stage 11 generalises the library and the
-player so that a film, an episode and a podcast episode are rows beside a song
-rather than a second application, and Stages 12 and 13 then add the surfaces
-those rows need.
-
-**Unknown** is a state of its own, not a shy way of writing Planned. Stages 11 to
-13 each have an approach that has been thought through and only the work left;
-Stages 14 and 15 do not, for opposite reasons. Stage 14 cannot yet decide: an
-iPod verifies a checksummed database against a hash that, on the newer
-generations, cannot be derived without a file only iTunes can produce — so
-writing to the device is a different class of operation from anything else in
-this application, and its three candidate approaches have no obvious winner.
-Stage 15 has decided nothing because it is scope that is undecided, not method: a
-player running Rockbox reads the filesystem directly, so syncing one is a managed
-file copy — `.m3u8` playlists and a `cover.jpg` per album — and what remains open
-is how far the application reaches into Rockbox's own databases, and whether the
-stage is built at all. [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md) records the research
-and the open questions for both rather than inventing plans to have them.
+v0.10 is **Partial**: gapless playback, crossfade, a 10-band equalizer, SQL-backed smart playlists, and MusicBrainz cover downloads are built; remaining items are not started. See [ROADMAP.md](ROADMAP.md#v010--optional-future-enhancements).
 
 ## What it plays
 
@@ -144,43 +70,7 @@ names the formats:
 
 Nothing else is a media file as far as iCraftMusic is concerned.
 
-### Planned
-
-| Media         | Stage | State   | Notes                                                             |
-| ------------- | ----- | ------- | ----------------------------------------------------------------- |
-| Movies        | 12    | Planned | Container demux, artwork, per-title grouping for a series          |
-| TV shows      | 12    | Planned | Season and episode numbers, remembered next-episode position       |
-| Podcasts      | 13    | Planned | RSS/Atom feed parsing, episode download, resume position           |
-| gPodder sync  | 13    | Planned | Subscription and episode-action sync with gpodder.net or a self-hosted instance |
-| Apple iPod sync | 14  | Unknown | Writing the device's checksummed database; approach undecided      |
-| Rockbox device sync | 15 | Unknown | Managed file copy plus `.m3u8` to Rockbox players; researched, uncommitted |
-
-The roadmap for these is [ROADMAP-MEDIA.md](ROADMAP-MEDIA.md), which also carries
-the gPodder API reference those stages are written against.
-
-The two **Unknown** entries are listed as such for different reasons. Apple iPod
-sync has three candidate approaches and no decision. An iPod reads a database of
-what is on it, and since the iPod classic that database is verified against a
-cryptographic hash — so a sync means rewriting the database and recomputing the
-hash, and on the newer generations that hash depends on a `HashInfo` file only
-iTunes can generate. Three approaches are on the table (bindings to the C
-`libgpod`, a from-scratch Rust implementation of the format, or export-only and
-never write to the device); the trade-offs, the generation-by-generation
-requirements and the open questions are written down in
-[ROADMAP-MEDIA.md](ROADMAP-MEDIA.md#stage-14--apple-ipod-synchronization).
-
-Rockbox device sync is the reverse case: the research is done and the commitment
-is what is missing. A player running Rockbox browses the filesystem instead of a
-verified database, so a sync there is a managed file copy — `.m3u8` playlists, a
-`cover.jpg` per album, the same tags lofty already reads — with no `iTunesDB`, no
-hashes and no C library. Undecided is the first version's scope (files,
-playlists and cover art, with hi-res files the target is not confirmed to play
-named and skipped), whether the application ever reaches into Rockbox's own
-databases for play counts and ratings, and whether the stage is built at all.
-The findings, and the licence boundary that keeps the larger of the two
-open-source references (GPL-3.0, reference-only here) out of this MIT project,
-are written down in
-[ROADMAP-MEDIA.md](ROADMAP-MEDIA.md#stage-15--rockbox-device-synchronization).
+Roadmap cross-check: v0.12 covers movies and TV, v0.13 covers podcasts and gPodder synchronization, and v0.14/v0.15 remain **Unknown**. See [ROADMAP.md](ROADMAP.md#v012--movies-and-tv-shows), [ROADMAP.md](ROADMAP.md#v013--podcasts-and-gpodder-synchronization), [ROADMAP.md](ROADMAP.md#v014--apple-ipod-synchronization), and [ROADMAP.md](ROADMAP.md#v015--rockbox-device-synchronization).
 
 ## The source list and the three pages
 
@@ -240,7 +130,7 @@ indexed where they stand.
 | Equalizer             | A window of its own from the gear: ten band gains, a preamp and presets, able to stay open beside the music so a band is trimmed by ear                                                             |
 | Diagnostics           | Build, schema version, library counts, exact paths, the audio stream in use, and an on-demand `PRAGMA integrity_check` |
 | Recovery              | A versioned database copied beside itself (`VACUUM INTO`) before a migration rewrites it                             |
-| Packaging             | Release profile, desktop entry and SVG icon under `packaging/`; `linuxdeploy` bundles them with the release binary into a single-file AppImage |
+| Packaging             | Release profile, desktop entry and icon set under `packaging/`; `linuxdeploy` bundles them with the release binary into a single-file AppImage |
 | Updates               | One check of the releases API at startup; when a newer release than this build exists, the centre box says so and the gear menu carries the row that installs it — which swaps the running file only when the application is running from an AppImage, and downloads nothing until it is asked |
 | Cover art download    | The album screen (and a right-click on any sleeve in the grid) asks MusicBrainz's Cover Art Archive for that record's front image — one at a time, only when asked, never automatically; the fetched cover lands in the same cache as extracted art and no audio file is touched |
 
@@ -470,9 +360,11 @@ Two honest caveats, both ordinary:
 ## Project layout
 
 ```
-ROADMAP.md             # music: stages 0–10
-ROADMAP-MEDIA.md       # movies, TV shows, podcasts and devices: stages 11–15
-packaging/             # desktop entry and icon — the pieces a manual install and the AppImage share
+ROADMAP.md             # unified roadmap: music and media versions v0.0–v0.15
+ARCHITECTURE-APPLE-TV-CONTROLS.md  # living-room appliance controls design (proposal)
+CHANGELOG.md           # documentation changelog
+VERSIONING.md          # documentation versioning and tag guidance
+packaging/             # desktop entry and icon set — shared by a manual install and the AppImage
 
 src/
 ├── main.rs            # binary entry point
@@ -518,6 +410,8 @@ src/
     ├── equalizerview.rs# the Equalizer window
     └── statusbar.rs   # the bar across the foot of the window, and the gear
 ```
+
+The [Apple TV controls architecture](ARCHITECTURE-APPLE-TV-CONTROLS.md) is a proposal for a living-room appliance build. It remains outside the committed v0.0–v0.15 roadmap and makes no claim of support until its target and integration decisions are verified.
 
 ## License
 

@@ -1,5 +1,5 @@
 # The release pipeline for 1.0 and everything after it: pushing a tag —
-# v1.0.0 once the Stage 8½ gate in ROADMAP.md closes — builds the same
+# v1.0.0 once the v0.8.5 gate in ROADMAP.md closes — builds the same
 # locked release binary CI has been guarding, packs it into an AppImage
 # and publishes that as the GitHub Release. The AppImage is what the
 # application itself knows how to update: the gear's update check looks
