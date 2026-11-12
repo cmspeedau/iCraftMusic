@@ -62,6 +62,7 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
 - [ ] Offer configurable output device selection and sample-rate handling, with safe fallbacks and transparent status rather than claiming unsupported exclusive-mode behavior.
 - [ ] Add optional ReplayGain/R128 track and album loudness analysis/playback normalization, disabled or configurable by the listener and without altering source files.
 - [ ] Support gapless playback and configurable crossfade behavior, ensuring gapless mode does not introduce a crossfade.
+- [ ] Add a configurable **10-band equalizer** for music playback, with per-band controls, a flat/reset option, and saved presets; make it clear when EQ processing is enabled since it affects bit-perfect output.
 - [ ] Provide a waveform/spectrum visualizer as an optional, non-invasive display feature.
 
 **Milestone:** Listeners can understand their files and configure high-quality playback with honest, device-dependent capability reporting.
