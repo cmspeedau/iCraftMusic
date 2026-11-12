@@ -40,7 +40,8 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
   - Include a persistent device-status area with distinct disconnected and connected states. Connected state should summarize device identity and available/used storage when known; unsupported or unavailable details must be communicated rather than guessed.
   - Specify representative navigation and search interactions, keyboard focus/order, loading and error states, and responsive behavior for narrower windows; keep destructive device actions out of the prototype’s implicit flows.
   - Deliver annotated wireframes or equivalent prototype screens plus a short interaction/state specification, and review them before implementation.
-- [ ] Review the proposed foundation decisions and publish the resulting product and technical plan.
+- [x] Review the proposed foundation decisions and publish the resulting product and technical plan.
+  - See [PRODUCT-TECHNICAL-PLAN.md](PRODUCT-TECHNICAL-PLAN.md) for the reviewed planning baseline, delivery sequence, and open decisions. It describes intended direction, not implemented or verified capabilities.
 
 **Milestone:** A reviewed product and technical plan that can guide a first implementation, including platform/architecture decisions, initial format and metadata policy, data-safety principles, contribution basics, and a core library/device UX prototype.
 
