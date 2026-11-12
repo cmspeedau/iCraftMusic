@@ -12,9 +12,11 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
 
 ## Phase 0 — Define the foundation
 
-- [ ] Decide target desktop platforms and application architecture.
-  - Confirm the intended macOS, Windows, and Linux support and release formats against the project’s Rust, egui, and eframe direction.
-  - Record key architecture choices, including UI/application boundaries, background work, and platform-specific integration points.
+- [x] Decide target desktop platforms and application architecture.
+  - Target **macOS, Windows, and Linux** desktop releases.
+  - Use **Rust** for the application, with **egui** for the UI and **eframe** as the application framework.
+  - Keep platform-specific integrations behind clear boundaries so platform behavior can be handled without changing the cross-platform UI and core library logic.
+  - Package Linux releases as **AppImage** with **zsync** metadata; macOS and Windows release packaging details remain to be specified.
 - [ ] Establish project contribution guidelines, coding standards, and issue templates.
 - [ ] Document initial supported media formats and metadata sources.
   - Define an initial format matrix by media type and state planned import/playback coverage separately from what is implemented.
