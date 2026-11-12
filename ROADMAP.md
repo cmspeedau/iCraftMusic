@@ -13,12 +13,20 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
 ## Phase 0 — Define the foundation
 
 - [ ] Decide target desktop platforms and application architecture.
+  - Confirm the intended macOS, Windows, and Linux support and release formats against the project’s Rust, egui, and eframe direction.
+  - Record key architecture choices, including UI/application boundaries, background work, and platform-specific integration points.
 - [ ] Establish project contribution guidelines, coding standards, and issue templates.
 - [ ] Document initial supported media formats and metadata sources.
+  - Define an initial format matrix by media type and state planned import/playback coverage separately from what is implemented.
+  - Identify metadata/tag sources and rules for conflicting or missing values.
 - [ ] Define data-storage and backup principles, including how original files are handled.
+  - Specify what stays in the application library versus media files, and ensure importing does not move or modify originals by default.
+  - Define backup/export, recovery, and library migration expectations.
 - [ ] Create a UX prototype for library browsing, search, and device status.
+  - Cover the main music, movie, TV, and podcast views, navigation, search, and a connected/disconnected device state.
+- [ ] Review the proposed foundation decisions and publish the resulting product and technical plan.
 
-**Milestone:** A reviewed product and technical plan that can guide a first implementation.
+**Milestone:** A reviewed product and technical plan that can guide a first implementation, including platform/architecture decisions, initial format and metadata policy, data-safety principles, contribution basics, and a core library/device UX prototype.
 
 ## Phase 1 — Core library MVP
 
