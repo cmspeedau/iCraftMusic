@@ -13,6 +13,10 @@ Bring the familiar, all-in-one library experience of iTunes up to date. iCraftMu
 - **Modern feel:** Reimagine the convenience of iTunes with a clean, responsive interface designed for today’s devices and large libraries.
 - **Your media, your devices:** Manage a local collection and take favorites with you using iPod and Rockbox-compatible players.
 
+## Technology direction
+
+The application will be written in **Rust**, with **egui** for the UI library and **eframe** as the application framework. This is the planned foundation; implementation details and supported platforms are still to be defined.
+
 ## Planned capabilities
 
 - Organize and browse music, movies, TV shows, and podcasts.
