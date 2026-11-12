@@ -33,7 +33,13 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
   - Provide a documented library backup/export and restore/migration path covering the database, playlists, settings, and app-managed artwork; clarify that media files are included only when the user chooses a managed-media backup or copies them separately. Avoid implying that backing up the database alone protects the media.
   - Ensure backup and restore do not overwrite or delete existing media without explicit confirmation; validate backups and provide clear recovery guidance.
 - [ ] Create a UX prototype for library browsing, search, and device status.
-  - Cover the main music, movie, TV, and podcast views, navigation, search, and a connected/disconnected device state.
+  - Provide a low-fidelity, platform-neutral desktop prototype that can be translated into the Rust/egui/eframe application; use sample content only, with no real media or device integration implied.
+  - Show persistent navigation for **Music, Movies, TV Shows, Podcasts**, and playlists/collections, with the selected library view, clear hierarchy, and a useful empty-library state.
+  - Include a global search field with an explicit scope (current view or entire library), a results state spanning relevant media types, and clear no-results behavior.
+  - Define the main browsing layouts: music albums/tracks with artwork fallback; movie posters; TV shows with season/episode hierarchy; podcasts with show/episode hierarchy.
+  - Include a persistent device-status area with distinct disconnected and connected states. Connected state should summarize device identity and available/used storage when known; unsupported or unavailable details must be communicated rather than guessed.
+  - Specify representative navigation and search interactions, keyboard focus/order, loading and error states, and responsive behavior for narrower windows; keep destructive device actions out of the prototype’s implicit flows.
+  - Deliver annotated wireframes or equivalent prototype screens plus a short interaction/state specification, and review them before implementation.
 - [ ] Review the proposed foundation decisions and publish the resulting product and technical plan.
 
 **Milestone:** A reviewed product and technical plan that can guide a first implementation, including platform/architecture decisions, initial format and metadata policy, data-safety principles, contribution basics, and a core library/device UX prototype.
