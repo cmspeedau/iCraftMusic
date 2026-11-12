@@ -25,8 +25,13 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
   - Identify metadata/tag sources and rules for conflicting or missing values, including preserving embedded metadata and avoiding source-file edits unless explicitly requested.
   - Treat these as planned targets, not claims of currently implemented support; publish a tested format and hardware-acceleration compatibility matrix as the playback stack is selected.
 - [ ] Define data-storage and backup principles, including how original files are handled.
-  - Specify what stays in the application library versus media files, and ensure importing does not move or modify originals by default.
-  - Define backup/export, recovery, and library migration expectations.
+  - Provide an iTunes-like library experience: users can add media to a central library and organize it into media-type views, playlists, and collections.
+  - By default, importing **adds media to the library without moving, renaming, transcoding, or modifying the original files**. Offer an explicit, understandable option to copy imported media into a user-selected managed media folder; never silently relocate existing files.
+  - Keep the library database, preferences, playlists, play history, and app-managed artwork/cache in the application’s library data, separate from media files. Store references to media paths and detect missing or moved files; support a user-directed relink workflow.
+  - Make the managed media folder optional and user-configurable. Explain whether files are referenced in place or copied into the managed folder during import, and preserve that choice consistently.
+  - Treat metadata edits as library-only by default. If writing tags/artwork into media files is supported later, make it an explicit per-action choice, show what will change, and preserve/recover prior values where practical.
+  - Provide a documented library backup/export and restore/migration path covering the database, playlists, settings, and app-managed artwork; clarify that media files are included only when the user chooses a managed-media backup or copies them separately. Avoid implying that backing up the database alone protects the media.
+  - Ensure backup and restore do not overwrite or delete existing media without explicit confirmation; validate backups and provide clear recovery guidance.
 - [ ] Create a UX prototype for library browsing, search, and device status.
   - Cover the main music, movie, TV, and podcast views, navigation, search, and a connected/disconnected device state.
 - [ ] Review the proposed foundation decisions and publish the resulting product and technical plan.
