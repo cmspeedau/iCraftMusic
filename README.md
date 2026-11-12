@@ -15,17 +15,18 @@ Bring the familiar, all-in-one library experience of iTunes up to date. iCraftMu
 
 ## Technology direction
 
-The application will be written in **Rust**, with **egui** for the UI library and **eframe** as the application framework. This is the planned foundation; implementation details and supported platforms are still to be defined.
+The application will be written in **Rust**, with **egui** for the UI library and **eframe** as the application framework.
 
 ## Planned capabilities
 
 - Organize and browse music, movies, TV shows, and podcasts.
 - Import local media and keep titles, artwork, playlists, and library details tidy.
 - Sync to supported iPod and Rockbox devices.
+- Package desktop releases for **macOS**, **Windows**, and **Linux**. Linux releases are planned as **AppImage** downloads, with **zsync** metadata to support incremental updates.
 
 ## Project status
 
-This repository is the starting point for iCraftMusic. Product scope, supported platforms, and implementation details are still to be defined.
+This repository is the starting point for iCraftMusic. Product scope, implementation details, and supported platforms are still to be defined. The packaging targets above describe the intended release formats; release automation and update behavior have not yet been implemented.
 
 ## Contributing
 
