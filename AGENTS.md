@@ -5,7 +5,8 @@ These instructions apply to all work in this repository. Follow any more specifi
 ## Project context
 
 - iCraftMusic is a local-first desktop media library for music, movies, TV shows, and podcasts, with planned device syncing.
-- The intended application stack is Rust, egui, and eframe, targeting macOS, Windows, and Linux.
+- The application must be implemented **only in Rust, using egui for the UI and eframe as the application framework**. Treat this as a firm requirement, not an initial preference or a replaceable technology direction. Target macOS, Windows, and Linux.
+- Do not introduce another programming language, UI toolkit, or application framework for application functionality. Build scripts and platform packaging/integration tooling may use platform-appropriate tools only when necessary, and must not replace or duplicate the Rust/egui/eframe application.
 - Consult `README.md`, `ROADMAP.md`, and `PRODUCT-TECHNICAL-PLAN.md` before changing product behavior or architecture. Treat roadmap capabilities as plans unless implementation and tests verify them.
 
 ## Before changing code
@@ -18,7 +19,7 @@ These instructions apply to all work in this repository. Follow any more specifi
 ## Implementation standards
 
 - Prefer simple, maintainable Rust with explicit types and clear module boundaries.
-- Keep UI concerns separate from persistence, scanning, playback, and device protocol logic.
+- Implement the desktop UI with egui within the eframe application. Keep UI concerns separate from persistence, scanning, playback, and device protocol logic while keeping the application in Rust.
 - Handle errors explicitly and provide useful, safe feedback. Do not silently swallow errors or add placeholder functionality.
 - Validate untrusted input at boundaries and avoid exposing private paths, media details, or credentials unnecessarily.
 - Preserve compatibility and existing behavior unless the task calls for a deliberate change.
@@ -42,6 +43,7 @@ These instructions apply to all work in this repository. Follow any more specifi
 
 - Update documentation when changing user-visible behavior, setup, configuration, architecture, or support claims.
 - Keep `ROADMAP.md` and `PRODUCT-TECHNICAL-PLAN.md` aligned with actual decisions, and distinguish goals from implemented capabilities.
+- Preserve the requirement that the application is written only in Rust with egui and eframe in any updated project guidance.
 
 ## Git and external actions
 
