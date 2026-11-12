@@ -24,7 +24,7 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
   - **Podcasts:** use the music/audio format support policy for episode media; document feed and metadata handling separately.
   - Identify metadata/tag sources and rules for conflicting or missing values, including preserving embedded metadata and avoiding source-file edits unless explicitly requested.
   - Treat these as planned targets, not claims of currently implemented support; publish a tested format and hardware-acceleration compatibility matrix as the playback stack is selected.
-- [ ] Define data-storage and backup principles, including how original files are handled.
+- [x] Define data-storage and backup principles, including how original files are handled.
   - Provide an iTunes-like library experience: users can add media to a central library and organize it into media-type views, playlists, and collections.
   - By default, importing **adds media to the library without moving, renaming, transcoding, or modifying the original files**. Offer an explicit, understandable option to copy imported media into a user-selected managed media folder; never silently relocate existing files.
   - Keep the library database, preferences, playlists, play history, and app-managed artwork/cache in the application’s library data, separate from media files. Store references to media paths and detect missing or moved files; support a user-directed relink workflow.
@@ -32,7 +32,7 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
   - Treat metadata edits as library-only by default. If writing tags/artwork into media files is supported later, make it an explicit per-action choice, show what will change, and preserve/recover prior values where practical.
   - Provide a documented library backup/export and restore/migration path covering the database, playlists, settings, and app-managed artwork; clarify that media files are included only when the user chooses a managed-media backup or copies them separately. Avoid implying that backing up the database alone protects the media.
   - Ensure backup and restore do not overwrite or delete existing media without explicit confirmation; validate backups and provide clear recovery guidance.
-- [ ] Create a UX prototype for library browsing, search, and device status.
+- [x] Create a UX prototype for library browsing, search, and device status.
   - Provide a low-fidelity, platform-neutral desktop prototype that can be translated into the Rust/egui/eframe application; use sample content only, with no real media or device integration implied.
   - Show persistent navigation for **Music, Movies, TV Shows, Podcasts**, and playlists/collections, with the selected library view, clear hierarchy, and a useful empty-library state.
   - Include a global search field with an explicit scope (current view or entire library), a results state spanning relevant media types, and clear no-results behavior.
