@@ -37,23 +37,35 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
 
 - [ ] Add playback appropriate to supported media types and platforms.
 - [ ] Provide queue, playback controls, and useful library views.
+- [ ] Add an **Up Next** queue so users can manage upcoming playback independently of saved playlists.
+- [ ] Track favorites/ratings and play history, with clear controls for viewing and clearing history.
+- [ ] Add useful shortcuts such as Recently Added and Continue Listening/Watching, where playback progress is supported.
 - [ ] Improve accessibility, keyboard navigation, localization readiness, and empty/error states.
 - [ ] Validate performance with large libraries and improve indexing/search as needed.
 - [ ] Document supported formats, known limitations, and troubleshooting.
 
 **Milestone:** A polished day-to-day media browsing and playback experience.
 
-## Phase 3 — Device syncing foundation
+## Phase 3 — Playlists and library care
+
+- [ ] Support **smart playlists** built from user-defined rules (for example, genre, rating, date added, or play count), with predictable updates as library items change.
+- [ ] Add library health tools to identify missing files, duplicates, and incomplete metadata; provide review and confirmation before applying fixes.
+- [ ] Add playlist and metadata import/export in documented, portable formats where practical.
+
+**Milestone:** Users can organize collections flexibly and maintain them without risking unintended changes.
+
+## Phase 4 — Device syncing foundation
 
 - [ ] Define a device capability model and a safe sync workflow.
 - [ ] Detect and identify supported devices, showing connection and storage status.
 - [ ] Preview sync changes before applying them; handle insufficient space and interruptions.
 - [ ] Keep device changes separate from the source library and avoid deleting device content unexpectedly.
+- [ ] Add sync profiles so users can choose playlists and media types to sync; show an estimate/preview of required space and proposed changes.
 - [ ] Add sync logs, recovery guidance, and tests using simulated devices.
 
 **Milestone:** A reliable, transparent sync engine with a tested device abstraction.
 
-## Phase 4 — iPod and Rockbox support
+## Phase 5 — iPod and Rockbox support
 
 - [ ] Research and document supported iPod models, connection modes, and limitations.
 - [ ] Implement and test iPod syncing, including playlists and artwork where supported.
@@ -63,11 +75,11 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
 
 **Milestone:** Users can sync to explicitly documented iPod and Rockbox configurations.
 
-## Phase 5 — Expand and mature
+## Phase 6 — Expand and mature
 
 - [ ] Improve podcast workflows, such as episode status and organization, based on user needs.
 - [ ] Consider additional metadata providers, subtitle/artwork support, and portable players.
-- [ ] Add import/export and migration tools for common library formats where practical.
+- [ ] Add migration tools for common library formats where practical.
 - [ ] Establish release automation, platform packaging, and a stable support process.
 - [ ] Prioritize features from user feedback and maintain the compatibility matrix.
 
