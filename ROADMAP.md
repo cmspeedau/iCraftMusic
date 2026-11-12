@@ -40,6 +40,7 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
 - [ ] Add an **Up Next** queue so users can manage upcoming playback independently of saved playlists.
 - [ ] Track favorites/ratings and play history, with clear controls for viewing and clearing history.
 - [ ] Add useful shortcuts such as Recently Added and Continue Listening/Watching, where playback progress is supported.
+- [ ] Add an optional **Cover Flow** album-browsing view, with artwork navigation, keyboard support, and a useful fallback for albums without artwork.
 - [ ] Improve accessibility, keyboard navigation, localization readiness, and empty/error states.
 - [ ] Validate performance with large libraries and improve indexing/search as needed.
 - [ ] Document supported formats, known limitations, and troubleshooting.
