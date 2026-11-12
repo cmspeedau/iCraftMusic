@@ -54,7 +54,19 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
 
 **Milestone:** Users can organize collections flexibly and maintain them without risking unintended changes.
 
-## Phase 4 — Device syncing foundation
+## Phase 4 — Audiophile library and playback
+
+- [ ] Document supported lossless and high-resolution audio formats, sample rates, bit depths, and metadata/tagging limitations.
+- [ ] Display audio properties (codec, lossless/lossy status, sample rate, bit depth, channel count, and bitrate) and make them searchable/filterable.
+- [ ] Provide optional **bit-perfect playback** where the operating system, audio device, and output backend support it; clearly indicate when system mixing, resampling, or other processing prevents bit-perfect output.
+- [ ] Offer configurable output device selection and sample-rate handling, with safe fallbacks and transparent status rather than claiming unsupported exclusive-mode behavior.
+- [ ] Add optional ReplayGain/R128 track and album loudness analysis/playback normalization, disabled or configurable by the listener and without altering source files.
+- [ ] Support gapless playback and configurable crossfade behavior, ensuring gapless mode does not introduce a crossfade.
+- [ ] Provide a waveform/spectrum visualizer as an optional, non-invasive display feature.
+
+**Milestone:** Listeners can understand their files and configure high-quality playback with honest, device-dependent capability reporting.
+
+## Phase 5 — Device syncing foundation
 
 - [ ] Define a device capability model and a safe sync workflow.
 - [ ] Detect and identify supported devices, showing connection and storage status.
@@ -65,7 +77,7 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
 
 **Milestone:** A reliable, transparent sync engine with a tested device abstraction.
 
-## Phase 5 — iPod and Rockbox support
+## Phase 6 — iPod and Rockbox support
 
 - [ ] Research and document supported iPod models, connection modes, and limitations.
 - [ ] Implement and test iPod syncing, including playlists and artwork where supported.
@@ -75,7 +87,7 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
 
 **Milestone:** Users can sync to explicitly documented iPod and Rockbox configurations.
 
-## Phase 6 — Expand and mature
+## Phase 7 — Expand and mature
 
 - [ ] Improve podcast workflows, such as episode status and organization, based on user needs.
 - [ ] Consider additional metadata providers, subtitle/artwork support, and portable players.
