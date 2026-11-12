@@ -19,8 +19,11 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
   - Package Linux releases as **AppImage** with **zsync** metadata; macOS and Windows release packaging details remain to be specified.
 - [ ] Establish project contribution guidelines, coding standards, and issue templates.
 - [ ] Document initial supported media formats and metadata sources.
-  - Define an initial format matrix by media type and state planned import/playback coverage separately from what is implemented.
-  - Identify metadata/tag sources and rules for conflicting or missing values.
+  - **Music:** target broad format support across common and less common audio formats. Define and publish the exact import, playback, tagging, and codec support matrix before implementation; format support may differ by operation and platform.
+  - **Movies and TV:** target H.264/AVC and H.265/HEVC video, with GPU-accelerated decoding where supported by the operating system, hardware, and playback backend. Provide a compatible software-decoding fallback where feasible and report when hardware acceleration is unavailable.
+  - **Podcasts:** use the music/audio format support policy for episode media; document feed and metadata handling separately.
+  - Identify metadata/tag sources and rules for conflicting or missing values, including preserving embedded metadata and avoiding source-file edits unless explicitly requested.
+  - Treat these as planned targets, not claims of currently implemented support; publish a tested format and hardware-acceleration compatibility matrix as the playback stack is selected.
 - [ ] Define data-storage and backup principles, including how original files are handled.
   - Specify what stays in the application library versus media files, and ensure importing does not move or modify originals by default.
   - Define backup/export, recovery, and library migration expectations.
