@@ -1,0 +1,10 @@
+[package]
+name = "playback"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "Audio playback engine for iCraftMusic"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+rodio = { version = "0.23", default-features = false, features = ["playback", "flac", "mp3", "mp4", "vorbis", "wav", "dither"] }

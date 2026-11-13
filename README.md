@@ -26,7 +26,9 @@ The application will be written in **Rust**, with **egui** for the UI library an
 
 ## Project status
 
-This repository is the starting point for iCraftMusic. Product scope, implementation details, and supported platforms are still to be defined. The packaging targets above describe the intended release formats; release automation and update behavior have not yet been implemented.
+The initial Rust/egui/eframe desktop shell is implemented, with navigation for the four planned media sections and a music playback prototype with an Up Next queue. Users can add files or folders for music, movies, TV shows, and podcasts; reorder/remove queued items; and play, pause, stop, seek, or skip audio. Drag-and-drop of files and folders is supported and targets the currently selected section. The library and queue are persisted to the platform config directory between sessions, and a backup can be written on demand. Audio metadata (duration, sample rate, channels, codec) can be read via Symphonia. Importing files does not move or modify them. Folders are tracked as scan roots and can be refreshed with progress reporting. Metadata display/editing in the UI, video playback, and device integration are not implemented yet. Decoder features are enabled for MP3, FLAC, WAV/PCM, Ogg/Vorbis, and MP4/AAC; actual file and platform compatibility remains to be tested. See [ROADMAP.md](ROADMAP.md) and [PRODUCT-TECHNICAL-PLAN.md](PRODUCT-TECHNICAL-PLAN.md) for scope and verification status. Packaging targets above describe intended release formats; release automation and update behavior have not yet been implemented.
+
+Run the desktop application with `cargo run`.
 
 ## Contributing
 

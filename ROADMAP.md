@@ -47,13 +47,19 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
 
 ## Phase 1 — Core library MVP
 
-- [ ] Build the application shell and responsive library interface.
-- [ ] Import local folders without moving or modifying original media by default.
-- [ ] Scan, index, and refresh a collection, with useful progress and error reporting.
+- [x] Build the initial application shell and responsive library interface.
+  - Provides persistent navigation for Music, Movies, TV Shows, and Podcasts, an initial playlists/collections area, a global-search entry point, a disconnected-device status, and media-specific empty states.
+  - This is an initial UI foundation: folder import and scanning are not wired up, and no persistence or device integration is implied. A separate session-only music playback slice is tracked under Phase 2.
+- [x] Import local folders without moving or modifying original media by default.
+  - "Add files…" and "Add folder…" buttons recursively scan a chosen folder for supported media files and add them as path references for the selected section (Music, Movies, TV Shows, Podcasts). Drag-and-drop of files and folders targets the currently selected section. Original files are never moved, copied, or modified.
+- [x] Scan, index, and refresh a collection, with useful progress and error reporting.
+  - Folders added via "Add folder…" or drag-and-drop are tracked as scan roots. A "Refresh library" button re-scans all roots in a background thread, reporting progress (files found count) and errors in the UI. Newly discovered files are merged into the appropriate section. Scan roots are persisted between sessions.
 - [ ] Browse and search music, movies, TV shows, and podcasts.
 - [ ] Display and edit core metadata and artwork; define safe conflict handling.
+  - A metadata reading module using Symphonia can extract duration, sample rate, channels, and codec from audio files. It is not yet wired into the library or UI.
 - [ ] Add playlists or collections and basic library organization.
 - [ ] Persist the library between sessions and provide a documented backup/export path.
+  - The in-session music track list and Up Next queue are now persisted to `library.json` under the platform config directory and restored on startup. A "Backup library…" button writes a timestamped backup file. This is an initial JSON persistence path, not the final database/migration design.
 - [ ] Add automated tests for scanning, metadata, persistence, and common failure cases.
 
 **Milestone:** Users can build and manage a dependable local media library.
@@ -61,8 +67,12 @@ This roadmap is a starting point for planning. Priorities and sequencing may cha
 ## Phase 2 — Playback and polish
 
 - [ ] Add playback appropriate to supported media types and platforms.
+  - Initial music-only playback slice added with Rodio/Symphonia: users can choose local audio files and play, pause, stop, seek, and skip among files added in the current session.
+  - This does not yet satisfy the milestone: no persistent library, saved queue, video playback, cross-platform runtime validation, or published compatibility matrix is available. Current decoder features are MP3, FLAC, WAV/PCM, Ogg/Vorbis, and MP4/AAC (including common M4A files); actual files and output-device behavior still need platform testing.
 - [ ] Provide queue, playback controls, and useful library views.
+  - Session-only playback controls and a basic music list are implemented; video views, richer library views, and persistence are still outstanding.
 - [ ] Add an **Up Next** queue so users can manage upcoming playback independently of saved playlists.
+  - A session-only queue drawer supports enqueueing selected music, play-now, reorder, remove, clear, previous/next history, and advancing when a track ends. It is independent of playlists but is not saved between runs.
 - [ ] Track favorites/ratings and play history, with clear controls for viewing and clearing history.
 - [ ] Add useful shortcuts such as Recently Added and Continue Listening/Watching, where playback progress is supported.
 - [ ] Add an optional **Cover Flow** album-browsing view, with artwork navigation, keyboard support, and a useful fallback for albums without artwork.

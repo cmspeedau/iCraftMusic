@@ -53,7 +53,7 @@ Detailed feature sequencing and acceptance milestones remain in [ROADMAP.md](ROA
 
 These decisions require prototype, compatibility, or implementation evidence and are intentionally not guessed here:
 
-- Exact audio/video/container/codec and metadata read/write compatibility by operation and platform; playback backend and hardware-acceleration coverage.
+- Exact audio/video/container/codec and metadata read/write compatibility by operation and platform; video playback backend and hardware-acceleration coverage. A first music playback slice uses Rodio 0.23/Symphonia with MP3, FLAC, WAV/PCM, Ogg/Vorbis, and MP4/AAC decoder features enabled; these are enabled decoder targets, not yet a verified per-platform compatibility matrix.
 - Metadata source/provider selection and conflict-resolution rules.
 - Concrete database, media scanning, artwork/cache, and library migration/backup formats.
 - macOS and Windows packaging, signing, distribution, and update strategy.
